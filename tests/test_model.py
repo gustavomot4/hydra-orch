@@ -1,5 +1,5 @@
 import pytest
-from hydra_orch.models import (
+from hydra_orch.model import (
     ChatMessage,
     ChatCompletionRequest,
     ChatCompletionResponse,

@@ -14,7 +14,7 @@ from rich.live import Live
 from rich.markdown import Markdown
 
 from hydra_orch.config import load_config
-from hydra_orch.models import ChatCompletionRequest, ChatMessage
+from hydra_orch.model import ChatCompletionRequest, ChatMessage
 from hydra_orch.core.router import HydraRouter
 
 app = typer.Typer(

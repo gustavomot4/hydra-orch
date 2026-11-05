@@ -72,7 +72,7 @@ flowchart TD
 ### 3. Isolamento de Código por Git Worktrees (Modo 1 - Swarm)
 - Prompts macros (ex: *"Construa uma aplicação completa de barbearia com agenda e pagamentos"*) são particionados em sub-tarefas por complexidade.
 - Criação de um **Contrato Base Imutável** (`.orchestrator/CONTRACT.md`) com schemas e fronteiras de arquivos.
-- Criação de **Git Worktrees** isolados (`.orchestrator/worktrees/`) em branches paralelas: nenhuma IA sobrescreve o arquivo da outra.
+- Criação de **Git Worktrees** isolados (`.orchestrator/worktree/`) em branches paralelas: nenhuma IA sobrescreve o arquivo da outra.
 - Merge automatizado e execução de suíte de testes (`pytest`) antes da unificação final na branch principal.
 
 ---
@@ -166,20 +166,45 @@ hydra status
 hydra-orch/
 ├── config.yaml                     # Configuração central de portas, limites e modos
 ├── pyproject.toml                  # Metadados e dependências do pacote Python
-├── tests/                          # Suíte de testes automatizados
+├── README.md                       # Apresentação do produto e início rápido
+├── AGENTS.md                       # Diretrizes de governança para agentes autônomos
+├── doc/                            # Documentação canônica do projeto (fluxo sequencial)
+│   ├── README.md                   # Navegação e visão geral da documentação
+│   ├── a_spc/                      # Especificações formais, PRDs e taxonomia
+│   │   ├── CONTEXTO-ORQUESTRACAO.md# Arquitetura de referência e achados do Alethe
+│   │   ├── prd_hydra_orch_final.md # PRD consolidado do ecossistema
+│   │   ├── prd_universal_modo_execucao.md # Especificação dos modos de execução (singular)
+│   │   ├── README.md               # Catálogo de especificações
+│   │   └── taxonomia_file_system.md# Norma oficial da taxonomia do repositório
+│   └── b_manual/                   # Manuais de operação, runbooks e guias
+│       └── README.md               # Índice de guias operacionais
+├── ws/                             # Espaço de trabalho operacional delimitado
+│   ├── README.md                   # Diretrizes gerais do workspace
+│   ├── a_input/                    # Entradas, briefs e contratos versionados
+│   │   └── README.md
+│   └── b_output/                   # Saídas locais e evidências (git-ignored)
+│       └── README.md
+├── tests/                          # Suíte de testes automatizados (pytest)
+│   ├── test_checkpointer.py        # Testes do mecanismo de checkpoint
+│   ├── test_config.py              # Testes do loader de configurações
+│   ├── test_model.py               # Testes de schemas e modelos (singular)
+│   ├── test_router.py              # Testes do roteador inteligente
+│   └── test_server.py              # Testes do servidor FastAPI e túnel SSH
 └── src/
     └── hydra_orch/
-        ├── __init__.py
+        ├── __init__.py             # Inicialização do pacote
         ├── cli.py                  # CLI com typer e rich (hydra serve, hydra run, hydra status)
         ├── config.py               # Loader e validação Pydantic de config.yaml
-        ├── models.py               # Schemas OpenAI Chat Completions & Streaming
+        ├── model.py                # Schemas OpenAI Chat Completions & Streaming (singular)
         ├── server.py               # Servidor FastAPI proxy OpenAI (/v1/chat/completions)
         ├── core/
+        │   ├── __init__.py         # Inicialização do core
         │   ├── checkpointer.py     # SQLite stream checkpointer & hot-handoff logic
         │   ├── router.py           # Orquestrador central dos 3 modos de execução
         │   ├── ssh_tunnel.py       # Gerenciador de túneis autossh para GPUs remotas
         │   └── swarm.py            # Particionamento, Contratos e Git Worktrees
-        └── adapters/
+        └── adapter/
+            ├── __init__.py         # Registro de adaptadores
             ├── base.py             # Interface BaseAdapter e LimitHitException
             ├── ui_cdp.py           # Conector Chrome DevTools Protocol (9222-9229)
             ├── ide_bridge.py       # Ponte com IDEs Antigravity e Cursor
@@ -196,7 +221,7 @@ Distribuído sob licença MIT. Consulte `LICENSE` para mais detalhes.
 
 O PRD descreve a visão do produto. O scaffold atual ainda precisa de validação ponta a ponta das capacidades anunciadas acima.
 
-Consulte [Contexto de orquestração e investigação do Alethe](docs/CONTEXTO-ORQUESTRACAO.md) para o protocolo de comunicação estudado, as evidências disponíveis, as lacunas observadas no Hydra e a sequência proposta de implementação. A referência distingue geração de texto de execução efetiva de agentes em workspaces.
+Consulte [Contexto de orquestração e investigação do Alethe](doc/a_spc/CONTEXTO-ORQUESTRACAO.md) para o protocolo de comunicação estudado, as evidências disponíveis, as lacunas observadas no Hydra e a sequência proposta de implementação. A referência distingue geração de texto de execução efetiva de agentes em workspaces. A taxonomia oficial do repositório está documentada em [doc/a_spc/taxonomia_file_system.md](doc/a_spc/taxonomia_file_system.md).
 
 ## Instruções para IAs e versionamento
 

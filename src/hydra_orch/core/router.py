@@ -8,12 +8,12 @@ import time
 import uuid
 from typing import Any, AsyncIterator, Dict, List, Optional
 from hydra_orch.config import HydraConfig, load_config
-from hydra_orch.models import ChatCompletionRequest, ChatMessage
-from hydra_orch.adapters.base import BaseAdapter, LimitHitException
-from hydra_orch.adapters.ui_cdp import UiCdpAdapter
-from hydra_orch.adapters.ide_bridge import IdeBridgeAdapter
-from hydra_orch.adapters.api_gateway import ApiGatewayAdapter
-from hydra_orch.adapters.remote_local import RemoteLocalAdapter
+from hydra_orch.model import ChatCompletionRequest, ChatMessage
+from hydra_orch.adapter.base import BaseAdapter, LimitHitException
+from hydra_orch.adapter.ui_cdp import UiCdpAdapter
+from hydra_orch.adapter.ide_bridge import IdeBridgeAdapter
+from hydra_orch.adapter.api_gateway import ApiGatewayAdapter
+from hydra_orch.adapter.remote_local import RemoteLocalAdapter
 from hydra_orch.core.checkpointer import StreamCheckpointer
 from hydra_orch.core.swarm import SwarmOrchestrator, SubTask
 

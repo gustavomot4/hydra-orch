@@ -41,7 +41,7 @@ class SwarmOrchestrator:
     def __init__(
         self,
         repo_root: str = ".",
-        worktrees_base_dir: str = ".orchestrator/worktrees",
+        worktrees_base_dir: str = ".orchestrator/worktree",
         contract_path: str = ".orchestrator/CONTRACT.md",
         test_command: str = "pytest",
     ):

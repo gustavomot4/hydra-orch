@@ -43,7 +43,7 @@ class DifficultyConfig(BaseModel):
 
 
 class SwarmConfig(BaseModel):
-    worktrees_dir: str = ".orchestrator/worktrees"
+    worktrees_dir: str = ".orchestrator/worktree"
     base_contract_file: str = ".orchestrator/CONTRACT.md"
     auto_merge: bool = True
     run_tests_before_merge: bool = True

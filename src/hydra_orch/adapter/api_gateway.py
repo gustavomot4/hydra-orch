@@ -8,8 +8,8 @@ import os
 from typing import Any, AsyncIterator, Dict, List, Optional
 import httpx
 
-from hydra_orch.adapters.base import BaseAdapter, LimitHitException
-from hydra_orch.models import ChatMessage
+from hydra_orch.adapter.base import BaseAdapter, LimitHitException
+from hydra_orch.model import ChatMessage
 
 logger = logging.getLogger(__name__)
 

@@ -25,7 +25,7 @@ orchestrator:
     auto_resume_check_interval_seconds: 60
 
 swarm:
-  worktrees_dir: ".orchestrator/worktrees"
+  worktrees_dir: ".orchestrator/worktree"
   base_contract_file: ".orchestrator/CONTRACT.md"
   auto_merge: true
   run_tests_before_merge: true

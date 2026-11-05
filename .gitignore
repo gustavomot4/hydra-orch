@@ -45,6 +45,12 @@ orchestrator_checkpoints.db
 # Hydra worktrees and runtime artifacts
 .orchestrator/
 worktrees/
+worktree/
+
+# Workspace: saídas locais, marcadores versionáveis
+/ws/b_output/*
+!/ws/b_output/.gitkeep
+!/ws/b_output/README.md
 
 # IDE files
 .vscode/

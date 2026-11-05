@@ -2,7 +2,7 @@ import pytest
 from hydra_orch.config import load_config
 from hydra_orch.core.router import HydraRouter
 from hydra_orch.core.swarm import SwarmOrchestrator
-from hydra_orch.models import ChatCompletionRequest, ChatMessage
+from hydra_orch.model import ChatCompletionRequest, ChatMessage
 
 
 def test_swarm_prompt_decomposition():

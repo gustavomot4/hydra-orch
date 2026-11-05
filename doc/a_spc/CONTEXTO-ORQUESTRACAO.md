@@ -53,8 +53,8 @@ O MCP REA foi acionado em `capture_process_scenario`, mas retornou `capability_u
 
 | Área | Implementação examinada | Lacuna para o objetivo |
 | --- | --- | --- |
-| Provedores | `adapters/base.py` define disponibilidade e geração de texto em stream | Uma resposta textual não comprova execução de arquivos ou comandos no workspace |
-| Bridge de IDE | `adapters/ide_bridge.py` chama `/health` e `/v1/chat/agent` | Depende de um servidor bridge externo; os arquivos examinados não demonstram sua implementação |
+| Provedores | `adapter/base.py` define disponibilidade e geração de texto em stream | Uma resposta textual não comprova execução de arquivos ou comandos no workspace |
+| Bridge de IDE | `adapter/ide_bridge.py` chama `/health` e `/v1/chat/agent` | Depende de um servidor bridge externo; os arquivos examinados não demonstram sua implementação |
 | Decomposição | `core/swarm.py` retorna quatro tarefas fixas, com descrições baseadas nos primeiros 120 caracteres do prompt | Planejamento adaptativo e dependências ainda precisam ser implementados |
 | Worktrees | Há criação de branches/worktrees, merge e limpeza | O diretório é colocado no prompt; não é passado como contexto operacional de execução para `adapter.generate` |
 | Execução swarm | `core/router.py` chama `adapter.generate` em paralelo e mede o tamanho da resposta | Não há aplicação explícita do texto gerado aos arquivos, captura de patch ou comprovação de commits das tarefas nesse fluxo |

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator, Dict, List, Optional
-from hydra_orch.models import ChatMessage
+from hydra_orch.model import ChatMessage
 
 
 class LimitHitException(Exception):

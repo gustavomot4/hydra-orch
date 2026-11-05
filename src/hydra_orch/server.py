@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from hydra_orch.config import HydraConfig, load_config
 from hydra_orch.core.router import HydraRouter
 from hydra_orch.core.ssh_tunnel import SshTunnelManager
-from hydra_orch.models import (
+from hydra_orch.model import (
     ChatChoice,
     ChatChoiceDelta,
     ChatCompletionChunk,
@@ -28,9 +28,10 @@ logger = logging.getLogger(__name__)
 
 config = load_config()
 router = HydraRouter(config)
-ssh_manager: SshTunnelManager = None
-if config.providers.remote_local.get("ssh_remote", {}).get("enabled"):
-    ssh_manager = SshTunnelManager(config.providers.remote_local["ssh_remote"].model_dump())
+ssh_manager: SshTunnelManager | None = None
+ssh_remote = config.providers.remote_local.get("ssh_remote")
+if ssh_remote and getattr(ssh_remote, "enabled", False):
+    ssh_manager = SshTunnelManager(ssh_remote.model_dump())
 
 app = FastAPI(
     title=config.server.title,
