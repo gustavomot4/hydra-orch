@@ -220,6 +220,8 @@ Distribuído sob licença MIT. Consulte `LICENSE` para mais detalhes.
 
 O PRD descreve a visão do produto. O scaffold atual ainda precisa de validação ponta a ponta das capacidades anunciadas acima.
 
+O [plano de especificação e desenvolvimento](doc/a_spc/plano_desenvolvimento.md) registra a revisão do checkout, as lacunas priorizadas e a sequência de entregas com critérios de aceite. O primeiro marco é uma tarefa local com executor, diff e checks verificáveis; a expansão para swarm, retomada e interface visual depende desses gates.
+
 Consulte [Contexto de orquestração e investigação do Alethe](doc/a_spc/CONTEXTO-ORQUESTRACAO.md) para o protocolo de comunicação estudado, as evidências disponíveis, as lacunas observadas no Hydra e a sequência proposta de implementação. A referência distingue geração de texto de execução efetiva de agentes em workspaces. A taxonomia oficial do repositório está documentada em [doc/a_spc/taxonomia_file_system.md](doc/a_spc/taxonomia_file_system.md).
 
 Consulte também a [arquitetura Hydra + OmniRoute + interface visual](doc/a_spc/arquitetura_hydra_omniroute_ui.md) e o [contrato de execução verificável](doc/a_spc/contrato_execucao.md). O Hydra pode usar o OmniRoute como gateway opcional; a interface visual será construída sobre a API do control plane, sem duplicar a lógica do backend.

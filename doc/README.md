@@ -13,3 +13,5 @@ A organização segue ordem alfabética sequencial correspondente ao ciclo de vi
    - Guias operacionais, manuais de configuração de provedores, runbooks e instruções de implantação.
 
 Consulte [a_spc/taxonomia_file_system.md](a_spc/taxonomia_file_system.md) para a política formal de nomenclatura e organização do repositório.
+
+Para iniciar o desenvolvimento, consulte o [plano de especificação e entrega](a_spc/plano_desenvolvimento.md), com diagnóstico do código atual, dependências e critérios de aceite por incremento.

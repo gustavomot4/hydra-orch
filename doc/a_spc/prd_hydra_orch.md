@@ -1,5 +1,7 @@
 # PRD: Hydra-Orch — Orquestrador Autônomo Multi-Sessão de Engenharia de Software
 
+> **Status de leitura:** este PRD registra a visão de produto, incluindo hipóteses ainda não validadas de suporte externo, latência e continuidade. A [arquitetura de referência](arquitetura_hydra_omniroute_ui.md) define OmniRoute como opcional e o [contrato de execução](contrato_execucao.md) exige evidência de ferramentas, artefatos e checks. O [plano de desenvolvimento](plano_desenvolvimento.md) organiza a revisão do estado atual e a sequência proposta de specs; exemplos antigos de caminhos `.hydra/`, modos numéricos e YAML precisam de reconciliação em S00/S01. A taxonomia vigente determina runtime em `.orchestrator/`. O roadmap de quatro sprints abaixo é uma proposta histórica, não um compromisso de prazo ou entrega concluída.
+
 **Projeto / Repositório:** `hydra-orch` (Binário CLI: `hydra`)
 **Versão:** 5.0 (Arquitetura sobre OmniRoute + Inteligência de Engenharia de Software)
 **Foco Principal:** Desenvolvimento e Engenharia de Software $100\%$ Automatizados (Zero Trabalho Manual)
