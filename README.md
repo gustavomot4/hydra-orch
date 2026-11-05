@@ -172,8 +172,7 @@ hydra-orch/
 │   ├── README.md                   # Navegação e visão geral da documentação
 │   ├── a_spc/                      # Especificações formais, PRDs e taxonomia
 │   │   ├── CONTEXTO-ORQUESTRACAO.md# Arquitetura de referência e achados do Alethe
-│   │   ├── prd_hydra_orch_final.md # PRD consolidado do ecossistema
-│   │   ├── prd_universal_modo_execucao.md # Especificação dos modos de execução (singular)
+│   │   ├── prd_hydra_orch.md       # PRD unificado do produto e modos de execução
 │   │   ├── README.md               # Catálogo de especificações
 │   │   └── taxonomia_file_system.md# Norma oficial da taxonomia do repositório
 │   └── b_manual/                   # Manuais de operação, runbooks e guias

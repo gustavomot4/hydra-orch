@@ -53,7 +53,7 @@ Modelos de linguagem operam sob janelas de contexto restritas e custosas. Quando
 
 ### 1.8. How (Como Aplicar e Manter)
 1. **Auditoria de Entrada:** Antes de adicionar qualquer pasta ou arquivo, consulte a tabela de taxonomia oficial (§ 4) e a tabela de termos singulares (§ 3).
-2. **Criação de Documentos:** Documentos de especificação e arquitetura são criados em `doc/a_spc/` utilizando nomenclatura estritamente no singular, formato snake_case em minúsculas e sem prefixos de times externos (ex.: `prd_universal_modo_execucao.md`, `prd_hydra_orch_final.md`, `taxonomia_file_system.md`). Manuais e tutoriais operacionais vão para `doc/b_manual/`.
+  - prd_hydra_orch.md: PRD unificado consolidando os modos de execução (Swarm, Relay, Persistente), conectores universais e integração com agentes SWE.
 3. **Troca de Contexto Operacional:** Entradas versionáveis de tarefas para agentes e orquestradores são depositadas em `ws/a_input/`; saídas locais de execução ficam confinadas em `ws/b_output/`.
 4. **Refatoração Contínua:** Ao detectar qualquer termo plural em código, configuração ou pasta, o agente responsável deve emitir a correção para o formato singular compatível.
 
@@ -221,8 +221,7 @@ hydra-orch/
 │   ├── README.md              # Guia e índice geral da documentação técnica
 │   ├── a_spc/                 # Especificações formais, PRDs e padrões de governança
 │   │   ├── CONTEXTO-ORQUESTRACAO.md               # Contexto arquitetural e achados de agentes
-│   │   ├── prd_hydra_orch_final.md                # Visão geral e especificação consolidada do produto
-│   │   ├── prd_universal_modo_execucao.md        # PRD dos modos swarm, relay e persistente (singular)
+│   │   ├── prd_hydra_orch.md                      # PRD unificado do produto, modos de execução e conectores
 │   │   ├── README.md                              # Catálogo e índice de especificações técnicas
 │   │   └── taxonomia_file_system.md              # Este documento oficial de taxonomia
 │   └── b_manual/              # Manuais de operação, runbooks e guias do usuário
@@ -295,8 +294,7 @@ Substitui a pasta plural `docs/`. Divide-se formalmente em:
 - `doc/a_spc/`: Especificações formais e normativas. Contém:
   - `taxonomia_file_system.md`: A presente especificação oficial de taxonomia.
   - `CONTEXTO-ORQUESTRACAO.md`: Registro da arquitetura de orquestração e achados comparativos de agentes.
-  - `prd_universal_modo_execucao.md`: PRD consolidando a especificação técnica dos modos de execução (Swarm, Relay e Persistente) e dos adaptadores universais.
-  - `prd_hydra_orch_final.md`: PRD consolidado descrevendo a visão completa do produto e integração com agentes SWE.
+  - prd_hydra_orch.md: PRD unificado consolidando os modos de execução (Swarm, Relay, Persistente), conectores universais e integração com agentes SWE.
   - `README.md`: Catálogo e índice de especificações técnicas.
 - `doc/b_manual/`: Manuais operacionais, procedimentos de deploy, runbooks de manutenção e guias de usuário.
   - `README.md`: Guia e índice de manuais operacionais.
@@ -345,7 +343,7 @@ Para prevenir o consumo descontrolado de tokens de contexto e garantir alinhamen
 ### 6.2. Invariância de Nomes de Arquivos (Proibição de Timestamps)
 - Diretriz fundamental de governança do `hydra-orch` (`AGENTS.md` e taxonomia normativa): **nenhum arquivo de documentação, especificação ou código deve conter timestamps, datas ou sufixos incrementais em seu nome**.
 - Exemplo Incorreto: `PRD_Swarm_20261105.md`, `taxonomia_v2_final.md`.
-- Exemplo Correto: `taxonomia_file_system.md`, `prd_universal_modo_execucao.md`, `prd_hydra_orch_final.md`.
+  - prd_hydra_orch.md: PRD unificado consolidando os modos de execução (Swarm, Relay, Persistente), conectores universais e integração com agentes SWE.
 - **Justificativa:** Nomes mutáveis quebram referências cruzadas em Markdown, invalidam caches de LLM, obrigam buscas globais recorrentes e acumulam arquivos zumbis no repositório. A evolução cronológica de qualquer arquivo é controlada unicamente pelos metadados do Git.
 
 ### 6.3. Isolamento de Contexto e Escopo Cirúrgico
