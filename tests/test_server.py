@@ -18,6 +18,7 @@ def test_server_metadata_and_routes():
     assert "/v1/models" in route_paths
     assert "/v1/chat/completions" in route_paths
     assert "/v1/orchestrator/status" in route_paths
+    assert "/v1/control-plane/bootstrap" in route_paths
 
 
 def test_server_health_endpoints():
@@ -69,6 +70,20 @@ def test_server_orchestrator_status_endpoint():
     assert data["adapters_count"] > 0
     assert "ssh_tunnel_active" in data
     assert data["ssh_tunnel_active"] is False
+
+
+def test_control_plane_bootstrap_reports_configuration_without_claiming_runtime():
+    client = TestClient(app)
+
+    response = client.get("/v1/control-plane/bootstrap")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["api_version"] == "v1"
+    assert "ui" in data
+    assert "omniroute" in data["integrations"]
+    assert data["implemented_read_models"]["health"] is True
+    assert data["implemented_read_models"]["runs"] is False
 
 
 def test_ssh_tunnel_instantiation_conditions():

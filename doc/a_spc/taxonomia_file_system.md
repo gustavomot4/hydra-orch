@@ -221,6 +221,8 @@ hydra-orch/
 │   ├── README.md              # Guia e índice geral da documentação técnica
 │   ├── a_spc/                 # Especificações formais, PRDs e padrões de governança
 │   │   ├── CONTEXTO-ORQUESTRACAO.md               # Contexto arquitetural e achados de agentes
+│   │   ├── arquitetura_hydra_omniroute_ui.md       # Fronteiras Hydra, gateway, executores e UI
+│   │   ├── contrato_execucao.md                    # Contratos verificáveis de execução
 │   │   ├── prd_hydra_orch.md                      # PRD unificado do produto, modos de execução e conectores
 │   │   ├── README.md                              # Catálogo e índice de especificações técnicas
 │   │   └── taxonomia_file_system.md              # Este documento oficial de taxonomia
@@ -257,6 +259,8 @@ hydra-orch/
 │           ├── router.py      # Roteador de modelos e gerenciador de fallback
 │           ├── ssh_tunnel.py  # Gerenciador de túneis SSH automáticos
 │           └── swarm.py       # Decompositor de tarefas e orquestrador de worktrees
+│       ├── bridge/            # Pontes de transporte e execução externa
+│       └── engine/            # Engines de swarm, relay, contrato e recuperação
 │
 ├── tests/                      # Suíte de testes automatizados (pytest)
 │   ├── test_checkpointer.py   # Testes unitários do mecanismo de checkpoint
@@ -294,6 +298,8 @@ Substitui a pasta plural `docs/`. Divide-se formalmente em:
 - `doc/a_spc/`: Especificações formais e normativas. Contém:
   - `taxonomia_file_system.md`: A presente especificação oficial de taxonomia.
   - `CONTEXTO-ORQUESTRACAO.md`: Registro da arquitetura de orquestração e achados comparativos de agentes.
+  - `arquitetura_hydra_omniroute_ui.md`: Fronteiras do control plane, OmniRoute opcional, executores e interface visual.
+  - `contrato_execucao.md`: Contrato proposto de execução verificável e eventos para a interface.
   - prd_hydra_orch.md: PRD unificado consolidando os modos de execução (Swarm, Relay, Persistente), conectores universais e integração com agentes SWE.
   - `README.md`: Catálogo e índice de especificações técnicas.
 - `doc/b_manual/`: Manuais operacionais, procedimentos de deploy, runbooks de manutenção e guias de usuário.
@@ -310,7 +316,9 @@ O workspace operacional provê uma fronteira estanque entre o código-fonte da a
 O código-fonte segue integralmente as diretrizes do Hatchling e da PEP 621:
 - `model.py`: Substitui o arquivo plural `models.py`. Contém todas as definições de classes Pydantic (`ChatMessage`, `ChatCompletionRequest`, `ChatCompletionResponse`, `ChatCompletionChunk`, etc.).
 - `adapter/`: Substitui a pasta plural `adapters/`. Contém a implementação dos adaptadores universais (`base.py`, `api_gateway.py`, `ide_bridge.py`, `remote_local.py`, `ui_cdp.py`).
+- `bridge/`: Mantém clientes e runners que conectam o Hydra a gateways, SSH, CDP e CLIs externas.
 - `core/`: Contém os componentes centrais de roteamento, checkpoints, comunicação e coordenação de swarm.
+- `engine/`: Contém motores especializados de swarm, relay, contrato, recuperação e persistência de execução. A exposição deles na CLI/API depende de integração explícita.
 - `cli.py`: Fornece a interface de linha de comando `hydra` via Typer.
 - `config.py`: Parser e validador de configurações baseado no arquivo `config.yaml`.
 - `server.py`: Servidor HTTP FastAPI que expõe os endpoints compatíveis com a API OpenAI.

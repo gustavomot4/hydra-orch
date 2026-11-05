@@ -145,6 +145,51 @@ async def orchestrator_status() -> Dict[str, Any]:
     }
 
 
+@app.get("/v1/control-plane/bootstrap")
+async def control_plane_bootstrap() -> Dict[str, Any]:
+    """Expose non-secret capability metadata for future visual clients.
+
+    It reports configured capabilities rather than claiming that an executor,
+    provider, or UI client is already running.
+    """
+    ui = config.visual_interface
+    return {
+        "api_version": "v1",
+        "product": "hydra-orch",
+        "ui": {
+            "enabled": ui.enabled,
+            "host": ui.host,
+            "port": ui.port,
+            "api_base_path": ui.api_base_path,
+            "features": {
+                "projects": ui.expose_projects,
+                "runs": ui.expose_runs,
+                "worktrees": ui.expose_worktrees,
+                "diffs": ui.expose_diffs,
+                "quota": ui.expose_quota,
+            },
+        },
+        "integrations": {
+            "omniroute": {
+                "enabled": config.omniroute.enabled,
+                "connection_mode": config.omniroute.connection_mode,
+                "configured": bool(config.omniroute.base_url),
+            },
+            "ssh_gpu": {"enabled": config.remote_ssh_gpu.enabled},
+        },
+        "implemented_read_models": {
+            "health": True,
+            "models": True,
+            "orchestrator_status": True,
+            "quota": True,
+            "projects": False,
+            "runs": False,
+            "worktrees": False,
+            "diffs": False,
+        },
+    }
+
+
 @app.get("/v1/quota")
 async def quota_status() -> Dict[str, Any]:
     from hydra_orch.bridge.omniroute_client import OmniRouteClient

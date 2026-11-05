@@ -27,7 +27,9 @@ class LogicalModelMapping(BaseModel):
 
 
 class OmniRouteConfig(BaseModel):
+    enabled: bool = False
     auto_start_daemon: bool = False
+    connection_mode: str = "optional"  # disabled | optional | required
     base_url: str = "http://127.0.0.1:20128/v1"
     quota_api_url: str = "http://127.0.0.1:20128/api/usage/quota"
     default_routing_strategy: str = "auto/thrifty"
@@ -87,12 +89,31 @@ class ModesConfig(BaseModel):
     mode_3_persistent: PersistentModeConfig = Field(default_factory=PersistentModeConfig)
 
 
+class VisualInterfaceConfig(BaseModel):
+    """Configuration contract for a future Hydra control-plane interface.
+
+    The API is the source of truth. A web, desktop, or mobile client may consume
+    it without changing orchestration behavior.
+    """
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 5173
+    api_base_path: str = "/v1"
+    expose_projects: bool = True
+    expose_runs: bool = True
+    expose_worktrees: bool = True
+    expose_diffs: bool = True
+    expose_quota: bool = True
+
+
 class HydraConfig(BaseModel):
     version: str = "5.0"
     hydra: HydraSettings = Field(default_factory=HydraSettings)
     omniroute: OmniRouteConfig = Field(default_factory=OmniRouteConfig)
     remote_ssh_gpu: RemoteSshGpuConfig = Field(default_factory=RemoteSshGpuConfig)
     modes: ModesConfig = Field(default_factory=ModesConfig)
+    visual_interface: VisualInterfaceConfig = Field(default_factory=VisualInterfaceConfig)
 
     @property
     def providers(self):

@@ -14,7 +14,10 @@ hydra:
 # INTEGRAÇÃO COM O OMNIROUTE GATEWAY (Conexão OAuth Assinaturas + Free Tiers)
 # ============================================================================
 omniroute:
+  # Optional gateway: Hydra continues to support direct executors when disabled.
+  enabled: false
   auto_start_daemon: false
+  connection_mode: "optional" # disabled | optional | required
   base_url: "http://127.0.0.1:20128/v1"
   quota_api_url: "http://127.0.0.1:20128/api/usage/quota"
   default_routing_strategy: "auto/thrifty"
@@ -90,3 +93,17 @@ modes:
     wait_for_5h_quota_reset: true
     poll_quota_interval_sec: 30
     stitch_anchor_lines: 15
+
+# ============================================================================
+# INTERFACE VISUAL DO CONTROL PLANE (PREPARAÇÃO; CLIENTE AINDA NÃO IMPLEMENTADO)
+# ============================================================================
+visual_interface:
+  enabled: false
+  host: "127.0.0.1"
+  port: 5173
+  api_base_path: "/v1"
+  expose_projects: true
+  expose_runs: true
+  expose_worktrees: true
+  expose_diffs: true
+  expose_quota: true
