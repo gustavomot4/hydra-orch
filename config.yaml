@@ -1,0 +1,101 @@
+version: "1.0"
+
+server:
+  host: "127.0.0.1"
+  port: 8000
+  title: "Hydra Orchestrator API"
+  description: "Universal Autonomous LLM Orchestrator & Local Software Engineering Middleware"
+
+orchestrator:
+  # Mode 1: swarm (parallel branches/worktrees)
+  # Mode 2: relay (sequential pipeline with hot-handoff)
+  # Mode 3: persistent (single primary model with auto-resume timer)
+  default_mode: "relay"
+  resilience:
+    database_path: ".orchestrator/checkpoints.sqlite"
+    # Action when provider quota or tokens exhaust: 'hot_handoff' or 'auto_resume'
+    on_limit_action: "hot_handoff"
+    handoff_fallback_chain:
+      - "claude_pro"
+      - "chatgpt_plus"
+      - "deepseek"
+      - "openrouter"
+      - "ssh_remote"
+      - "ollama_local"
+    auto_resume_check_interval_seconds: 60
+
+swarm:
+  worktrees_dir: ".orchestrator/worktrees"
+  base_contract_file: ".orchestrator/CONTRACT.md"
+  auto_merge: true
+  run_tests_before_merge: true
+  test_command: "pytest"
+  difficulty_thresholds:
+    simple:
+      max_complexity: 3
+      preferred_provider: "ollama_local"
+    moderate:
+      max_complexity: 7
+      preferred_provider: "deepseek"
+    complex:
+      max_complexity: 10
+      preferred_provider: "claude_pro"
+
+providers:
+  # 1. UI / Chrome DevTools Protocol (CDP) for browser/PWA subscriptions
+  ui_cdp:
+    claude_pro:
+      enabled: true
+      cdp_port: 9222
+      target_url: "https://claude.ai"
+      session_timeout_seconds: 300
+      rate_limit_reset_hours: 5.0
+    chatgpt_plus:
+      enabled: true
+      cdp_port: 9223
+      target_url: "https://chat.openai.com"
+      session_timeout_seconds: 300
+    gemini_pro:
+      enabled: true
+      cdp_port: 9224
+      target_url: "https://gemini.google.com"
+      session_timeout_seconds: 300
+
+  # 2. Agentic IDE bridges
+  ide_bridge:
+    antigravity:
+      enabled: true
+      bridge_url: "http://127.0.0.1:9330"
+    cursor:
+      enabled: true
+      bridge_url: "http://127.0.0.1:9331"
+
+  # 3. Direct API Gateways
+  api_gateway:
+    openrouter:
+      enabled: true
+      base_url: "https://openrouter.ai/api/v1"
+      api_key_env: "OPENROUTER_API_KEY"
+      default_model: "anthropic/claude-3.5-sonnet"
+    deepseek:
+      enabled: true
+      base_url: "https://api.deepseek.com/v1"
+      api_key_env: "DEEPSEEK_API_KEY"
+      default_model: "deepseek-coder"
+
+  # 4. Local Models & Remote SSH Tunnels
+  remote_local:
+    ollama_local:
+      enabled: true
+      base_url: "http://127.0.0.1:11434"
+      default_model: "qwen2.5-coder:32b"
+    ssh_remote:
+      enabled: false
+      host: "gpu-node.local"
+      port: 22
+      user: "hydra"
+      key_file: "~/.ssh/id_rsa"
+      remote_port: 11434
+      local_bind_port: 11435
+      use_autossh: true
+      default_model: "deepseek-ai/DeepSeek-Coder-V2-Instruct"
