@@ -191,3 +191,9 @@ hydra-orch/
 
 ## 🛡️ Licença
 Distribuído sob licença MIT. Consulte `LICENSE` para mais detalhes.
+
+## Contexto de desenvolvimento e investigação
+
+O PRD descreve a visão do produto. O scaffold atual ainda precisa de validação ponta a ponta das capacidades anunciadas acima.
+
+Consulte [Contexto de orquestração e investigação do Alethe](docs/CONTEXTO-ORQUESTRACAO.md) para o protocolo de comunicação estudado, as evidências disponíveis, as lacunas observadas no Hydra e a sequência proposta de implementação. A referência distingue geração de texto de execução efetiva de agentes em workspaces.
