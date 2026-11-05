@@ -197,3 +197,9 @@ Distribuído sob licença MIT. Consulte `LICENSE` para mais detalhes.
 O PRD descreve a visão do produto. O scaffold atual ainda precisa de validação ponta a ponta das capacidades anunciadas acima.
 
 Consulte [Contexto de orquestração e investigação do Alethe](docs/CONTEXTO-ORQUESTRACAO.md) para o protocolo de comunicação estudado, as evidências disponíveis, as lacunas observadas no Hydra e a sequência proposta de implementação. A referência distingue geração de texto de execução efetiva de agentes em workspaces.
+
+## Instruções para IAs e versionamento
+
+A política compartilhada está em [AGENTS.md](AGENTS.md): conferir o Git e atualizar com segurança no início de cada tarefa; validar, commitar e fazer push das alterações concluídas ao final. A autorização é permanente neste projeto, respeitando alterações locais, workers, conflitos e permissões.
+
+Foram incluídos encaminhamentos para Claude Code, Gemini CLI, GitHub Copilot, Cursor e Windsurf. Outras ferramentas devem receber `AGENTS.md` como contexto explícito. O carregamento depende do cliente; estes arquivos não executam Git sozinhos nem concedem acesso ao GitHub.
