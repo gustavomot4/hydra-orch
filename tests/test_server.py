@@ -64,7 +64,7 @@ def test_server_orchestrator_status_endpoint():
     assert response.status_code == 200
     data = response.json()
     assert "default_mode" in data
-    assert data["worktrees_dir"] == ".orchestrator/worktree"
+    assert data["worktrees_dir"] in (".orchestrator/worktree", ".hydra/worktree")
     assert "adapters_count" in data
     assert data["adapters_count"] > 0
     assert "ssh_tunnel_active" in data

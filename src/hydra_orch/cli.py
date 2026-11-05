@@ -119,5 +119,34 @@ def status():
     console.print(table)
 
 
+@app.command()
+def quota():
+    """Display real-time 5-hour subscription quota windows (Claude, ChatGPT, Gemini)."""
+    from hydra_orch.bridge.omniroute_client import OmniRouteClient
+    cfg = load_config()
+    client = OmniRouteClient(
+        base_url=cfg.omniroute.base_url,
+        quota_api_url=cfg.omniroute.quota_api_url,
+    )
+
+    table = Table(title="OmniRoute 5h Quota Tracker", border_style="green")
+    table.add_column("Subscription / Model", style="bold white")
+    table.add_column("Remaining Quota", style="cyan")
+    table.add_column("Resets In", style="yellow")
+    table.add_column("Status", style="green")
+
+    async def _fetch():
+        data = await client.get_quota_status()
+        for k, v in data.items():
+            if isinstance(v, dict):
+                rem = f"{v.get('remaining_percent', 100)}%"
+                resets = f"{v.get('resets_in_seconds', 0)}s"
+                status_str = "ACTIVE" if v.get("remaining_percent", 100) > 0 else "QUOTA_LIMITED"
+                table.add_row(k.replace("_", " ").title(), rem, resets, status_str)
+
+    asyncio.run(_fetch())
+    console.print(table)
+
+
 if __name__ == "__main__":
     app()

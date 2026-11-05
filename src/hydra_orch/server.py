@@ -145,6 +145,16 @@ async def orchestrator_status() -> Dict[str, Any]:
     }
 
 
+@app.get("/v1/quota")
+async def quota_status() -> Dict[str, Any]:
+    from hydra_orch.bridge.omniroute_client import OmniRouteClient
+    client = OmniRouteClient(
+        base_url=config.omniroute.base_url,
+        quota_api_url=config.omniroute.quota_api_url,
+    )
+    return await client.get_quota_status()
+
+
 def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:
     """Run uvicorn server directly."""
     import uvicorn

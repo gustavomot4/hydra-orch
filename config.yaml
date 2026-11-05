@@ -1,101 +1,92 @@
-version: "1.0"
+version: "5.0"
 
-server:
-  host: "127.0.0.1"
-  port: 8000
-  title: "Hydra Orchestrator API"
-  description: "Universal Autonomous LLM Orchestrator & Local Software Engineering Middleware"
+hydra:
+  proxy_host: "127.0.0.1"
+  proxy_port: 8000
+  default_mode: 1 # 1: Swarm Multi-Sessao | 2: Relay Sequencial | 3: Persistente Auto-Resume
+  preferred_primary_model: "claude-pro"
+  worktree_base_dir: ".hydra/worktree"
+  state_db: ".hydra/state.db"
+  auto_heal_build_errors: true
+  max_heal_attempts: 3
 
-orchestrator:
-  # Mode 1: swarm (parallel branches/worktrees)
-  # Mode 2: relay (sequential pipeline with hot-handoff)
-  # Mode 3: persistent (single primary model with auto-resume timer)
-  default_mode: "relay"
-  resilience:
-    database_path: ".orchestrator/checkpoints.sqlite"
-    # Action when provider quota or tokens exhaust: 'hot_handoff' or 'auto_resume'
-    on_limit_action: "hot_handoff"
-    handoff_fallback_chain:
-      - "claude_pro"
-      - "chatgpt_plus"
-      - "deepseek"
-      - "openrouter"
-      - "ssh_remote"
-      - "ollama_local"
-    auto_resume_check_interval_seconds: 60
+# ============================================================================
+# INTEGRAÇÃO COM O OMNIROUTE GATEWAY (Conexão OAuth Assinaturas + Free Tiers)
+# ============================================================================
+omniroute:
+  auto_start_daemon: false
+  base_url: "http://127.0.0.1:20128/v1"
+  quota_api_url: "http://127.0.0.1:20128/api/usage/quota"
+  default_routing_strategy: "auto/thrifty"
 
-swarm:
-  worktrees_dir: ".orchestrator/worktree"
-  base_contract_file: ".orchestrator/CONTRACT.md"
-  auto_merge: true
-  run_tests_before_merge: true
-  test_command: "pytest"
-  difficulty_thresholds:
-    simple:
-      max_complexity: 3
-      preferred_provider: "ollama_local"
-    moderate:
-      max_complexity: 7
-      preferred_provider: "deepseek"
-    complex:
-      max_complexity: 10
-      preferred_provider: "claude_pro"
+  # Mapeamento dos Modelos Lógicos Configurados no OmniRoute
+  logical_models:
+    architect_heavy:
+      primary: "claude-code/claude-3-7-sonnet"
+      fallbacks: ["antigravity/gemini-2-5-pro", "openrouter/deepseek-r1:free"]
+      min_difficulty: 8
 
-providers:
-  # 1. UI / Chrome DevTools Protocol (CDP) for browser/PWA subscriptions
-  ui_cdp:
-    claude_pro:
-      enabled: true
-      cdp_port: 9222
-      target_url: "https://claude.ai"
-      session_timeout_seconds: 300
-      rate_limit_reset_hours: 5.0
-    chatgpt_plus:
-      enabled: true
-      cdp_port: 9223
-      target_url: "https://chat.openai.com"
-      session_timeout_seconds: 300
-    gemini_pro:
-      enabled: true
-      cdp_port: 9224
-      target_url: "https://gemini.google.com"
-      session_timeout_seconds: 300
+    fullstack_coder:
+      primary: "codex/gpt-4o-plus"
+      fallbacks: ["cursor/claude-sonnet", "claude-code/claude-3-7-sonnet"]
+      min_difficulty: 6
 
-  # 2. Agentic IDE bridges
-  ide_bridge:
-    antigravity:
-      enabled: true
-      bridge_url: "http://127.0.0.1:9330"
-    cursor:
-      enabled: true
-      bridge_url: "http://127.0.0.1:9331"
+    context_and_docs:
+      primary: "gemini-cli/gemini-2-5-pro"
+      fallbacks: ["ai-studio/gemini-pro-free"]
+      min_difficulty: 4
 
-  # 3. Direct API Gateways
-  api_gateway:
-    openrouter:
-      enabled: true
-      base_url: "https://openrouter.ai/api/v1"
-      api_key_env: "OPENROUTER_API_KEY"
-      default_model: "anthropic/claude-3.5-sonnet"
-    deepseek:
-      enabled: true
-      base_url: "https://api.deepseek.com/v1"
-      api_key_env: "DEEPSEEK_API_KEY"
-      default_model: "deepseek-coder"
+    database_and_tests:
+      primary: "ssh-home-gpu/qwen2.5-coder:32b"
+      fallbacks: ["deepseek/deepseek-chat", "openrouter/qwen-2.5-coder-32b-instruct:free"]
+      min_difficulty: 3
 
-  # 4. Local Models & Remote SSH Tunnels
-  remote_local:
-    ollama_local:
-      enabled: true
-      base_url: "http://127.0.0.1:11434"
-      default_model: "qwen2.5-coder:32b"
-    ssh_remote:
-      enabled: false
-      host: "gpu-node.local"
-      port: 22
-      user: "hydra"
-      key_file: "~/.ssh/id_rsa"
-      remote_port: 11434
-      local_bind_port: 11435
-      use_autossh: true
-      default_model: "deepseek-ai/DeepSeek-Coder-V2-Instruct"
+    fast_classifier:
+      primary: "local-ollama/qwen2.5-coder:7b"
+      fallbacks: ["openrouter/llama-3.3-70b-instruct:free"]
+      min_difficulty: 1
+
+# ============================================================================
+# CONEXÃO AUTOMÁTICA COM OUTRO PC MAIS FORTE EM CASA (VIA SSH)
+# ============================================================================
+remote_ssh_gpu:
+  enabled: false
+  ssh_target: "usuario@192.168.1.100"
+  ssh_port: 22
+  ssh_key: "~/.ssh/id_ed25519"
+  local_port: 11435
+  remote_port: 11434
+  healthcheck_interval_sec: 10
+  auto_register_in_omniroute: true
+
+# ============================================================================
+# COMPORTAMENTO DOS 3 MODOS DE EXECUÇÃO
+# ============================================================================
+modes:
+  mode_1_swarm:
+    max_parallel_worktrees: 4
+    worker_cli: "opencode" # opencode | aider | claude-code | antigravity
+    symlink_dirs: ["node_modules", ".venv", "vendor"]
+    roles:
+      backend_core: "architect_heavy"
+      frontend_ui: "fullstack_coder"
+      db_and_tests: "database_and_tests"
+      docs_and_review: "context_and_docs"
+
+  mode_2_relay:
+    sequence:
+      - stage: "contract_and_plan"
+        model: "architect_heavy"
+      - stage: "implementation"
+        model: "fullstack_coder"
+      - stage: "unit_and_integration_tests"
+        model: "database_and_tests"
+      - stage: "documentation"
+        model: "context_and_docs"
+    mid_stream_hot_swap: true
+
+  mode_3_persistent:
+    locked_model: "architect_heavy"
+    wait_for_5h_quota_reset: true
+    poll_quota_interval_sec: 30
+    stitch_anchor_lines: 15
