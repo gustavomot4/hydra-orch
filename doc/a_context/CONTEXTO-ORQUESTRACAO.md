@@ -1,4 +1,13 @@
-# Contexto de desenvolvimento: comunicação e execução de agentes
+# CONTEXTO-ORQUESTRACAO — Contexto de Desenvolvimento e Investigação
+
+**Identificador Formal:** `CONTEXTO-ORQUESTRACAO.md`
+**Caminho Canônico:** `doc/a_context/CONTEXTO-ORQUESTRACAO.md`
+**Versão:** `v01_00_0000`
+**Status:** `REGISTRO HISTÓRICO / NORMATIVO DE ORIGEM`
+**Autoridade:** Investigação de referência do Alethe, arquitetura de comunicação entre agentes e achados comparativos do scaffold do hydra-orch.
+**Escopo:** Protocolos de orquestração de workers, gap analysis do scaffold inicial e diretrizes de evolução técnica.
+
+---
 
 Atualizado em 2026-11-05. Repositório principal: https://github.com/gustavomot4/hydra-orch.
 Base examinada do Hydra: commit `1ee4073` (scaffold inicial).

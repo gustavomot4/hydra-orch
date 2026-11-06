@@ -1,6 +1,15 @@
-# PRD técnico
+# prd_tecnico — Especificação Técnica e Decomposição de Tarefas
 
-Status: arquitetura alvo proposta, sem alegação de implementação. Complementa o [PRD funcional](prd_funcional.md), o [contrato](contrato_execucao.md) e o [plano](plano_desenvolvimento.md). Modelagem: [classes](diagrama_classe.md) e [MER](mer.md).
+**Identificador Formal:** `prd_tecnico.md`
+**Caminho Canônico:** `doc/b_spc/prd_tecnico.md`
+**Versão:** `v01_00_0000`
+**Status:** `PROPOSTO / EM DESENVOLVIMENTO`
+**Autoridade:** Arquitetura do hydra-orch, complementando `prd_funcional.md`, `contrato_execucao.md` e [`plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md).
+**Escopo:** Requisitos técnicos (RT01 a RT12), contratos de serviço, máquinas de estado, API REST e tasks T01 a T08.
+
+---
+
+Status: arquitetura alvo proposta, sem alegação de implementação. Complementa o [PRD funcional](prd_funcional.md), o [contrato](contrato_execucao.md) e o [plano](../a_context/plano_desenvolvimento.md). Modelagem: [classes](../e_class/diagrama_classe.md) e [MER](../d_mer/mer.md).
 
 ## 1. Propósito
 
@@ -94,7 +103,7 @@ Todas pendentes. Cada linha é uma unidade de implementação com testes no mesm
 | T05 Workspace Git | T04 | RF01/RF04 / RT05 | core/git_workspace.py, tests/test_git_workspace.py | SHA fixo e worktree real; estado do usuário preservado |
 | T06 Checks e integração | T05 | RF07/RF08 / RT06 | core/git_workspace.py, core/run_service.py, tests/test_integration.py | Patch real, escopo, conflito e checks combinados governam aceite |
 | T07 Entrada M1 | T06 | RF03–RF08 / RT10 | cli.py, server.py, tests/test_server.py, tests/test_cli.py | Submeter/consultar/cancelar/revisar usam mesmo serviço com autorização |
-| T08 CI e manual M1 | T07 | RF15 / RT12 | .github/workflows/ci.yml, doc/b_manual/README.md, pyproject.toml | Testes offline e instalação reproduzível; driver real com certificação separada |
+| T08 CI e manual M1 | T07 | RF15 / RT12 | .github/workflows/ci.yml, doc/j_manual/README.md, pyproject.toml | Testes offline e instalação reproduzível; driver real com certificação separada |
 
 Paths Python da tabela são relativos a `src/hydra_orch/`, exceto `tests/`, configuração e documentação. Arquivos ainda inexistentes são destinos propostos. T01–T07 concretizam S01–S05/M1; T08 inicia S13. Swarm, retomada e expansão seguem S06–S12 do plano e só recebem status concluído com seus gates. Validar no mínimo Python 3.10 e versão corrente escolhida no CI; SO anunciado precisa validar gestão de processos.
 

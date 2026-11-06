@@ -1,17 +1,23 @@
 # Documentação Técnica do hydra-orch
 
-Esta pasta reúne a documentação canônica do projeto hydra-orch, estruturada conforme as diretrizes de taxonomia e organização ordenada do repositório.
+Esta pasta reúne a documentação canônica do projeto **hydra-orch**, estruturada rigorosamente conforme as diretrizes de taxonomia oficial da equipe (`doc/b_spc/taxonomia_file_system.md`), ordenação sequencial por prefixos cognitivos (`a_...`, `b_...`) e regra da singularidade absoluta.
 
-## Fluxo de Leitura e Navegação
+## Fluxo Sequencial de Leitura e Ciclo de Vida da Engenharia
 
-A organização segue ordem alfabética sequencial correspondente ao ciclo de vida técnico:
+A organização segue ordem alfabética sequencial correspondente à progressão de leitura humana e consumo por agentes LLM:
 
-1. **`a_spc/` (Especificações & PRDs)**:
-   - Requisitos de produto, arquitetura de referência, contratos de interface e a taxonomia oficial do repositório.
-   - Ponto de partida obrigatório para desenvolvedores e agentes de IA antes de alterações estruturais.
-2. **`b_manual/` (Manuais & Operação)**:
-   - Guias operacionais, manuais de configuração de provedores, runbooks e instruções de implantação.
+| Prefixo | Diretório | Domínio Documental | Finalidade Principal |
+|---|---|---|---|
+| `a_` | [`a_context/`](a_context/) | Contexto & Planejamento | Investigação de referência do Alethe, diagnóstico do checkout e plano mestre de desenvolvimento |
+| `b_` | [`b_spc/`](b_spc/) | Especificações & PRDs | PRD funcional, PRD técnico, PRD unificado, contratos de execução, arquitetura e taxonomia |
+| `c_` | [`c_activity/`](c_activity/) | Atividades & Processos | Diagramas de fluxo de atividades, pipelines e interações de agentes |
+| `d_` | [`d_mer/`](d_mer/) | Dados & MER | Modelo Entidade-Relacionamento e esquemas relacionais de persistência em SQLite |
+| `e_` | [`e_class/`](e_class/) | Classes & Tipagem | Diagramas de classes, modelagem de objetos e interfaces de provedores/executores |
+| `f_` | [`f_api/`](f_api/) | Interfaces & OpenAPI | Especificações de rotas HTTP, payloads REST e documentação OpenAPI/Swagger |
+| `g_` | [`g_code/`](g_code/) | Código & Arquitetura | Especificações de decomposição de pacotes, módulos internos e engines |
+| `h_` | [`h_test/`](h_test/) | Testes & Qualidade | Matrizes de rastreabilidade de requisitos (RF/RT), planos de testes herméticos e gates |
+| `i_` | [`i_infra/`](i_infra/) | Infraestrutura & Deploy | Configurações de contêineres, túneis SSH, gateways de inferência e provisionamento |
+| `j_` | [`j_manual/`](j_manual/) | Manuais & Operação | Runbooks operacionais, manuais de usuário, guias de configuração e procedimentos de descarte |
 
-Consulte [a_spc/taxonomia_file_system.md](a_spc/taxonomia_file_system.md) para a política formal de nomenclatura e organização do repositório.
-
-Para iniciar o desenvolvimento, consulte o [plano de especificação e entrega](a_spc/plano_desenvolvimento.md), com diagnóstico do código atual, dependências e critérios de aceite por incremento.
+Consulte [`b_spc/taxonomia_file_system.md`](b_spc/taxonomia_file_system.md) para a norma formal de nomenclatura e organização.
+Para iniciar o desenvolvimento orientado a tarefas, consulte [`a_context/plano_desenvolvimento.md`](a_context/plano_desenvolvimento.md).

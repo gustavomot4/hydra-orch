@@ -1,8 +1,17 @@
-# PRD: Hydra-Orch — Orquestrador Autônomo Multi-Sessão de Engenharia de Software
+# prd_hydra_orch — Visão Geral do Produto e Modos de Execução
 
-Para requisitos detalhados e desenvolvimento por tasks, seguir o [PRD funcional](prd_funcional.md) e o [PRD técnico](prd_tecnico.md), acompanhados do [diagrama de classes](diagrama_classe.md) e do [MER](mer.md). Este documento preserva a visão histórica; divergências de implementação são resolvidas pelas specs propostas e pelo plano, sem declarar capacidades entregues.
+**Identificador Formal:** `prd_hydra_orch.md`
+**Caminho Canônico:** `doc/b_spc/prd_hydra_orch.md`
+**Versão:** `v05_00_0000`
+**Status:** `DOCUMENTO DE VISÃO / BASE HISTÓRICA`
+**Autoridade:** PRD unificado consolidando modos Swarm, Relay e Persistente, complementado por [`prd_funcional.md`](prd_funcional.md) e [`prd_tecnico.md`](prd_tecnico.md).
+**Escopo:** Visão de produto, proposta de valor, ecossistema e arquitetura estratégica.
 
-> **Status de leitura:** este PRD registra a visão de produto, incluindo hipóteses ainda não validadas de suporte externo, latência e continuidade. A [arquitetura de referência](arquitetura_hydra_omniroute_ui.md) define OmniRoute como opcional e o [contrato de execução](contrato_execucao.md) exige evidência de ferramentas, artefatos e checks. O [plano de desenvolvimento](plano_desenvolvimento.md) organiza a revisão do estado atual e a sequência proposta de specs; exemplos antigos de caminhos `.hydra/`, modos numéricos e YAML precisam de reconciliação em S00/S01. A taxonomia vigente determina runtime em `.orchestrator/`. O roadmap de quatro sprints abaixo é uma proposta histórica, não um compromisso de prazo ou entrega concluída.
+---
+
+Para requisitos detalhados e desenvolvimento por tasks, seguir o [PRD funcional](prd_funcional.md) e o [PRD técnico](prd_tecnico.md), acompanhados do [diagrama de classes](../e_class/diagrama_classe.md) e do [MER](../d_mer/mer.md). Este documento preserva a visão histórica; divergências de implementação são resolvidas pelas specs propostas e pelo plano, sem declarar capacidades entregues.
+
+> **Status de leitura:** este PRD registra a visão de produto, incluindo hipóteses ainda não validadas de suporte externo, latência e continuidade. A [arquitetura de referência](arquitetura_hydra_omniroute_ui.md) define OmniRoute como opcional e o [contrato de execução](contrato_execucao.md) exige evidência de ferramentas, artefatos e checks. O [plano de desenvolvimento](../a_context/plano_desenvolvimento.md) organiza a revisão do estado atual e a sequência proposta de specs; exemplos antigos de caminhos `.hydra/`, modos numéricos e YAML precisam de reconciliação em S00/S01. A taxonomia vigente determina runtime em `.orchestrator/`. O roadmap de quatro sprints abaixo é uma proposta histórica, não um compromisso de prazo ou entrega concluída.
 
 **Projeto / Repositório:** `hydra-orch` (Binário CLI: `hydra`)
 **Versão:** 5.0 (Arquitetura sobre OmniRoute + Inteligência de Engenharia de Software)

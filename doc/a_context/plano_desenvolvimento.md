@@ -1,4 +1,13 @@
-# Plano de especificação e desenvolvimento do Hydra
+# plano_desenvolvimento — Plano Mestre de Especificação e Desenvolvimento do Hydra
+
+**Identificador Formal:** `plano_desenvolvimento.md`
+**Caminho Canônico:** `doc/a_context/plano_desenvolvimento.md`
+**Versão:** `v01_00_0000`
+**Status:** `PROPOSTO / ATIVO`
+**Autoridade:** Diagnóstico arquitetural do checkout do hydra-orch e planejamento de entregas por marcos.
+**Escopo:** Revisão do código, lacunas A01 a A18, gates operacionais, inventário de arquivos e sequência de tarefas.
+
+---
 
 **Estado:** proposta de sequência técnica; não comprova implementação das capacidades planejadas.
 
@@ -8,11 +17,11 @@
 
 ## 1. Purpose — propósito
 
-Detalhamento disponível: [PRD funcional](prd_funcional.md), [PRD técnico com tasks T01–T08](prd_tecnico.md), [diagrama de classes](diagrama_classe.md) e [MER](mer.md). A criação documental não conclui as etapas de implementação abaixo.
+Detalhamento disponível: [PRD funcional](../b_spc/prd_funcional.md), [PRD técnico com tasks T01–T08](../b_spc/prd_tecnico.md), [diagrama de classes](../e_class/diagrama_classe.md) e [MER](../d_mer/mer.md). A criação documental não conclui as etapas de implementação abaixo.
 
 Transformar o scaffold em um orquestrador local de engenharia com execução verificável. O primeiro incremento deve receber uma tarefa delimitada, executar um worker em worktree real, preservar seu resultado, executar checks e preparar integração revisável. Depois vêm DAG, concorrência, retomada, transportes adicionais e interface visual.
 
-Este documento é o plano mestre de elaboração de specs e entregas. [Contrato de execução](contrato_execucao.md) governa as entidades e [arquitetura](arquitetura_hydra_omniroute_ui.md) governa as fronteiras; [taxonomia](taxonomia_file_system.md) governa os caminhos. As decisões abaixo são propostas para concretizar essas fontes. O [contexto de investigação](CONTEXTO-ORQUESTRACAO.md) permanece como registro histórico, com sua própria base examinada.
+Este documento é o plano mestre de elaboração de specs e entregas. [Contrato de execução](../b_spc/contrato_execucao.md) governa as entidades e [arquitetura](../b_spc/arquitetura_hydra_omniroute_ui.md) governa as fronteiras; [taxonomia](../b_spc/taxonomia_file_system.md) governa os caminhos. As decisões abaixo são propostas para concretizar essas fontes. O [contexto de investigação](CONTEXTO-ORQUESTRACAO.md) permanece como registro histórico, com sua própria base examinada.
 
 ## 2. Why — avaliação de coerência
 
@@ -55,8 +64,8 @@ Os caminhos da tabela são relativos à raiz. Cada arquivo versionado da base es
 | --- | --- |
 | `AGENTS.md`; `CLAUDE.md`; `GEMINI.md`; `.github/copilot-instructions.md`; `.cursor/rules/project.mdc`; `.windsurf/rules/project.md` | Encaminhamentos coerentes com a fonte única. Preservar autorização Git, separação de workers e regras de publicação |
 | `README.md`; `pyproject.toml`; `config.yaml`; `.gitignore` | Preservar pacote/entrypoint. Atualizar exemplos, subset de compatibilidade, dependências realmente utilizadas, exclusões e configuração. Resolver ausência de licença com o titular; não inventar texto/licenciante |
-| `doc/README.md`; `doc/a_spc/README.md`; `doc/b_manual/README.md`; `doc/b_manual/.gitkeep` | Manter índices; preencher manual de instalação, execução, recuperação e descarte conforme funcionalidades entregues |
-| `doc/a_spc/CONTEXTO-ORQUESTRACAO.md`; `arquitetura_hydra_omniroute_ui.md`; `contrato_execucao.md`; `prd_hydra_orch.md`; `taxonomia_file_system.md` (todos em `doc/a_spc/`) | Preservar investigação; reconciliar PRD e expandir contratos. Corrigir menção a DAG como comportamento atual na taxonomia e seus resíduos editoriais na etapa S00 |
+| `doc/README.md`; `doc/a_context/README.md`; `doc/b_spc/README.md`; `doc/j_manual/README.md`; `doc/j_manual/.gitkeep` | Manter índices; preencher manual de instalação, execução, recuperação e descarte conforme funcionalidades entregues |
+| `doc/a_context/CONTEXTO-ORQUESTRACAO.md`; `arquitetura_hydra_omniroute_ui.md`; `contrato_execucao.md`; `prd_hydra_orch.md`; `taxonomia_file_system.md` (em `doc/b_spc/`) | Preservar investigação; reconciliar PRD e expandir contratos. Corrigir menção a DAG como comportamento atual na taxonomia e seus resíduos editoriais na etapa S00 |
 | `ws/README.md`; `ws/a_input/README.md`; `ws/a_input/.gitkeep`; `ws/b_output/README.md`; `ws/b_output/.gitkeep` | Estrutura coerente. Manter entrada versionável sem segredo e evidência local ignorada |
 | `src/hydra_orch/__init__.py`; `cli.py`; `server.py`; `config.py`; `model.py` (todos no pacote) | Manter fachada pública. Configuração tipada, schemas de domínio e injeção de serviço compartilhado; retirar estado operacional criado no import quando necessário ao isolamento dos testes |
 | `adapter/__init__.py`; `base.py`; `api_gateway.py`; `ide_bridge.py`; `remote_local.py`; `ui_cdp.py` (em `src/hydra_orch/`) | Manter provedores de inferência. Capacidades de ferramentas/execução só quando testadas. CDP e IDE bridge permanecem experimentais; não presumir servidor bridge externo existente |
@@ -127,7 +136,7 @@ Eventos próprios do control plane usam SSE com cursor/reconexão. O stream de c
 
 ## 5. Postconditions — sequência de specs e entregas
 
-Cada linha exige spec revisável e uma entrega pequena, testada, antes da etapa dependente. Arquivos abaixo são destinos planejados em `doc/a_spc/`; não estão sendo criados como specs vazias nesta tarefa. Toda spec seguirá DBC-9: propósito, justificativa, contrato, pré/pós-condições, invariantes, falhas, procedimento e exemplos.
+Cada linha exige spec revisável e uma entrega pequena, testada, antes da etapa dependente. Arquivos abaixo são destinos planejados em `doc/b_spc/`; não estão sendo criados como specs vazias nesta tarefa. Toda spec seguirá DBC-9: propósito, justificativa, contrato, pré/pós-condições, invariantes, falhas, procedimento e exemplos.
 
 | Etapa / spec planejada | Depende | Entrega e módulos principais | Gate objetivo de aceite |
 | --- | --- | --- | --- |

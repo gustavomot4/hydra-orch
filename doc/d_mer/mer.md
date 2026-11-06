@@ -1,6 +1,18 @@
-# Modelo entidade-relacionamento
+# mer — Modelo Entidade-Relacionamento do hydra-orch
 
-Status: modelo lógico proposto para SQLite; não representa tabelas já migradas. Alinhado ao [PRD técnico](prd_tecnico.md) e ao [diagrama de classes](diagrama_classe.md).
+**Identificador Formal:** `mer.md`
+**Caminho Canônico:** `doc/d_mer/mer.md`
+**Diagrama Complementar:** [`mer.mmd`](mer.mmd)
+**Versão:** `v01_00_0000`
+**Status:** `PROPOSTO / EM MODELAGEM`
+**Autoridade:** Modelagem relacional e persistência transacional em SQLite (`.orchestrator/checkpoints.sqlite`), alinhada ao [PRD técnico](../b_spc/prd_tecnico.md) e ao [diagrama de classes](../e_class/diagrama_classe.md).
+**Escopo:** Tabelas de projetos, runs, tasks, attempts, workspaces, resultados, checks, artefatos, reviews e integrações.
+
+---
+
+Complemento visual autônomo disponível em [`mer.mmd`](mer.mmd).
+
+Status: modelo lógico proposto para SQLite; não representa tabelas já migradas. Alinhado ao [PRD técnico](../b_spc/prd_tecnico.md) e ao [diagrama de classes](../e_class/diagrama_classe.md).
 
 ## 1. Propósito
 

@@ -1,10 +1,10 @@
 # taxonomia_file_system — Taxonomia Oficial do File System do hydra-orch
 
-**Identificador Formal:** `taxonomia_file_system.md`  
-**Caminho Canônico:** `doc/a_spc/taxonomia_file_system.md`  
-**Versão:** `v01_00_0000`  
-**Status:** `APROVADO / NORMATIVO`  
-**Autoridade:** Síntese normativa baseada nos padrões de governança do `hydra-orch` (`AGENTS.md`, `doc/a_spc/CONTEXTO-ORQUESTRACAO.md` e diretrizes de arquitetura do projeto).  
+**Identificador Formal:** `taxonomia_file_system.md`
+**Caminho Canônico:** `doc/b_spc/taxonomia_file_system.md`
+**Versão:** `v01_00_0000`
+**Status:** `APROVADO / NORMATIVO`
+**Autoridade:** Síntese normativa baseada nos padrões de governança do `hydra-orch` (`AGENTS.md`, `doc/a_context/CONTEXTO-ORQUESTRACAO.md` e diretrizes de arquitetura do projeto).
 **Escopo:** Todo o repositório `hydra-orch` (código-fonte, testes, documentação, workspaces e artefatos de configuração).
 
 ---
@@ -30,8 +30,8 @@ Modelos de linguagem operam sob janelas de contexto restritas e custosas. Quando
 - O mapeamento atômico de imports antigos (`hydra_orch.models` $\rightarrow$ `hydra_orch.model`, `hydra_orch.adapters` $\rightarrow$ `hydra_orch.adapter`) está pronto para execução coordenada.
 
 ### 1.5. Postconditions (Pós-condições)
-- A pasta legada `docs/` é substituída por `doc/`, subdividida em `doc/a_spc/` e `doc/b_manual/`.
-- Todos os PRDs soltos na raiz são transferidos e normalizados para `doc/a_spc/`.
+- A pasta legada `docs/` é substituída por `doc/`, estruturada nas 10 etapas canônicas da equipe (`a_context/` a `j_manual/`).
+- Todos os PRDs e especificações normativas residem em `doc/b_spc/`, com contexto em `doc/a_context/`, dados em `doc/d_mer/` e classes em `doc/e_class/`.
 - O workspace operacional `ws/` está criado com `ws/a_input/` (versionado) e `ws/b_output/` (ignorado, salvo `.gitkeep` e `README.md`).
 - A pasta interna `src/hydra_orch/adapters/` é renomeada para `src/hydra_orch/adapter/`.
 - O módulo interno `src/hydra_orch/models.py` é renomeado para `src/hydra_orch/model.py`.
@@ -46,19 +46,19 @@ Modelos de linguagem operam sob janelas de contexto restritas e custosas. Quando
 
 ### 1.7. Failure Modes (Modos de Falha e Anti-patterns)
 - **Falha FM-01 (Pluralização Espúria):** Criar pastas como `docs`, `scripts`, `models`, `templates`, `utils`, `helpers`. **Mitigação:** Rejeição imediata em revisão estática e aplicação da tabela de conversão para singular.
-- **Falha FM-02 (Poluição da Raiz):** Gravar arquivos `.md` soltos, scripts de teste pontuais (`test_quick.py`) ou arquivos de dump na raiz. **Mitigação:** Alocação estrita em `ws/a_input/`, `doc/a_spc/` ou `tests/`.
+- **Falha FM-02 (Poluição da Raiz):** Gravar arquivos `.md` soltos, scripts de teste pontuais (`test_quick.py`) ou arquivos de dump na raiz. **Mitigação:** Alocação estrita em `ws/a_input/`, `doc/b_spc/` ou `tests/`.
 - **Falha FM-03 (Quebra de CI por Renomeação Cega):** Renomear pastas reservadas por ferramentas (`.github/workflows` para `.github/workflow`). **Mitigação:** Consulta prévia à tabela de exceções técnicas obrigatórias.
 - **Falha FM-04 (Acoplamento de Prefixo ao Runtime):** Supor que o módulo em `a_...` deva necessariamente rodar antes do módulo em `b_...` em tempo de execução. **Mitigação:** O catálogo e grafo de execução do orchestrator mandam na execução; prefixos mandam na leitura.
 - **Falha FM-05 (Import Broken pós-Reorganização):** Renomear subpacotes Python sem atualizar todos os arquivos chamadores e a suíte de testes. **Mitigação:** Execução de `pytest` e busca global por padrões de import antigos antes de qualquer commit.
 
 ### 1.8. How (Como Aplicar e Manter)
 1. **Auditoria de Entrada:** Antes de adicionar qualquer pasta ou arquivo, consulte a tabela de taxonomia oficial (§ 4) e a tabela de termos singulares (§ 3).
-  - prd_hydra_orch.md: PRD unificado consolidando os modos de execução (Swarm, Relay, Persistente), conectores universais e integração com agentes SWE.
+  - `prd_hydra_orch.md`: PRD unificado do produto, modos de execução (Swarm, Relay, Persistente) e conectores universais.
 3. **Troca de Contexto Operacional:** Entradas versionáveis de tarefas para agentes e orquestradores são depositadas em `ws/a_input/`; saídas locais de execução ficam confinadas em `ws/b_output/`.
 4. **Refatoração Contínua:** Ao detectar qualquer termo plural em código, configuração ou pasta, o agente responsável deve emitir a correção para o formato singular compatível.
 
 ### 1.9. Examples (Exemplos Canônicos)
-- **Incorreto:** `docs/specifications/auth_specs_2026.md` $\rightarrow$ **Correto:** `doc/a_spc/auth_spec.md`
+- **Incorreto:** `docs/specifications/auth_specs_2026.md` $\rightarrow$ **Correto:** `doc/b_spc/auth_spec.md`
 - **Incorreto:** `src/hydra_orch/adapters/ui_cdp.py` $\rightarrow$ **Correto:** `src/hydra_orch/adapter/ui_cdp.py`
 - **Incorreto:** `src/hydra_orch/models.py` $\rightarrow$ **Correto:** `src/hydra_orch/model.py`
 - **Incorreto:** `.orchestrator/worktrees/task_1/` $\rightarrow$ **Correto:** `.orchestrator/worktree/task_1/`
@@ -91,7 +91,7 @@ A estrutura física do repositório é projetada para minimizar o payload de tok
 ## 3. Diretriz de Nomenclatura no Singular
 
 ### 3.1. Regra Geral
-**Toda e qualquer pasta e todo arquivo controlado pela equipe deve utilizar nomenclatura estritamente no singular.**  
+**Toda e qualquer pasta e todo arquivo controlado pela equipe deve utilizar nomenclatura estritamente no singular.**
 Esta regra é de cumprimento compulsório e aplica-se a pacotes de código, módulos, pastas de documentação, catálogos, templates, scripts, modelos de dados e workspaces.
 
 ### 3.2. Tabela de Termos Plurais Proibidos e Formas no Singular
@@ -175,12 +175,12 @@ Exceções à regra do singular são restritas e autorizadas exclusivamente quan
 
 ### 4.1. Fundamentação Cognitiva
 Sistemas operacionais e ferramentas de linha de comando (`ls`, `dir`, `list_dir`) exibem pastas em ordem alfabética por padrão. O uso de prefixos alfabéticos sequenciais (`a_`, `b_`, `c_`, etc.) introduz determinismo na sequência de descoberta e leitura de artefatos por agentes e desenvolvedores:
-- Primeiro, consome-se a fundamentação conceitual e a especificação (`a_spc`).
-- Em seguida, examina-se o guia prático e a operação (`b_manual`).
+- Primeiro, consome-se a fundamentação conceitual e a especificação (`a_context`, `b_spc`).
+- Em seguida, examina-se o guia prático e a operação (`j_manual`).
 - No ciclo de trabalho, primeiro isola-se a entrada da missão (`a_input`), para somente então avaliar as saídas geradas (`b_output`).
 
 ### 4.2. Desacoplamento entre Ordem de Leitura e Grafo de Execução
-**Regra Fundamental de Arquitetura:**  
+**Regra Fundamental de Arquitetura:**
 A ordenação sequencial alfabética estabelece **apenas e tão-somente a ordem de leitura e exploração cognitiva**. Ela **NÃO** define nem restringe o grafo de execução em tempo de execução (runtime).
 
 O orquestrador do `hydra-orch` (módulos `core/router.py`, `core/swarm.py` e catálogo de tarefas) executa etapas de acordo com um Grafo Acíclico Dirigido (DAG) governado por contratos de dependência explícitos (Design by Contract DBC-9). Dessa forma:
@@ -219,14 +219,33 @@ hydra-orch/
 │
 ├── doc/                        # Documentação oficial do projeto (singular)
 │   ├── README.md              # Guia e índice geral da documentação técnica
-│   ├── a_spc/                 # Especificações formais, PRDs e padrões de governança
-│   │   ├── CONTEXTO-ORQUESTRACAO.md               # Contexto arquitetural e achados de agentes
+│   ├── a_context/             # Contexto histórico, investigações e planejamento mestre
+│   │   ├── README.md          # Catálogo e índice de documentos de contexto
+│   │   ├── CONTEXTO-ORQUESTRACAO.md # Contexto arquitetural e achados de agentes
+│   │   └── plano_desenvolvimento.md # Plano mestre de especificação e desenvolvimento
+│   ├── b_spc/                 # Especificações formais, PRDs e padrões de governança
+│   │   ├── README.md          # Catálogo e índice de especificações técnicas
+│   │   ├── prd_funcional.md   # Requisitos funcionais (RF01 a RF15) e critérios de aceite
+│   │   ├── prd_tecnico.md     # Requisitos técnicos (RT01 a RT12), contratos e tasks T01-T08
 │   │   ├── arquitetura_hydra_omniroute_ui.md       # Fronteiras Hydra, gateway, executores e UI
 │   │   ├── contrato_execucao.md                    # Contratos verificáveis de execução
 │   │   ├── prd_hydra_orch.md                      # PRD unificado do produto, modos de execução e conectores
-│   │   ├── README.md                              # Catálogo e índice de especificações técnicas
+
 │   │   └── taxonomia_file_system.md              # Este documento oficial de taxonomia
-│   └── b_manual/              # Manuais de operação, runbooks e guias do usuário
+│   ├── c_activity/            # Diagramas de atividades e fluxos de processos
+│   ├── d_mer/                 # Modelo Entidade-Relacionamento e esquemas relacionais
+│   │   ├── README.md          # Catálogo de esquemas relacionais
+│   │   ├── mer.md             # Especificação conceitual/lógica e dicionário do banco SQLite
+│   │   └── mer.mmd            # Diagrama ER visual em Mermaid puro
+│   ├── e_class/               # Diagramas de classes e tipagem de domínio
+│   │   ├── README.md          # Catálogo de classes e tipagem
+│   │   ├── diagrama_classe.md # Especificação orientada a objetos e interfaces
+│   │   └── diagrama_classe.mmd # Diagrama de classes visual em Mermaid puro
+│   ├── f_api/                 # Especificações de interfaces externas e OpenAPI
+│   ├── g_code/                # Arquitetura de módulos e decomposição de código
+│   ├── h_test/                # Planos e especificações de testes e rastreabilidade
+│   ├── i_infra/               # Infraestrutura, contêineres, gateways e tunelamento
+│   └── j_manual/              # Manuais de operação, runbooks e guias do usuário
 │       ├── .gitkeep           # Preserva o diretório no controle de versão
 │       └── README.md          # Guia e índice de manuais operacionais
 │
@@ -293,18 +312,39 @@ Apenas os seguintes 7 arquivos são permitidos na raiz do repositório:
 *É estritamente vedada a presença de PRDs avulsos, rascunhos de chat, scripts temporários ou pastas de histórico na raiz.*
 
 #### 5.1.2. Documentação (`doc/`)
-Substitui a pasta plural `docs/`. Divide-se formalmente em:
+Substitui a pasta plural `docs/`. Divide-se formalmente em 10 etapas canônicas sequenciais alinhadas à leitura e ao ciclo de vida da engenharia:
 - `doc/README.md`: Visão geral e guia de navegação da documentação técnica.
-- `doc/a_spc/`: Especificações formais e normativas. Contém:
-  - `taxonomia_file_system.md`: A presente especificação oficial de taxonomia.
+- `doc/a_context/`: Contexto conceitual, investigações históricas e planejamento mestre:
+  - `README.md`: Índice de contexto e planejamento.
   - `CONTEXTO-ORQUESTRACAO.md`: Registro da arquitetura de orquestração e achados comparativos de agentes.
+  - `plano_desenvolvimento.md`: Plano mestre de especificação e desenvolvimento com gaps A01–A18 e tasks T01–T08.
+- `doc/b_spc/`: Especificações formais normativas e PRDs:
+  - `README.md`: Catálogo e índice de especificações técnicas.
+
+  - `prd_funcional.md`: Requisitos funcionais (RF01 a RF15), jornadas de usuário e regras de negócio.
+  - `prd_tecnico.md`: Requisitos técnicos (RT01 a RT12), contratos de serviço, máquinas de estado e decomposição implementável.
+  - `taxonomia_file_system.md`: A presente norma oficial de taxonomia do repositório.
+
   - `arquitetura_hydra_omniroute_ui.md`: Fronteiras do control plane, OmniRoute opcional, executores e interface visual.
   - `contrato_execucao.md`: Contrato proposto de execução verificável e eventos para a interface.
-  - prd_hydra_orch.md: PRD unificado consolidando os modos de execução (Swarm, Relay, Persistente), conectores universais e integração com agentes SWE.
-  - `README.md`: Catálogo e índice de especificações técnicas.
-- `doc/b_manual/`: Manuais operacionais, procedimentos de deploy, runbooks de manutenção e guias de usuário.
-  - `README.md`: Guia e índice de manuais operacionais.
-  - `.gitkeep`: Marcador para versionamento da pasta.
+  - `prd_hydra_orch.md`: PRD unificado do produto, modos de execução (Swarm, Relay, Persistente) e conectores universais.
+
+- `doc/c_activity/`: Diagramas de atividades e fluxos de processos (com `README.md` e `.gitkeep`).
+- `doc/d_mer/`: Modelo Entidade-Relacionamento e esquemas relacionais:
+  - `README.md`: Catálogo de esquemas relacionais.
+  - `mer.md`: Especificação DBC-9 de persistência relacional transacional em SQLite (`.orchestrator/checkpoints.sqlite`).
+  - `mer.mmd`: Diagrama visual ER em formato Mermaid puro.
+- `doc/e_class/`: Diagramas de classes e modelagem de tipos de domínio:
+  - `README.md`: Catálogo de classes e tipagem.
+  - `diagrama_classe.md`: Especificação DBC-9 de orientação a objetos, interfaces de provedores e executores.
+  - `diagrama_classe.mmd`: Diagrama de classes visual em formato Mermaid puro.
+- `doc/f_api/`: Especificações de interfaces externas, rotas HTTP e OpenAPI (com `README.md` e `.gitkeep`).
+- `doc/g_code/`: Arquitetura de módulos e decomposição de código (com `README.md` e `.gitkeep`).
+- `doc/h_test/`: Planos e matrizes de rastreabilidade de testes (com `README.md` e `.gitkeep`).
+- `doc/i_infra/`: Infraestrutura, contêineres, gateways e tunelamento (com `README.md` e `.gitkeep`).
+- `doc/j_manual/`: Manuais operacionais, procedimentos de deploy, runbooks de manutenção e guias de usuário (com `README.md` e `.gitkeep`).
+
+
 
 #### 5.1.3. Workspace Operacional (`ws/`)
 O workspace operacional provê uma fronteira estanque entre o código-fonte da aplicação e o tráfego de dados de trabalho:
@@ -345,20 +385,20 @@ Para prevenir o consumo descontrolado de tokens de contexto e garantir alinhamen
 
 ### 6.1. Proibição de Arquivos de Conversação Efêmeros
 - É **terminantemente proibido** commitar arquivos do tipo `CHAT`, `PROMPT`, `RESULT`, transcrições de sessões ou logs brutos de bate-papo de assistentes no repositório.
-- Perguntas, respostas de descoberta e justificativas devem ser sintetizadas diretamente em registros formais de decisão (como handoffs, documentação em `doc/a_spc/` ou mensagens de commit estruturadas).
+- Perguntas, respostas de descoberta e justificativas devem ser sintetizadas diretamente em registros formais de decisão (como handoffs, documentação em `doc/b_spc/` ou mensagens de commit estruturadas).
 - Arquivos de evidência de execução pertencem a branches isoladas ou relatórios sumarizados em `ws/b_output/`, nunca na raiz ou no código-fonte.
 
 ### 6.2. Invariância de Nomes de Arquivos (Proibição de Timestamps)
 - Diretriz fundamental de governança do `hydra-orch` (`AGENTS.md` e taxonomia normativa): **nenhum arquivo de documentação, especificação ou código deve conter timestamps, datas ou sufixos incrementais em seu nome**.
 - Exemplo Incorreto: `PRD_Swarm_20261105.md`, `taxonomia_v2_final.md`.
-  - prd_hydra_orch.md: PRD unificado consolidando os modos de execução (Swarm, Relay, Persistente), conectores universais e integração com agentes SWE.
+  - `prd_hydra_orch.md`: PRD unificado do produto, modos de execução (Swarm, Relay, Persistente) e conectores universais.
 - **Justificativa:** Nomes mutáveis quebram referências cruzadas em Markdown, invalidam caches de LLM, obrigam buscas globais recorrentes e acumulam arquivos zumbis no repositório. A evolução cronológica de qualquer arquivo é controlada unicamente pelos metadados do Git.
 
 ### 6.3. Isolamento de Contexto e Escopo Cirúrgico
 - Agentes autônomos **não devem** carregar o repositório inteiro em contexto para executar uma tarefa pontual.
 - O contexto de trabalho de um agente deve ser delimitado cirurgicamente:
   1. Leitura de `AGENTS.md` para instruções de governança da sessão.
-  2. Leitura da especificação correspondente em `doc/a_spc/`.
+  2. Leitura da especificação correspondente em `doc/b_spc/`.
   3. Leitura dos insumos em `ws/a_input/`.
   4. Escrita exclusivamente nos arquivos de destino indicados pelo contrato.
 - A exclusão permanente de diretórios legados como `z_history` assegura que nenhum agente processe código ou instruções depreciadas como se fossem diretrizes ativas.

@@ -1,4 +1,13 @@
-# Arquitetura: Hydra, OmniRoute, executores e interface visual
+# arquitetura_hydra_omniroute_ui — Fronteiras Arquiteturais do hydra-orch
+
+**Identificador Formal:** `arquitetura_hydra_omniroute_ui.md`
+**Caminho Canônico:** `doc/b_spc/arquitetura_hydra_omniroute_ui.md`
+**Versão:** `v01_00_0000`
+**Status:** `APROVADO / NORMATIVO`
+**Autoridade:** Arquitetura do hydra-orch, delimitando responsabilidades entre control plane, gateway OmniRoute opcional, executores e UI.
+**Escopo:** Interfaces de control plane, desacoplamento de inferência e ciclo de vida de tarefas.
+
+---
 
 ## Propósito
 

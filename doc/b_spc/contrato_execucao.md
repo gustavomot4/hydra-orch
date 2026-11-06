@@ -1,4 +1,13 @@
-# Contrato de execução verificável
+# contrato_execucao — Contrato de Execução Verificável
+
+**Identificador Formal:** `contrato_execucao.md`
+**Caminho Canônico:** `doc/b_spc/contrato_execucao.md`
+**Versão:** `v01_00_0000`
+**Status:** `PROPOSTO / NORMATIVO DE INTERFACE`
+**Autoridade:** Arquitetura do hydra-orch, definindo payloads de eventos, snapshots e estados verificáveis para API, CLI e interface visual.
+**Escopo:** Entidades RunSpec, TaskSpec, TaskAttempt, TaskResult e RunEvent.
+
+---
 
 ## Objetivo
 

@@ -1,6 +1,15 @@
-# PRD funcional
+# prd_funcional — Especificação Funcional do hydra-orch
 
-Status: especificação proposta para implementação. Base: revisão registrada no [plano](plano_desenvolvimento.md). Não representa funcionalidades já certificadas. Este documento detalha o comportamento esperado; o [PRD técnico](prd_tecnico.md) define sua realização.
+**Identificador Formal:** `prd_funcional.md`
+**Caminho Canônico:** `doc/b_spc/prd_funcional.md`
+**Versão:** `v01_00_0000`
+**Status:** `PROPOSTO / EM DESENVOLVIMENTO`
+**Autoridade:** Arquitetura do hydra-orch alinhada a `taxonomia_file_system.md` e [`plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md).
+**Escopo:** Requisitos funcionais (RF01 a RF15), jornadas de usuário, regras de negócio e critérios de aceite.
+
+---
+
+Status: especificação proposta para implementação. Base: revisão registrada no [plano](../a_context/plano_desenvolvimento.md). Não representa funcionalidades já certificadas. Este documento detalha o comportamento esperado; o [PRD técnico](prd_tecnico.md) define sua realização.
 
 ## 1. Propósito
 
@@ -75,7 +84,7 @@ CLI ausente: corrigir configuração e repetir. Quota ausente: mostrar desconhec
 
 ## 8. Desenvolvimento por tasks
 
-Cada RF gera tasks na etapa indicada do [plano](plano_desenvolvimento.md). Cada task deve conter ID, RF/RT relacionado, dependências, arquivos próprios, exemplo de entrada, saída esperada e teste negativo. O [PRD técnico](prd_tecnico.md) fornece a primeira decomposição implementável. RF não pode ser marcado concluído apenas porque sua documentação foi criada.
+Cada RF gera tasks na etapa indicada do [plano](../a_context/plano_desenvolvimento.md). Cada task deve conter ID, RF/RT relacionado, dependências, arquivos próprios, exemplo de entrada, saída esperada e teste negativo. O [PRD técnico](prd_tecnico.md) fornece a primeira decomposição implementável. RF não pode ser marcado concluído apenas porque sua documentação foi criada.
 
 ## 9. Exemplo de aceite
 
