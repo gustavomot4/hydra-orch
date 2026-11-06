@@ -4,6 +4,8 @@ Este diretório contém especificações formais, documentos de requisitos (PRDs
 
 ## Catálogo de Especificações
 
+Leitura para implementação: [PRD funcional](prd_funcional.md) → [PRD técnico e tasks](prd_tecnico.md) → [classes](diagrama_classe.md) e [MER](mer.md) → [plano de entregas](plano_desenvolvimento.md). Esses documentos descrevem o alvo proposto; o PRD unificado abaixo permanece como visão histórica.
+
 | Arquivo | Descrição |
 |---|---|
 | `taxonomia_file_system.md` | Norma oficial de organização do repositório, regra de singular e economia de tokens |

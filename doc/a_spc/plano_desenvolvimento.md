@@ -8,6 +8,8 @@
 
 ## 1. Purpose — propósito
 
+Detalhamento disponível: [PRD funcional](prd_funcional.md), [PRD técnico com tasks T01–T08](prd_tecnico.md), [diagrama de classes](diagrama_classe.md) e [MER](mer.md). A criação documental não conclui as etapas de implementação abaixo.
+
 Transformar o scaffold em um orquestrador local de engenharia com execução verificável. O primeiro incremento deve receber uma tarefa delimitada, executar um worker em worktree real, preservar seu resultado, executar checks e preparar integração revisável. Depois vêm DAG, concorrência, retomada, transportes adicionais e interface visual.
 
 Este documento é o plano mestre de elaboração de specs e entregas. [Contrato de execução](contrato_execucao.md) governa as entidades e [arquitetura](arquitetura_hydra_omniroute_ui.md) governa as fronteiras; [taxonomia](taxonomia_file_system.md) governa os caminhos. As decisões abaixo são propostas para concretizar essas fontes. O [contexto de investigação](CONTEXTO-ORQUESTRACAO.md) permanece como registro histórico, com sua própria base examinada.
