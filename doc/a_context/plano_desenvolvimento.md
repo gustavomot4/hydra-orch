@@ -19,13 +19,15 @@
 
 Detalhamento disponível: [PRD funcional](../b_spc/prd_funcional.md), [PRD técnico com tasks T01–T08](../b_spc/prd_tecnico.md), [diagrama de classes](../e_class/diagrama_classe.md) e [MER](../d_mer/mer.md). A criação documental não conclui as etapas de implementação abaixo.
 
-Transformar o scaffold em um orquestrador local de engenharia com execução verificável. O primeiro incremento deve receber uma tarefa delimitada, executar um worker em worktree real, preservar seu resultado, executar checks e preparar integração revisável. Depois vêm DAG, concorrência, retomada, transportes adicionais e interface visual.
+Transformar o scaffold em um Hydra que combine interface visual, control plane adaptativo e execução verificável de engenharia. O produto deve organizar áreas de trabalho, projetos e repositórios; conectar agentes, modelos, executores, skills e MCPs; apresentar filas, eventos, duração, tokens e custos com origem; e permitir que o usuário escolha ou revise perfis de execução. O primeiro incremento continua recebendo uma tarefa delimitada, executando um worker em worktree real, preservando o resultado, executando checks e preparando integração revisável.
+
+A interface é primeira classe como produto, mas não substitui o núcleo verificável nem decide aceite por conta própria: consome estado persistido e envia comandos explícitos. O OmniRouter permanece uma integração opcional de inferência, quota e fallback; o Hydra continua funcionando no modo direto. Memória adaptativa, discovery local, sessões multiagente, extensões e transportes remotos dependem de gates posteriores de segurança, proveniência, autorização e certificação.
 
 Este documento é o plano mestre de elaboração de specs e entregas. [Contrato de execução](../b_spc/contrato_execucao.md) governa as entidades e [arquitetura](../b_spc/arquitetura_hydra_omniroute_ui.md) governa as fronteiras; [taxonomia](../b_spc/taxonomia_file_system.md) governa os caminhos. As decisões abaixo são propostas para concretizar essas fontes. O [contexto de investigação](CONTEXTO-ORQUESTRACAO.md) permanece como registro histórico, com sua própria base examinada.
 
 ## 2. Why — avaliação de coerência
 
-A proposta faz sentido: separar coordenação de engenharia, inferência, execução de ferramentas e apresentação evita concentrar responsabilidades no gateway. SQLite, subprocessos, Git worktrees e FastAPI oferecem uma base adequada ao primeiro produto local. Não há necessidade demonstrada de microsserviços, barramento distribuído ou UI antes do fluxo verificável.
+A proposta faz sentido: separar coordenação de engenharia, inferência, execução de ferramentas, persistência e apresentação evita concentrar responsabilidades no gateway. SQLite, subprocessos, Git worktrees e FastAPI oferecem uma base adequada ao primeiro produto local. A UI é uma superfície prioritária do produto, mas só deve operar sobre contratos, read models e eventos persistidos; não deve antecipar ou simular o fluxo verificável.
 
 O repositório ainda não sustenta as promessas de execução autônoma completa, retomada exata ou integração segura. Há duas implementações de swarm, dois checkpoints e dois gerenciadores SSH, com configurações e responsabilidades diferentes. CLI e API usam `core/router.py`; a existência de `engine/` não significa que seus motores participem desses caminhos.
 
@@ -56,6 +58,8 @@ As constatações abaixo são de leitura estática, salvo validação explicitam
 
 P0 bloqueia uso do swarm como execução confiável. P1 bloqueia a primeira versão operacional. P2 orienta expansão e fidelidade de produto. Prioridade não significa que algum item foi corrigido nesta tarefa.
 
+A02, A03, A04, A05, A06, A07, A08, A11, A12, A14 e A18 também são dependências explícitas da nova visão: não há interface confiável sem estado persistido; não há seleção de agentes sem capabilities certificadas; não há discovery, memória ou extensões seguras sem proveniência, autorização, consentimento e revogação.
+
 ### 2.2. Inventário e destino dos arquivos existentes
 
 Os caminhos da tabela são relativos à raiz. Cada arquivo versionado da base está representado por nome ou conjunto explicitamente enumerado.
@@ -78,11 +82,11 @@ Os caminhos da tabela são relativos à raiz. Cada arquivo versionado da base es
 
 ### 3.1. Primeiro marco operacional (MVP)
 
-Um repositório local, um operador, uma tarefa por vez e um executor CLI selecionado explicitamente. A mesma aplicação atende CLI e API; modo direto funciona sem OmniRoute. Primeiro validar com subprocesso fake que altera um arquivo numa fixture; depois certificar um driver real, sem torná-lo dependência da suíte offline.
+Um repositório local, um operador, uma tarefa por vez e um executor CLI selecionado explicitamente continuam sendo o primeiro marco verificável. A mesma aplicação atende CLI e API; modo direto funciona sem OmniRoute. Primeiro validar com subprocesso fake que altera um arquivo numa fixture; depois certificar um driver real, sem torná-lo dependência da suíte offline.
 
-O MVP termina em resultado revisável com patch/checks e integração em branch dedicada. Publicar alterações no repositório alvo depende da política explícita daquele run; as permissões permanentes de desenvolvimento deste checkout não viram autorização global para o produto.
+O MVP termina em resultado revisável com patch/checks e integração em branch dedicada. Publicar alterações no repositório alvo depende da política explícita daquele run; as permissões permanentes de desenvolvimento deste checkout não viram autorização global para o produto. A UI pode acompanhar esse núcleo apenas como cliente de read models e comandos persistidos.
 
-Ficam para depois do MVP: planejamento livre por LLM, múltiplos workers, recuperação entre provedores, healing automático, SSH/CDP operacional e UI. A inferência existente pode continuar disponível como capacidade separada, com suas limitações declaradas.
+Ficam fora do MVP: planejamento livre por LLM, múltiplos workers, recuperação entre provedores, healing automático, memória adaptativa, discovery local, extensões, SSH/CDP operacional e coordenação multiagente ampla. A inferência existente pode continuar disponível como capacidade separada, com suas limitações declaradas.
 
 ### 3.2. Fronteiras e consolidação
 
@@ -97,6 +101,8 @@ serviço de aplicação em core
 ```
 
 Proposta: manter `core/router.py` como fachada de inferência e criar um serviço de run em `core/`. Não manter swarms independentes nem checkpoints concorrentes como fontes de verdade. Migrar consumidores e testes antes de retirar imports públicos legados. O compartilhamento de ambientes por symlink não integra o padrão inicial: worktree isola arquivos Git, mas não restringe ferramentas nem diretórios externos acessíveis ao processo.
+
+As superfícies futuras devem separar catálogo de agentes/executores, resolução de perfis, discovery, memória, sessões/threads, extensões e preferências visuais. Esses serviços não podem ativar recursos encontrados localmente por mera existência: origem, versão, capabilities, escopo, consentimento e autorização precisam ser persistidos antes do uso.
 
 Runtime canônico segue `.orchestrator/`, com subpastas singulares por run/tarefa/tentativa, worktrees em `.orchestrator/worktree/` e SQLite em `.orchestrator/checkpoints.sqlite`. Artefatos de saída ficam sob a execução ou `ws/b_output/`, sempre ignorados. Instalação fora do checkout precisa de diretório de estado explícito e raiz do projeto resolvida; não depender do `cwd` acidental do servidor. Migração de `.hydra/` deve ser explícita, preservar os dois schemas legados e jamais apagá-los automaticamente.
 
@@ -114,7 +120,7 @@ Expandir o contrato existente, com versão de schema e exemplos válidos/inváli
 | `HandoffCheckpoint` | instruções relevantes, objetivo, decisões, dependências, SHA/diff, ferramentas e seus efeitos, progresso persistido, pendências e âncora auxiliar |
 | Capacidade de executor/provedor | inferência, execução em workspace, ferramentas, retomada nativa, cancelamento, isolamento efetivo e quota observada com origem/data/frescor |
 
-Processo zero, declaração `DONE` e aceite são coisas diferentes. Tarefa de código exige diff atribuível ou justificativa verificável de ausência de mudança; tarefa de revisão pode entregar relatório/check sem patch. `simulated=true` nunca autoriza integração de produto. Quota desconhecida não recebe percentual inventado nem equivale a custo zero.
+Processo zero, declaração `DONE` e aceite são coisas diferentes. Tarefa de código exige diff atribuível ou justificativa verificável de ausência de mudança; tarefa de revisão pode entregar relatório/check sem patch. `simulated=true` nunca autoriza integração de produto. Quota desconhecida não recebe percentual inventado nem equivale a custo zero. Checkpoint descreve o estado de uma execução; memória adaptativa é persistência consentida entre sessões e possui escopo, retenção, revisão e revogação próprios.
 
 Definir estados terminais do run (sucesso, falha, cancelamento) e estados de espera/revisão, além das transições já propostas para processo/tarefa. Cancelamento e crash não devem deixar tarefa eternamente `running`. Uma tentativa rejeitada permanece auditável.
 
@@ -158,6 +164,20 @@ Cada linha exige spec revisável e uma entrega pequena, testada, antes da etapa 
 
 Ordem crítica: S00 → S01 → S02 → S03 → S04 → S05 → M1. Depois, S06 e S07 ampliam execução; S08 habilita roteamento informado; S10 precede UI. S09 e S12 só entram com seus gates. S13 começa pelo CI na primeira entrega e amadurece com cada capacidade. Não transformar essas etapas em promessa de quatro sprints: duração depende da certificação do primeiro executor e das falhas encontradas.
 
+### 5.1. Slices de produto e dependências
+
+Os slices abaixo organizam a visão de produto sem converter documentação em prova de implementação:
+
+| Slice | Escopo | Base e limite |
+| --- | --- | --- |
+| V0 — núcleo verificável | Projeto local, tarefa delimitada, executor CLI, worktree, diff, checks, revisão e integração | S00–S05/M1; RF01–RF08. É o caminho crítico e não depende de UI rica ou OmniRouter |
+| V1 — control plane visual | Read models de projetos, runs, tarefas, eventos, artefatos, diffs, revisão, cancelamento e reconexão por cursor | S10–S11; RF05–RF07, RF13, RF15. UI apenas consulta e envia comandos explícitos |
+| V2 — workspaces e perfis | Áreas de trabalho, projetos, múltiplos repositórios e perfis agente/modelo/executor/skills/MCP/memória | Depende de autorização e contratos persistentes; RF16–RF17 |
+| V3 — coordenação adaptativa | DAG, swarm, threads, retomada, roteamento, quota, custo e seleção adaptativa | S06–S09; RF09–RF12, RF18–RF20. Falhas e efeitos ambíguos continuam bloqueando aceite |
+| V4 — memória e extensibilidade controladas | Memória consentida, discovery local, plugins, personalização avançada, acessibilidade e transportes certificados | Só após gate de segurança/proveniência/consentimento; RF21–RF25 |
+
+Antes de V4, o gate deve comprovar autorização por área/projeto/repositório, consentimento para persistência, origem/hash/versão de itens descobertos, permissões mínimas, revogação e ausência de ativação automática de skills, MCPs, memórias ou plugins.
+
 ### 5.1. Primeira tarefa de desenvolvimento recomendada
 
 Elaborar S01 e corrigir configuração/roteamento antes de conectar qualquer swarm à CLI. Escopo: `config.py`, `config.yaml`, `.gitignore`, testes de config e resolução no router. Aceite: aliases resolvidos, campos desconhecidos diagnosticados, runtime alinhado, gateway disabled/required testados e ausência de provedor devolvendo erro estruturado. Sem worktrees, conexão paga, CDP ou alterações de autenticação nesse incremento.
@@ -173,6 +193,9 @@ Elaborar S01 e corrigir configuração/roteamento antes de conectar qualquer swa
 - Orçamento limita tentativas, tempo, concorrência e custo quando mensurável. Valor desconhecido não vira estimativa inventada.
 - Segredos não entram em eventos, prompts versionados ou artefatos publicados. API local não implica autorização irrestrita de browser/origem.
 - Nenhum modo infere sucesso de quantidade de texto, `exit_code=0`, quota presumida ou nome do modelo.
+- Discovery, memória e extensões exigem proveniência, autorização, consentimento quando aplicável e revogação auditável.
+- Preferências inferidas não substituem instrução explícita sem opt-in; cada run mantém snapshot reprodutível das preferências efetivas.
+- Acessibilidade inclui teclado, foco, labels, estados textuais, independência de cor, leitores de tela e redução de movimento; não é apenas uma opção visual.
 
 ## 7. Failure modes — riscos que a spec deve resolver
 
@@ -188,6 +211,10 @@ Elaborar S01 e corrigir configuração/roteamento antes de conectar qualquer swa
 | Stream cai após parcial ou costura altera indentação | Marcar incompleto, preservar bytes/offset, reconciliar antes de retransmitir; testes com linhas iguais, indentação diferente e corte no meio da linha |
 | Cliente desconecta ou repete comando | Run durável independente do HTTP; idempotência e replay por cursor, sem spawn duplicado |
 | Disco cheio/banco bloqueado/artefato ausente | Falha observável; não anunciar conclusão sem persistência; reconciliar artefato por hash e registrar recuperação |
+| Discovery encontra recurso não confiável, conflitante ou fora da raiz autorizada | Não ativar; exibir origem/hash/capabilities e exigir aprovação explícita; testar traversal, conflito de versão e revogação |
+| Memória contém segredo, PII ou preferência conflitante | Bloquear redação automática sem revisão; preservar auditoria, permitir correção/remoção e impedir vazamento entre escopos |
+| Sessão/thread perde conexão ou evento | Persistir sequência, reconciliar por cursor e deduplicar; não declarar conclusão por desconexão |
+| Extensão incompatível ou revogada | Impedir inicialização e novos efeitos; preservar evidência e permitir rollback para versão anterior |
 
 ## 8. How — execução e evidência
 
