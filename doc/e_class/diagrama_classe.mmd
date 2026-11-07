@@ -1,142 +1,643 @@
 classDiagram
+    %% NÚCLEO (V0) - ENTIDADES
     class Project {
         +str id
-        +str repo_root
+        +str canonical_root
+        +str name
+        +datetime created_at
+        +datetime updated_at
     }
     class RunSpec {
         +str schema_version
         +str id
-        +str base_sha
+        +str project_id
         +str objective
         +str mode
+        +str base_sha
+        +BudgetPolicy budget
+        +TaskSpec task_spec
+        +str profile_id?
+        +str idempotency_key
     }
-    class Budget {
-        +int max_attempts
-        +int max_wall_seconds
-        +int max_concurrency
+    class BudgetPolicy {
+        +float max_usd?
+        +int max_tokens_in?
+        +int max_tokens_out?
+        +int max_wall_seconds?
+        +float alert_threshold_pct
+        +str status
     }
     class TaskSpec {
         +str id
         +str objective
-        +str contract_hash
-        +list allowed_paths
-        +list acceptance_criteria
+        +List~CheckSpec~ acceptance_criteria
+        +List~str~ allowed_paths
+        +List~str~ dependencies
+        +int timeout_seconds
+        +int max_repair_attempts
+    }
+    class CheckSpec {
+        +str command
+        +str cwd?
+        +str description
     }
     class TaskAttempt {
         +str id
-        +str process_state
-        +str provider_session
+        +str task_id
+        +int ordinal
         +str executor_id
-        +str model
+        +str provider_model_json
+        +str provider_session?
+        +str process_status
+        +datetime started_at?
+        +datetime finished_at?
     }
     class Workspace {
         +str id
-        +str path
+        +str attempt_id
+        +str canonical_path
         +str base_sha
         +str branch
-        +str state
+        +str status
     }
     class TaskResult {
         +str id
-        +int exit_code
+        +str attempt_id
+        +int exit_code?
         +bool simulated
-        +str summary
         +str outcome
+        +str summary
+        +str patch_artifact_id?
+        +datetime created_at
     }
     class CheckResult {
         +str id
-        +str scope
+        +str result_id?
+        +str integration_id?
+        +str command_json
+        +str cwd
         +str tested_sha
         +int exit_code
+        +str output_artifact_id?
+        +datetime started_at
+        +datetime finished_at
     }
     class Artifact {
         +str id
+        +str run_id
+        +str attempt_id?
         +str relative_path
+        +str kind
         +str sha256
         +int size_bytes
+        +datetime created_at
     }
     class ReviewDecision {
+        +str id
+        +str result_id
+        +str actor
         +str decision
         +str reason
-        +str actor
         +int expected_revision
+        +datetime created_at
     }
     class Integration {
         +str id
+        +str run_id
+        +str workspace_path
         +str expected_base_sha
-        +str result_sha
-        +str state
+        +str result_sha?
+        +str status
+        +datetime created_at
     }
-    class RunEvent {
-        +int seq
-        +str type
-        +dict payload
+    class IntegrationItem {
+        +str integration_id
+        +str result_id
+        +int position
     }
     class HandoffCheckpoint {
         +str id
+        +str attempt_id
+        +str instructions_json
         +str git_sha
-        +dict context
-        +list tool_effects
+        +List~str~ diff_artifact_ids
+        +str tools_executed_json
+        +str partial_output_json?
+        +str next_step
+        +datetime created_at
     }
+    class RunEvent {
+        +str id
+        +str run_id
+        +int seq
+        +str task_id?
+        +str attempt_id?
+        +str type
+        +dict payload
+        +datetime created_at
+    }
+    class Command {
+        +str id
+        +str scope
+        +str idempotency_key
+        +str request_hash
+        +str run_id?
+        +str response_json?
+        +str status
+    }
+    class BudgetPolicyEntity {
+        +str id
+        +str run_id
+        +float max_usd?
+        +int max_tokens_in?
+        +int max_tokens_out?
+        +int max_wall_seconds?
+        +float alert_threshold_pct
+        +str status
+        +datetime created_at
+    }
+    class MetricSample {
+        +str id
+        +str run_id
+        +str scope
+        +str scope_id
+        +str kind
+        +float value?
+        +str unit
+        +str source
+        +datetime observed_at
+        +str status
+    }
+    class RouteDecision {
+        +str id
+        +str run_id
+        +str candidates_json
+        +str selected_route
+        +str reason
+        +str fallback_chain_json
+        +str decision_source
+        +datetime timestamp
+    }
+    class PRPackage {
+        +str id
+        +str run_id
+        +str pr_branch
+        +str description_markdown
+        +str commits_json
+        +str checks_summary_json
+        +str diff_summary_json
+        +str metrics_json
+        +datetime created_at
+    }
+    class ConflictReport {
+        +str id
+        +str integration_id
+        +str base_sha
+        +str ours_sha
+        +str theirs_sha
+        +str conflicted_files_json
+        +str resolution_options_json
+        +str status
+        +datetime created_at
+        +datetime resolved_at?
+    }
+
+    %% NÚCLEO - SERVIÇOS
     class RunService {
-        +submit(spec)
-        +cancel(run_id)
-        +review(result_id, revision)
-        +integrate(run_id)
+        +submit(spec) -> RunResponse
+        +cancel(run_id, scope) -> CancelResponse
+        +review(result_id, revision, decision) -> ReviewResponse
+        +integrate(run_id, force) -> IntegrateResponse
+        +retry(task_id) -> RetryResponse
+        +get_run(run_id) -> RunDetail
+        +get_events(run_id, from_seq) -> List~RunEvent~
     }
     class Scheduler {
-        +validate_dag(tasks)
-        +next_ready(run_id)
+        +validate_dag(tasks) -> ValidationResult
+        +next_ready(run_id) -> List~Task~
+        +acquire_semaphore(task_id) -> bool
+        +release_semaphore(task_id)
     }
     class ExecutionStore {
         <<interface>>
         +save_transition(state, event)
         +events_after(run_id, seq)
+        +get_run(run_id)
+        +get_task(task_id)
     }
     class AgentExecutor {
         <<interface>>
-        +capabilities()
-        +execute(task, workspace)
-        +cancel(attempt_id)
+        +capabilities() -> CapabilityDeclaration
+        +execute(task, workspace) -> ExecutionResult
+        +cancel(attempt_id) -> CancelResult
     }
     class CliExecutor {
-        +execute(task, workspace)
-        +cancel(attempt_id)
+        +execute(task, workspace) -> ExecutionResult
+        +cancel(attempt_id) -> CancelResult
+    }
+    class SshExecutor {
+        +execute(task, workspace) -> ExecutionResult
+        +cancel(attempt_id) -> CancelResult
     }
     class InferenceProvider {
         <<interface>>
-        +generate_stream(messages)
+        +generate_stream(messages) -> AsyncGenerator~Chunk~
+        +get_capabilities() -> ProviderCapabilities
     }
     class GitWorkspaceService {
-        +create(base_sha)
-        +capture_diff(workspace)
-        +integrate(results)
-        +cleanup(workspace)
+        +create_worktree(base_sha, path) -> Workspace
+        +capture_diff(workspace) -> Artifact
+        +integrate(results, target_branch) -> IntegrationResult
+        +cleanup(workspace, preserve)
+        +resolve_conflicts(workspace) -> ConflictReport
     }
     class ValidationService {
-        +check_scope(result)
-        +run_checks(workspace)
-        +evaluate_acceptance(result)
+        +check_scope(result, allowed_paths) -> ScopeCheckResult
+        +run_checks(workspace, checks) -> List~CheckResult~
+        +evaluate_acceptance(result, criteria) -> AcceptanceResult
     }
+    class HealerEngine {
+        +extract_failure(check, workspace) -> FailureContext
+        +build_repair_prompt(failure, original_patch) -> str
+        +apply_repair(attempt, repair_patch) -> RepairResult
+        +check_repair_budget(attempt) -> bool
+    }
+
+    %% RELACIONAMENTOS NÚCLEO
     Project "1" --> "0..*" RunSpec : possui
-    RunSpec "1" *-- "1" Budget
-    RunSpec "1" *-- "1..*" TaskSpec
+    RunSpec "1" *-- "1" BudgetPolicy
+    RunSpec "1" *-- "1" TaskSpec
     TaskSpec "0..*" --> "0..*" TaskSpec : depende de
     TaskSpec "1" --> "0..*" TaskAttempt
     TaskAttempt "1" --> "0..1" Workspace
     TaskAttempt "1" --> "0..1" TaskResult
     TaskAttempt "1" --> "0..*" HandoffCheckpoint
+    TaskAttempt "1" --> "0..1" BudgetPolicyEntity
     TaskResult "1" --> "0..*" CheckResult
     TaskResult "1" --> "0..*" Artifact
     TaskResult "1" --> "0..*" ReviewDecision
     Integration "0..*" --> "1..*" TaskResult : inclui aceitos
     Integration "1" --> "0..*" CheckResult
+    Integration "1" --> "0..*" IntegrationItem
     RunSpec "1" --> "0..*" Integration
     RunSpec "1" --> "0..*" RunEvent
+    RunSpec "1" --> "0..*" MetricSample
+    RunSpec "1" --> "0..*" RouteDecision
+    RunSpec "1" --> "0..1" PRPackage
+    RunSpec "1" --> "0..1" BudgetPolicyEntity
+    Integration "1" --> "0..1" ConflictReport
     AgentExecutor <|.. CliExecutor
+    AgentExecutor <|.. SshExecutor
     RunService --> ExecutionStore
     RunService --> Scheduler
     RunService --> AgentExecutor
     RunService --> GitWorkspaceService
     RunService --> ValidationService
+    RunService --> HealerEngine
     Scheduler ..> InferenceProvider : planejamento opcional
+
+    %% EXPANSÃO (V1-V4) - ENTIDADES
+    class Area {
+        +str id
+        +str name
+        +str description
+        +str owner_principal_id
+        +datetime created_at
+    }
+    class WorkspaceExp {
+        +str id
+        +str area_id
+        +str name
+        +str status
+        +datetime created_at
+        +datetime updated_at
+    }
+    class ProjectExp {
+        +str id
+        +str workspace_id
+        +str name
+        +dict metadata
+        +str canonical_root
+        +str base_branch
+        +str base_sha
+        +datetime created_at
+        +datetime updated_at
+    }
+    class Repository {
+        +str id
+        +str project_id
+        +str root_canonical
+        +str base_branch
+        +str base_sha
+        +List~str~ allowed_paths
+        +str authorization_id
+        +datetime created_at
+        +datetime updated_at
+    }
+    class Authorization {
+        +str id
+        +str resource_ref
+        +str principal_id
+        +dict scopes
+        +datetime granted_at
+        +datetime revoked_at?
+    }
+    class AgentDefinition {
+        +str id
+        +str name
+        +str version
+        +str driver_type
+        +dict declared_capabilities
+        +dict limitations
+        +bool is_certified
+        +datetime created_at
+    }
+    class CapabilityDeclaration {
+        +str id
+        +str agent_definition_id
+        +str name
+        +str version
+        +bool supports_tools
+        +bool supports_workspace
+        +bool supports_cancellation
+        +bool supports_streaming
+        +str certified_on
+    }
+    class Profile {
+        +str id
+        +str name
+        +str agent_ref
+        +str model_ref
+        +str executor_ref
+        +List~str~ skills_refs
+        +List~str~ mcp_refs
+        +dict memory_policy
+        +dict resource_limits
+        +str orchestration_mode
+        +datetime created_at
+        +datetime updated_at
+    }
+    class ProfileSnapshot {
+        +str id
+        +str profile_id
+        +str snapshot_hash
+        +str effective_config_json
+        +datetime created_at
+    }
+    class SkillDefinition {
+        +str id
+        +str name
+        +str version
+        +str manifest_ref
+        +dict permissions_declared
+        +str checksum
+        +datetime created_at
+    }
+    class McpDefinition {
+        +str id
+        +str server_name
+        +str transport_type
+        +str endpoint
+        +str secret_ref
+        +dict declared_tools
+        +dict permissions
+        +datetime created_at
+    }
+    class SecretRef {
+        +str id
+        +str secret_name
+        +str provider_type
+        +str source_key
+    }
+    class ExtensionManifest {
+        +str id
+        +str name
+        +str version
+        +str entrypoint
+        +dict permissions_required
+        +str compatible_api_version
+        +str checksum
+        +datetime created_at
+    }
+    class ExtensionInstall {
+        +str id
+        +str extension_manifest_id
+        +str status
+        +str consent_record_id
+        +datetime installed_at
+        +datetime revoked_at?
+    }
+    class Session {
+        +str id
+        +str run_id?
+        +str origin_ref
+        +str agent_ref
+        +str state
+        +datetime created_at
+        +datetime closed_at?
+    }
+    class Thread {
+        +str id
+        +str session_id
+        +str parent_thread_id?
+        +str agent_ref
+        +str state
+        +int last_seq
+        +datetime created_at
+    }
+    class MemoryEntry {
+        +str id
+        +str scope_type
+        +str scope_id
+        +str content_redacted
+        +str author_ref
+        +str consent_id
+        +int version
+        +str retention_policy_id
+        +str status
+        +datetime created_at
+        +datetime expires_at?
+    }
+    class ConsentRecord {
+        +str id
+        +str principal_id
+        +str purpose
+        +str scope
+        +datetime granted_at
+        +datetime revoked_at?
+    }
+    class DiscoveredResource {
+        +str id
+        +str resource_type
+        +str source_canonical_path
+        +str content_hash
+        +dict capabilities
+        +str trust_status
+        +datetime discovered_at
+        +datetime approved_at?
+        +str approved_by?
+    }
+    class Preference {
+        +str id
+        +str scope_type
+        +str scope_id
+        +str key
+        +dict value_json
+        +str source
+        +int version
+        +datetime created_at
+        +datetime updated_at
+    }
+    class PreferenceSnapshot {
+        +str id
+        +str run_id
+        +str preferences_hash
+        +str resolved_preferences_json
+        +datetime created_at
+    }
+    class TransportDefinition {
+        +str id
+        +str type
+        +str target_identity
+        +dict capabilities
+        +bool is_certified
+        +datetime created_at
+    }
+    class TransportHealth {
+        +str id
+        +str transport_id
+        +str status
+        +datetime last_check_at
+        +str error_detail?
+    }
+    class AccessToken {
+        +str id
+        +str token_hash
+        +str principal_id
+        +dict scopes
+        +datetime expires_at
+        +datetime revoked_at?
+    }
+
+    %% EXPANSÃO - SERVIÇOS
+    class WorkspaceRegistry {
+        +create_area(area) -> Area
+        +create_workspace(ws) -> WorkspaceExp
+        +create_project(proj) -> ProjectExp
+        +register_repository(repo) -> Repository
+        +get_authorization(resource, principal) -> Authorization?
+        +resolve_canonical_root(project_id) -> str
+    }
+    class AgentRegistry {
+        +register_agent(def) -> AgentDefinition
+        +resolve_capabilities(profile) -> EffectiveCapabilities
+        +get_certified_agents() -> List~AgentDefinition~
+        +validate_driver(driver_type, os) -> bool
+    }
+    class ProfileService {
+        +create_profile(profile) -> Profile
+        +validate(profile) -> ValidationResult
+        +snapshot(profile_id, run_id) -> ProfileSnapshot
+        +resolve_effective(profile_id) -> EffectiveConfig
+    }
+    class SessionService {
+        +create_session(run_id, origin, agent) -> Session
+        +create_thread(session_id, parent_id, agent) -> Thread
+        +emit_event(session_id, event)
+        +get_events(session_id, from_seq) -> List~SessionEvent~
+        +close_session(session_id)
+    }
+    class MetricsService {
+        +record(sample)
+        +query(run_id, scope, scope_id) -> List~MetricSample~
+        +aggregate(run_id, kind) -> AggregatedMetric
+    }
+    class RouteSelector {
+        +select(request, candidates, policy) -> RouteDecision
+    }
+    class DirectSelector {
+        +select(...) -> RouteDecision
+    }
+    class OmniRouteSelector {
+        +select(...) -> RouteDecision
+    }
+    class ConsentService {
+        +request(purpose, scope) -> ConsentRequest
+        +grant(consent_id) -> ConsentRecord
+        +revoke(consent_id) -> RevocationResult
+        +is_active(consent_id) -> bool
+    }
+    class MemoryStore {
+        +store(entry, consent_id) -> MemoryEntry
+        +query(scope_type, scope_id, query) -> List~MemoryEntry~
+        +revoke(memory_id) -> Result
+        +expire_old(retention_policy) -> int
+    }
+    class DiscoveryService {
+        +scan(authorized_root) -> List~DiscoveredResource~
+        +approve(discovery_id, actor) -> DiscoveredResource
+        +reject(discovery_id, actor) -> DiscoveredResource
+        +watch_hash_changes()
+    }
+    class ExtensionHost {
+        +install(manifest, consent) -> ExtensionInstall
+        +execute(install_id, call) -> CallResult
+        +revoke(install_id) -> Result
+        +rollback(install_id) -> Result
+    }
+    class TransportRegistry {
+        +register(transport) -> TransportDefinition
+        +check_health(transport_id) -> TransportHealth
+        +assert_target(target_identity) -> TargetValidation
+    }
+    class AuthPolicy {
+        +authorize(token_hash, scope, resource) -> AuthorizationDecision
+        +issue_token(principal, scopes) -> AccessToken
+        +revoke_token(token_id) -> RevocationResult
+    }
+    class Redactor {
+        +redact_payload(data) -> dict
+        +redact_log(line) -> str
+        +redact_artifact(content) -> bytes
+    }
+    class BudgetGovernor {
+        +check(run_id) -> BudgetStatus
+        +alert(run_id) -> AlertResult
+        +extend(run_id, additional_usd) -> ExtensionResult
+        +freeze(run_id) -> FreezeResult
+    }
+    class ConflictResolver {
+        +analyze(integration_id) -> ConflictReport
+        +auto_repair(conflict_id) -> RepairResult
+        +manual_resolve(conflict_id, resolution) -> ResolutionResult
+        +discard(conflict_id) -> DiscardResult
+    }
+    class PRPackager {
+        +build(run_id) -> PRPackage
+        +publish(package_id) -> PublishResult
+        +export(package_id) -> ExportResult
+    }
+
+    %% RELACIONAMENTOS EXPANSÃO
+    Area "1" --> "0..*" WorkspaceExp : contem
+    WorkspaceExp "1" --> "0..*" ProjectExp : agrega
+    ProjectExp "1" --> "0..*" Repository : referencia
+    Repository "1" --> "0..1" Authorization : autoriza
+    Area "1" --> "0..*" Authorization : concede
+    AgentDefinition "1" --> "0..*" CapabilityDeclaration : declara
+    Profile "1" --> "0..1" ProfileSnapshot : snapshot
+    Profile "0..*" --> "0..*" SkillDefinition : inclui
+    Profile "0..*" --> "0..*" McpDefinition : inclui
+    Profile "1" --> "0..1" BudgetPolicyEntity : define
+    RunSpec "1" --> "0..*" Session : inicia
+    Session "1" --> "0..*" Thread : ramifica
+    Thread "0..1" --> "0..*" Thread : pai_filho
+    Session "1" --> "0..*" RunEvent : registra
+    MemoryEntry "1" --> "1" ConsentRecord : requer
+    DiscoveredResource "0..1" --> "0..1" SkillDefinition : origina
+    DiscoveredResource "0..1" --> "0..1" McpDefinition : origina
+    ExtensionManifest "1" --> "0..*" ExtensionInstall : instala
+    ExtensionInstall "1" --> "1" ConsentRecord : requer
+    TransportDefinition "1" --> "0..*" TransportHealth : monitora
+    AccessToken "0..*" --> "0..*" ConsentRecord : escopo
+    Integration "1" --> "0..1" ConflictReport : resolve

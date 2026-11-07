@@ -2,81 +2,123 @@
 
 **Identificador Formal:** `prd_tecnico.md`
 **Caminho Canônico:** `doc/b_spc/prd_tecnico.md`
-**Versão:** `v01_01_0000`
+**Versão:** `v01_02_0000`
 **Status:** `PROPOSTO / EM DESENVOLVIMENTO`
 **Autoridade:** Arquitetura do hydra-orch, complementando `prd_funcional.md`, `contrato_execucao.md` e [`plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md).
-**Escopo:** Requisitos técnicos (RT01 a RT25), contratos de serviço, máquinas de estado, API REST, critérios negativos e tasks T01 a T24.
+**Escopo:** Requisitos técnicos (RT01 a RT30), requisitos não-funcionais (RNF01 a RNF10), contratos de serviço, máquinas de estado, API REST, algoritmos centrais, critérios negativos e tasks T01 a T28.
 
 ---
 
-Status: arquitetura alvo proposta, sem alegação de implementação. RT01–RT12 e T01–T08 cobrem o núcleo inicial; RT13–RT25 e T09–T24 cobrem a expansão proposta (áreas, perfis, sessões, observabilidade, memória, discovery, extensões e acessibilidade) e permanecem não implementados. Complementa o [PRD funcional](prd_funcional.md), o [contrato](contrato_execucao.md) e o [plano](../a_context/plano_desenvolvimento.md). Modelagem: [classes](../e_class/diagrama_classe.md) e [MER](../d_mer/mer.md), a serem atualizados em etapa documental própria.
+Status: arquitetura alvo proposta, sem alegação de implementação. RT01–RT12 e T01–T08 cobrem o núcleo inicial; RT13–RT30 e T09–T28 cobrem a expansão proposta (áreas, perfis, sessões, observabilidade, memória, discovery, extensões, acessibilidade, transportes, modos de orquestração, HITL, resolução de conflitos, budgeting, empacotamento PR) e permanecem não implementados. Complementa o [PRD funcional](prd_funcional.md), o [contrato](contrato_execucao.md) e o [plano](../a_context/plano_desenvolvimento.md). Modelagem: [classes](../e_class/diagrama_classe.md) e [MER](../d_mer/mer.md), a serem atualizados em etapa documental própria.
 
 ## 1. Propósito
 
-Implementar execução verificável local com contratos tipados, estado durável, drivers explícitos, isolamento Git e integração validada, preservando o proxy de inferência.
+Implementar execução verificável local com contratos tipados, estado durável, drivers explícitos, isolamento Git e integração validada, preservando o proxy de inferência. Suportar três modos de orquestração — **Swarm** (paralelo com worktrees), **Relay** (handoff estruturado entre provedores) e **Persistente** (auto-resume por janela de cota) — com seleção explícita e transições governadas por políticas.
 
-A expansão técnica detalha a infraestrutura necessária para suportar interface visual de primeira classe, gestão de áreas de trabalho e repositórios múltiplos, catálogo e perfis de agentes (incluindo Claude Code, OpenCode e Codex como integrações propostas não certificadas), sessões e threads multiagente com SSE replay, métricas com unknown/stale explícitos, seleção adaptativa com OmniRouter opcional, memória consentida separada de checkpoints, discovery local controlado, plugins isolados e acessibilidade verificável, sempre mantendo o núcleo de execução verificável isolado de saídas textuais não comprovadas.
+A expansão técnica detalha a infraestrutura necessária para suportar interface visual de primeira classe, gestão de áreas de trabalho e repositórios múltiplos, catálogo e perfis de agentes (incluindo Claude Code, OpenCode e Codex como integrações propostas não certificadas), sessões e threads multiagente com SSE replay, métricas com unknown/stale explícitos, seleção adaptativa com OmniRouter opcional, memória consentida separada de checkpoints, discovery local controlado, plugins isolados, acessibilidade verificável, transportes certificados, interação humano-no-loop, resolução assistida de conflitos, governança de orçamento e empacotamento de entrega — sempre mantendo o núcleo de execução verificável isolado de saídas textuais não comprovadas.
 
 ## 2. Justificativa
 
 Consolidar os caminhos duplicados de core/engine e remover sucesso fabricado. FastAPI/CLI são entradas do mesmo serviço de aplicação; engines definem estratégia; bridges executam transporte; adapters fornecem inferência. SQLite atende o primeiro operador local; não há necessidade atual de banco distribuído.
 
-A arquitetura proposta separa claramente os serviços de control plane (áreas, repositórios, catálogo, perfis, sessões, métricas, memória, discovery e extensões) da execução em workspace e da inferência de modelo. O OmniRouter continua sendo camada opcional de roteamento; o banco relacional SQLite local permanece a base transacional, sem introdução de brokers distribuídos desnecessários.
+A arquitetura proposta separa claramente os serviços de control plane (áreas, repositórios, catálogo, perfis, sessões, métricas, memória, discovery, extensões, orçamento, conflitos, empacotamento) da execução em workspace e da inferência de modelo. O OmniRouter continua sendo camada opcional de roteamento; o banco relacional SQLite local permanece a base transacional, sem introdução de brokers distribuídos desnecessários.
 
 ## 3. Contrato técnico
 
+### 3.1 Requisitos Técnicos — Núcleo (RT01 a RT12)
+
 | ID | Obrigação | Verificação |
-| --- | --- | --- |
-| RT01 | Config tipada resolve alias → executor/provedor/modelo; rejeita desconhecidos; referências de segredo externas | Config inválida não inicia subprocesso; modo direto sem gateway |
-| RT02 | RunSpec/TaskSpec versionados e imutáveis por tentativa; estados separados de processo, tarefa e integração | Validação Pydantic e tabela de transições |
-| RT03 | Estado e evento na mesma transação; sequência única por run; idempotência de comandos | Concorrência/restart não duplicam run nem evento lógico |
-| RT04 | Executor usa argv específico, cwd resolvido, env filtrado, timeout e cancelamento de árvore | Fake subprocesso e descendente terminam; CLI ausente falha |
-| RT05 | Git opera em SHA fixo e worktrees reais; integração serializada por projeto | Falha de Git não cria diretório substituto; conflito preserva worktree |
-| RT06 | Check registra comando, cwd, SHA, tempo, exit code e saída como artefato | Check ausente/falho bloqueia aceite; combinação é testada novamente |
-| RT07 | Scheduler valida DAG, ownership e limite de concorrência | Ciclo recusado; dependente não executa cedo |
-| RT08 | Handoff carrega instruções, SHA/diff e efeitos; repetição cria tentativa | Crash depois de efeito exige reconciliação, sem promessa de exactly-once externo |
-| RT09 | Gateway distingue disabled/optional/required, quota observed/stale/unknown | HTTP simulado cobre offline, 429 e erro de autenticação |
-| RT10 | API autoriza comandos locais, restringe origens e caminhos; UI usa contrato comum | Origem/token inválidos e traversal recusados |
-| RT11 | Artefatos com hash, tamanho e caminho relativo; retenção explícita | Artefato ausente ou adulterado bloqueia integração |
-| RT12 | CI offline e certificação real por driver/SO separadas | Suíte não exige conta, GPU ou localhost externo |
-| RT13 | Hierarquia Area → Workspace → Project → Repository com raiz canônica, branch, SHA base, escopo de arquivos e autorização explícita | Recusa de repositório fora da allowlist, de symlink externo à raiz e de repositório sem concessão válida de autorização; proposto/não implementado |
-| RT14 | Catálogo de agentes, executores e capabilities com proveniência e certificação por driver/SO; Claude Code, OpenCode e Codex propostos como não certificados | Capability ausente falha antes do spawn; driver não certificado bloqueado em modo produto; ausência de CLI é erro; proposto/não implementado |
-| RT15 | Perfis de execução e combos combináveis com validação pré-execução e snapshot imutável com hash por run | Combinação incompatível falha antes de processo; alteração posterior de perfil não afeta runs já iniciados; proposto/não implementado |
-| RT16 | Sessões, threads e eventos duráveis com sequência monotônica, relação pai/filho e SSE com cursor Last-Event-ID, replay e deduplicação | Queda de conexão não perde nem duplica eventos; cursor expirado retorna erro explícito; visibilidade de thread não implica swarm; proposto/não implementado |
-| RT17 | Métricas operacionais vinculadas a run/attempt/session com valor, unidade, fonte, timestamp e status observed/stale/unknown | Ausência de dado vira unknown (nunca zero nem 100%); agregações com parcelas desconhecidas são sinalizadas como parciais; proposto/não implementado |
-| RT18 | Roteamento adaptativo com registro auditável de candidatos, critérios, capabilities, fallback e origem da decisão; OmniRouter opcional | Modo direto opera sem gateway; decisão é reproduzível e auditável; candidato inelegível nunca é selecionado; proposto/não implementado |
-| RT19 | Memória adaptativa consentida com escopo, autor, versão, retenção e revogação, estritamente separada de checkpoints de execução | Gravação sem ConsentRecord recusada; revogação bloqueia novos runs; checkpoints técnicos nunca alimentam memória automaticamente; proposto/não implementado |
-| RT20 | Discovery local opt-in restrito a raízes autorizadas, com proveniência, hash e aprovação explícita antes de ativação | Recurso fora da raiz, com hash modificado ou capability desconhecida permanece untrusted; ativação automática proibida; proposto/não implementado |
-| RT21 | Skills, MCPs e segredos gerenciados por referências externas; permissões declaradas e env filtrado no spawn | Valor bruto de segredo ausente de perfis, eventos, prompts, memória e artefatos; MCP sem permissão não inicia; proposto/não implementado |
-| RT22 | Extensões e plugins com manifesto versionado, processo isolado, consentimento, revogação e rollback | Manifesto incompatível não inicia; revogação bloqueia novos efeitos; sem acesso ao banco core ou segredos não autorizados; proposto/não implementado |
-| RT23 | Acessibilidade verificável e preferências reversíveis com snapshot por run | UI operável por teclado, com foco visível, roles semânticos, estados textuais e contraste; reversão restaura estado prévio; proposto/não implementado |
-| RT24 | Transportes locais/remotos certificados com alvo, identidade, healthcheck e falhas tipadas | Alvo incorreto ou chave de host alterada falham de forma observável; sessões concorrentes isoladas; mock não substitui certificação; proposto/não implementado |
-| RT25 | Segurança transversal com autenticação local obrigatória, CORS com allowlist estrita e central de redaction | Origem não autorizada, CORS wildcard com credenciais, token inválido e path traversal em artefatos são recusados; proposto/não implementado |
+|----|-----------|-------------|
+| **RT01** | Config tipada resolve alias → executor/provedor/modelo; rejeita desconhecidos; referências de segredo externas | Config inválida não inicia subprocesso; modo direto sem gateway; aliases mapeados em `config.yaml` |
+| **RT02** | RunSpec/TaskSpec versionados e imutáveis por tentativa; estados separados de processo, tarefa e integração | Validação Pydantic (`model.py`) e tabela de transições; `schema_version` em todo spec |
+| **RT03** | Estado e evento na mesma transação; sequência única por run; idempotência de comandos | Concorrência/restart não duplicam run nem evento lógico; chave `Idempotency-Key` + hash do payload |
+| **RT04** | Executor usa argv específico, cwd resolvido, env filtrado, timeout e cancelamento de árvore | Fake subprocess só em dry-run; CLI ausente → erro `executor_unavailable`; tree kill verificado no SO |
+| **RT05** | Git opera em SHA fixo e worktrees reais; integração serializada por projeto | Falha de Git não cria diretório substituto; conflito preserva worktree; `git worktree add` real |
+| **RT06** | Check registra comando, cwd, SHA, tempo, exit code e saída como artefato | Check ausente/falho bloqueia aceite; combinação é testada novamente; artefato com hash SHA-256 |
+| **RT07** | Scheduler valida DAG, ownership e limite de concorrência (`max_parallel_worktrees`) | Ciclo recusado (Kahn/DFS); dependente não executa cedo; semáforo assíncrono controla paralelismo |
+| **RT08** | Handoff carrega instruções, SHA/diff e efeitos; repetição cria tentativa | Crash depois de efeito exige reconciliação; `HandoffCheckpoint` estruturado; sem exactly-once externo |
+| **RT09** | Gateway distingue disabled/optional/required; quota `observed`/`stale`/`unknown` | HTTP simulado cobre offline, 429, erro auth; circuit breaker; fallback de rotas |
+| **RT10** | API autoriza comandos locais, restringe origens e caminhos; UI usa contrato comum | Token local obrigatório; CORS allowlist estrita; path traversal recusado; redaction em eventos |
+| **RT11** | Artefatos com hash, tamanho e caminho relativo; retenção explícita | Artefato ausente ou adulterado bloqueia integração; gravação atômica (temp → final → ref) |
+| **RT12** | CI offline e certificação real por driver/SO separadas | Suíte não exige conta, GPU ou localhost externo; driver real certificado em etapa separada |
 
-### Serviços e módulos
+### 3.2 Requisitos Técnicos — Expansão (RT13 a RT30)
 
-`core/run_service.py` (proposto) coordena run/revisão/cancelamento; `core/checkpointer.py` torna-se persistência canônica; `core/git_workspace.py` concentra Git. `engine/swarm.py` e `engine/relay.py` recebem serviços injetados; `engine/healer.py` cria tentativa de reparo real. `bridge/worker_runner.py` implementa a interface AgentExecutor por drivers. `bridge/ssh_tunnel.py` é o único gestor SSH. `core/router.py` permanece fachada de inferência.
+| ID | Obrigação | Verificação |
+|----|-----------|-------------|
+| **RT13** | Hierarquia Area → Workspace → Project → Repository com raiz canônica, branch, SHA base, escopo de arquivos e autorização explícita | Recusa repositório fora da allowlist, symlink externo à raiz, repo sem concessão válida; FKs e constraints |
+| **RT14** | Catálogo de agentes, executores e capabilities com proveniência e certificação por driver/SO; Claude Code, OpenCode, Codex propostos como não certificados | Capability ausente falha antes do spawn; driver não certificado bloqueado em modo produto; ausência de CLI é erro |
+| **RT15** | Perfis de execução e combos combináveis com validação pré-execução e snapshot imutável com hash por run | Combinação incompatível falha antes de processo (422); alteração posterior não afeta runs em andamento; `ProfileSnapshot` com hash |
+| **RT16** | Sessões, threads e eventos duráveis com sequência monotônica, relação pai/filho e SSE com cursor Last-Event-ID, replay e deduplicação | Queda de conexão não perde nem duplica eventos; cursor expirado → 410; visibilidade de thread não implica swarm |
+| **RT17** | Métricas operacionais vinculadas a run/attempt/session com valor, unidade, fonte, timestamp e status observed/stale/unknown | Ausência de dado → `unknown` (nunca zero); agregações com parcelas desconhecidas → sinalizadas como parciais |
+| **RT18** | Roteamento adaptativo com registro auditável de candidatos, critérios, capabilities, fallback e origem da decisão; OmniRouter opcional | Modo direto opera sem gateway; decisão reproduzível e auditável (`RouteDecision`); candidato inelegível nunca selecionado |
+| **RT19** | Memória adaptativa consentida com escopo, autor, versão, retenção e revogação, estritamente separada de checkpoints de execução | Gravação sem ConsentRecord → 409; revogação bloqueia novos runs; checkpoints nunca alimentam memória automaticamente |
+| **RT20** | Discovery local opt-in restrito a raízes autorizadas, com proveniência, hash e aprovação explícita antes de ativação | Recurso fora da raiz, hash modificado ou capability desconhecida → `untrusted`; ativação automática proibida |
+| **RT21** | Skills, MCPs e segredos gerenciados por referências externas; permissões declaradas e env filtrado no spawn | Valor bruto de segredo ausente de perfis, eventos, prompts, memória, artefatos; MCP sem permissão não inicia |
+| **RT22** | Extensões e plugins com manifesto versionado, processo isolado, consentimento, revogação e rollback | Manifesto incompatível não inicia; revogação bloqueia novos efeitos; sem acesso a DB core ou segredos não autorizados |
+| **RT23** | Acessibilidade verificável e preferências reversíveis com snapshot por run | UI: teclado, foco visível, roles semânticos, estados textuais, contraste WCAG AA, redução de movimento; reversão restaura prévio |
+| **RT24** | Transportes locais/remotos certificados com alvo, identidade, healthcheck e falhas tipadas | Alvo incorreto ou host key SSH divergente falha observavelmente; sessões concorrentes isoladas; mock não substitui certificação |
+| **RT25** | Segurança transversal: autenticação local obrigatória, CORS allowlist estrita, central de redaction | Origem não autorizada, CORS wildcard com credenciais, token inválido, path traversal → recusados; PBKDF2/Argon2 para tokens |
+| **RT26** | Orquestração por modo: Swarm (DAG + worktrees paralelas + merge serializado), Relay (handoff checkpoint entre provedores), Persistente (pausa/retomada automática por janela de cota) | Modo imutável por run (ProfileSnapshot); Swarm valida DAG + semáforo; Relay carrega HandoffCheckpoint; Persistente monitora `window_reset_at` |
+| **RT27** | HITL (Humano-no-Loop): pausa intermediária `needs_context` / `needs_approval` com timeout configurável, notificação SSE/UI, retomada com resposta do operador | Evento emitido; operador responde via API; timeout → `failed` + `hitl_timeout`; evidência preservada; resposta injetada no contexto |
+| **RT28** | Resolução assistida de conflitos de merge: relatório 3-way, opções (reparo automático por agente, descarte, resolução manual), worktree preservada | Conflito → `conflicted` + relatório; opção reparo cria `TaskAttempt` `merge_repair` com orçamento próprio; merge só após checks |
+| **RT29** | Governança de orçamento: teto USD/tokens/tempo por run; alerta 80%, congelamento 100% com solicitação de extensão ao operador | `unknown` não vira zero nem bloqueia; aprovação estende orçamento; recusa → `budget_exhausted`; métricas com proveniência |
+| **RT30** | Empacotamento de entrega: criação automática de branch PR no remote (quando autorizado) com descrição estruturada (objetivo, commits, checks, diff, métricas, decisões) | Descrição padrão gerada; exportação redigida; autorização de publicação separada da execução; dossier auditável |
 
-Módulos propostos da expansão (em `src/hydra_orch/`): `core/workspace_registry.py` (áreas, projetos e repositórios), `core/agent_registry.py` (catálogo e capabilities), `core/profile_service.py` (combos e snapshots), `core/session_service.py` (sessões e threads), `core/metrics.py` (observabilidade e métricas operacionais), `core/route_selector.py` (seleção adaptativa), `core/memory_store.py` e `core/consent.py` (memória e consentimento, sem importar checkpointer), `core/discovery.py` (varredura local controlada), `core/extension_host.py` (ciclo de vida de plugins), `core/auth.py` e `core/redaction.py` (segurança e sanitização) e `bridge/transport_registry.py` (gestão de transportes certificados).
+---
 
-Migrar os consumidores antes de remover `core/swarm.py`, `core/ssh_tunnel.py` e duplicação de `engine/checkpointer.py`; preservar imports temporariamente com wrappers e teste de compatibilidade. Não ligar a engine atual diretamente à API sem corrigir gates.
+### 3.3 Serviços e módulos
 
-### 3.A. Entidades, estados e interfaces da expansão (proposto)
+**Núcleo (existentes/propostos):**
+- `core/run_service.py` — coordena run/revisão/cancelamento
+- `core/checkpointer.py` — persistência canônica (SQLite WAL)
+- `core/git_workspace.py` — operações Git centralizadas (worktree, diff, merge, checkout)
+- `engine/swarm.py` — estratégia Swarm (DAG, scheduler, despacho paralelo)
+- `engine/relay.py` — estratégia Relay (handoff, checkpoint, seleção fallback)
+- `engine/healer.py` — auto-healing real (extração de falha, prompt de reparo, teto de tentativas)
+- `bridge/worker_runner.py` — interface AgentExecutor por drivers (CLI, SSH, CDP)
+- `bridge/ssh_tunnel.py` — único gestor SSH (túnel, healthcheck, host key)
+- `core/router.py` — fachada de inferência (chat/completions), não inicia mutações Git
 
-Todas as entidades e interfaces abaixo são especificações conceituais para realização futura dos requisitos `RF16` a `RF25`. Elas não afirmam implementação prévia.
+**Expansão (propostos em `src/hydra_orch/`):**
+- `core/workspace_registry.py` — hierarquia Area/Workspace/Project/Repository + Authorization
+- `core/agent_registry.py` — catálogo AgentDefinition, CapabilityDeclaration, certificação driver/SO
+- `core/profile_service.py` — Profile, ProfileResolver (validação pré-exec), ProfileSnapshot (hash imutável)
+- `core/session_service.py` — Session, Thread, eventos monotônicos, SSE replay/dedup
+- `core/metrics.py` — MetricSample (observed/stale/unknown), agregações parciais
+- `core/route_selector.py` — RouteSelector (DirectSelector, OmniRouteSelector), RouteDecision auditável
+- `core/memory_store.py` — MemoryEntry (consentido, escopado, versionado, revogável)
+- `core/consent.py` — ConsentRecord (requested/granted/revoked/expired)
+- `core/discovery.py` — DiscoveryService (opt-in, allowlist, hash, untrusted→approved)
+- `core/extension_host.py` — ExtensionHost (processo isolado, manifesto, consentimento, revogação, rollback)
+- `core/auth.py` — AuthPolicy (token local, escopos, PBKDF2/Argon2)
+- `core/redaction.py` — Redactor (regex + entropia, intercepta eventos/logs/artefatos)
+- `core/budget.py` — BudgetGovernor (tetos, alertas, congelamento, extensão)
+- `core/conflict_resolver.py` — ConflictResolver (relatório 3-way, merge_repair, opções)
+- `core/packaging.py` — PRPackager (branch PR, descrição estruturada, exportação)
+- `bridge/transport_registry.py` — TransportDefinition, TransportHealth, certificação
+- `bridge/omniroute_client.py` — cliente OmniRoute (quota, fallback, circuit breaker)
+
+**Migração:** Migrar consumidores antes de remover `core/swarm.py` (legado), `core/ssh_tunnel.py` (duplicado), `engine/checkpointer.py` (duplicado). Preservar imports temporariamente com wrappers e teste de compatibilidade. Não ligar engine atual diretamente à API sem corrigir gates.
+
+---
+
+### 3.4 Entidades, estados e interfaces da expansão (proposto)
+
+Todas as entidades e interfaces abaixo são especificações conceituais para realização futura dos requisitos `RF16` a `RF30`. Elas não afirmam implementação prévia.
 
 #### Entidades de domínio da expansão
 
 | Entidade | Campos e garantias mínimos |
-| --- | --- |
+|----------|----------------------------|
 | `Area` | `area_id`, `name`, `description`, `owner_principal_id`, `created_at`; isolamento de contexto |
 | `Workspace` | `workspace_id`, `area_id`, `name`, `status ∈ {active, archived}`; contexto operacional |
 | `Project` | `project_id`, `workspace_id`, `name`, `metadata`; agrega múltiplos repositórios |
 | `Repository` | `repository_id`, `project_id`, `root_canonical`, `base_branch`, `base_sha`, `allowed_paths`, `authorization_id`; validação contra traversal |
 | `Authorization` | `authorization_id`, `resource_ref`, `principal_id`, `scopes`, `granted_at`, `revoked_at`; revogação imediata |
-| `AgentDefinition` | `agent_id`, `name`, `version`, `driver_type`, `declared_capabilities`, `limitations`, `is_certified`; Claude Code, OpenCode e Codex são propostos com `is_certified=false` |
+| `AgentDefinition` | `agent_id`, `name`, `version`, `driver_type`, `declared_capabilities`, `limitations`, `is_certified`; Claude Code, OpenCode, Codex propostos com `is_certified=false` |
 | `CapabilityDeclaration` | `name`, `version`, `supports_tools`, `supports_workspace`, `supports_cancellation`, `supports_streaming`, `certified_on` (driver+SO+data) |
-| `Profile` | `profile_id`, `name`, `agent_ref`, `model_ref`, `executor_ref`, `skills_refs`, `mcp_refs`, `memory_policy`, `resource_limits` |
+| `Profile` | `profile_id`, `name`, `agent_ref`, `model_ref`, `executor_ref`, `skills_refs`, `mcp_refs`, `memory_policy`, `resource_limits`, `orchestration_mode ∈ {swarm, relay, persist}` |
 | `ProfileSnapshot` | `snapshot_hash`, `profile_id`, `effective_config_json`, `created_at`; imutável por run |
 | `Session` | `session_id`, `run_id` opcional, `origin_ref`, `agent_ref`, `state`, `created_at`, `closed_at` |
 | `Thread` | `thread_id`, `session_id`, `parent_thread_id` opcional, `agent_ref`, `state`, `last_seq` |
@@ -87,14 +129,18 @@ Todas as entidades e interfaces abaixo são especificações conceituais para re
 | `DiscoveredResource` | `discovery_id`, `resource_type ∈ {skill, mcp, memory, session}`, `source_canonical_path`, `content_hash`, `capabilities_json`, `trust_status ∈ {untrusted, approved, rejected, revoked}` |
 | `SkillDefinition` | `skill_id`, `name`, `version`, `manifest_ref`, `permissions_declared`, `checksum` |
 | `McpDefinition` | `mcp_id`, `server_name`, `transport_type`, `endpoint`, `secret_ref`, `declared_tools`, `permissions` |
-| `SecretRef` | `secret_name`, `provider_type ∈ {env, vault, keyring}`, `source_key`; valor bruto nunca é armazenado |
+| `SecretRef` | `secret_name`, `provider_type ∈ {env, vault, keyring}`, `source_key`; valor bruto nunca armazenado |
 | `ExtensionManifest` | `extension_id`, `name`, `version`, `entrypoint`, `permissions_required`, `compatible_api_version`, `checksum` |
 | `ExtensionInstall` | `install_id`, `extension_id`, `status ∈ {proposed, consented, installed, active, disabled, quarantined, revoked}`, `installed_at` |
 | `Preference` | `preference_id`, `scope_type`, `scope_id`, `key`, `value_json`, `source ∈ {explicit, inferred_opt_in}`, `version` |
 | `PreferenceSnapshot` | `run_id`, `preferences_hash`, `resolved_preferences_json`; imutável por run |
 | `TransportDefinition` | `transport_id`, `type ∈ {local, ssh, ide, cdp, remote}`, `target_identity`, `capabilities`, `is_certified` |
 | `TransportHealth` | `transport_id`, `status ∈ {unknown, healthy, degraded, unreachable}`, `last_check_at`, `error_detail` |
-| `AccessToken` | `token_hash`, `principal_id`, `scopes`, `expires_at`, `revoked_at`; valor plano nunca é persistido |
+| `AccessToken` | `token_hash`, `principal_id`, `scopes`, `expires_at`, `revoked_at`; valor plano nunca persistido |
+| `HandoffCheckpoint` | `checkpoint_id`, `attempt_id`, `instructions_json`, `git_sha`, `diff_artifact_ids`, `tools_executed_json`, `partial_output_json`, `next_step`, `created_at` |
+| `BudgetPolicy` | `budget_id`, `run_id`, `max_usd`, `max_tokens_in`, `max_tokens_out`, `max_wall_seconds`, `alert_threshold_pct`, `status ∈ {active, alerted, frozen, exhausted}` |
+| `ConflictReport` | `conflict_id`, `integration_id`, `base_sha`, `ours_sha`, `theirs_sha`, `conflicted_files_json`, `resolution_options`, `status ∈ {open, auto_repair, manual, discarded}` |
+| `PRPackage` | `package_id`, `run_id`, `pr_branch`, `description_markdown`, `commits_json`, `checks_summary_json`, `diff_summary_json`, `metrics_json`, `created_at` |
 
 #### Máquinas de estado da expansão
 
@@ -103,7 +149,7 @@ DiscoveredResource:
   untrusted -> approved -> active
   untrusted -> rejected
   active    -> revoked
-  active    -> untrusted (quando o hash do arquivo no disco for alterado)
+  active    -> untrusted (quando hash do arquivo no disco for alterado)
 
 ConsentRecord:
   requested -> granted -> revoked
@@ -130,13 +176,22 @@ Session / Thread:
 MetricSample.status:
   unknown   (estado padrão se não houver fonte confirmada; nunca transita para zero artificial)
   observed -> stale (após expiração do TTL de frescor)
+
+BudgetPolicy:
+  active -> alerted (>= 80%) -> frozen (>= 100%) -> exhausted (recusa extensão)
+  frozen -> active (aprovação de extensão)
+
+ConflictReport:
+  open -> auto_repair (tentativa merge_repair) -> open (se falha) / closed (se sucesso)
+  open -> manual (resolução humana) -> closed
+  open -> discarded -> closed
 ```
 
 #### Interfaces de serviço centrais da expansão
 
 - `AgentRegistry`: `resolve(profile) -> EffectiveCapabilities | Error`
 - `ProfileResolver`: `validate(components) -> ValidationResult`, `snapshot(profile, run_id) -> ProfileSnapshot`
-- `RouteSelector`: `select(request, candidates, policy) -> RouteDecision` (implementações: `DirectSelector` e `OmniRouteSelector`)
+- `RouteSelector`: `select(request, candidates, policy) -> RouteDecision` (impl: `DirectSelector`, `OmniRouteSelector`)
 - `ConsentService`: `request(purpose, scope) -> ConsentRequest`, `grant(id) -> ConsentRecord`, `revoke(id) -> RevocationResult`
 - `MemoryStore`: `store(entry, consent_id) -> MemoryEntry`, `query(scope, query) -> List[MemoryEntry]`, `revoke(id) -> Result`
 - `DiscoveryService`: `scan(authorized_root) -> List[DiscoveredResource]`, `approve(id, actor) -> DiscoveredResource`
@@ -144,224 +199,788 @@ MetricSample.status:
 - `TransportRegistry`: `check_health(transport_id) -> TransportHealth`, `assert_target(target_identity) -> TargetValidation`
 - `Redactor`: `redact_payload(data) -> SanitizedData`, `redact_log(line) -> SanitizedLine`
 - `AuthPolicy`: `authorize(token_hash, scope, resource_ref) -> AuthorizationDecision`
+- `BudgetGovernor`: `check(run_id) -> BudgetStatus`, `alert(run_id) -> AlertResult`, `extend(run_id, additional_usd) -> ExtensionResult`
+- `ConflictResolver`: `analyze(integration_id) -> ConflictReport`, `auto_repair(conflict_id) -> RepairResult`
+- `PRPackager`: `build(run_id) -> PRPackage`, `publish(package_id) -> PublishResult`
 
-### Dados e estados
+---
 
-SQLite com foreign keys habilitadas em cada conexão, migração versionada, transações curtas e espera por lock limitada. Usar revisão inteira para concorrência otimista. Artefatos ficam no filesystem; gravar arquivo temporário, finalizar atomicamente e só então registrar referência. Após crash, reconciliar órfãos sem apagá-los automaticamente.
+### 3.5 Dados e estados
 
-Novas tabelas da expansão (gerenciadas por migrações versionadas independentes): `areas`, `workspaces`, `projects`, `repositories`, `authorizations`, `agent_definitions`, `profiles`, `profile_snapshots`, `sessions`, `threads`, `metric_samples`, `route_decisions`, `memory_entries`, `consent_records`, `discovered_resources`, `extension_installs`, `preferences`. A tabela de `checkpoints` permanece restrita à recuperação técnica de execuções; `memory_entries` tem ciclo de vida, expiração e auditoria próprios.
+**SQLite:** Foreign keys habilitadas (`PRAGMA foreign_keys=ON`); modo WAL obrigatório (`PRAGMA journal_mode=WAL`); `PRAGMA busy_timeout = 5000` para concorrência control plane + webhooks; migração versionada; transações curtas; concorrência otimista via coluna `revision` (inteiro). Artefatos no filesystem: gravar arquivo temporário, `fsync`, rename atômico, só então registrar referência. Após crash, reconciliar órfãos (arquivos sem ref / refs sem arquivo) sem apagar automaticamente.
 
-Run: `queued -> running -> waiting/reviewing -> running/succeeded/failed/cancelled`; cancelamento também pode partir de queued/running. `waiting` exige causa e limite. Task usa estados do contrato, acrescidos de `cancelled` para cancelamento explícito. Nova tentativa pode devolver failed/blocked/rejected a running por comando registrado; resultado anterior permanece imutável. Acceptance e integração são decisões distintas. Run só sucede com todas as tarefas obrigatórias aceitas e, quando solicitada, integração aprovada.
+**Novas tabelas da expansão** (migrações versionadas independentes):
+`areas`, `workspaces`, `projects`, `repositories`, `authorizations`, `agent_definitions`, `capability_declarations`, `profiles`, `profile_snapshots`, `sessions`, `threads`, `metric_samples`, `route_decisions`, `memory_entries`, `consent_records`, `discovered_resources`, `skill_definitions`, `mcp_definitions`, `secret_refs`, `extension_manifests`, `extension_installs`, `preferences`, `preference_snapshots`, `transport_definitions`, `transport_health`, `access_tokens`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`.
 
-Persistência em `.orchestrator/checkpoints.sqlite`; artefatos em `.orchestrator/run/<run_id>/task/<task_id>/attempt/<attempt_id>/`; worktrees sob `.orchestrator/worktree/`. Diretórios de expansão: `.orchestrator/memory/` (memórias locais autorizadas), `.orchestrator/discovery/` (índice de varredura), `.orchestrator/extensions/` (plugins instalados). IDs são gerados pelo serviço, nunca caminhos fornecidos pelo cliente. Migração de `.hydra/` é explícita, com backup e preservação dos schemas legados.
+Tabela `checkpoints` restrita à recuperação técnica de execuções; `memory_entries` tem ciclo de vida, expiração e auditoria próprias.
 
-### API proposta
+**Estados de Run:** `queued -> running -> waiting/reviewing -> running/succeeded/failed/cancelled`; cancelamento também parte de `queued/running`. `waiting` exige causa (`rate_limit_window`, `hitl`, `budget_frozen`) e limite (`window_reset_at`, `hitl_deadline`). Task usa estados do contrato + `cancelled`. Nova tentativa pode devolver `failed/blocked/rejected` a `running` por comando registrado; resultado anterior imutável. Acceptance e integração são decisões distintas. Run só sucede com todas as tarefas obrigatórias `accepted` e, quando solicitada, integração aprovada.
 
-Prefixo `/v1/control-plane`. Rotas novas são propostas, exceto bootstrap já existente.
+**Persistência:** `.orchestrator/checkpoints.sqlite`; artefatos em `.orchestrator/run/<run_id>/task/<task_id>/attempt/<attempt_id>/`; worktrees em `.orchestrator/worktree/`; expansão: `.orchestrator/memory/`, `.orchestrator/discovery/`, `.orchestrator/extensions/`. IDs gerados pelo serviço (UUIDv7), nunca caminhos do cliente. Migração `.hydra/` → `.orchestrator/` explícita, com backup e preservação dos schemas legados.
 
-| Método e rota | Semântica |
-| --- | --- |
-| POST /projects | Valida raiz permitida e cadastra projeto |
-| POST /runs | RunSpec, Idempotency-Key; retorna 202 e run ID |
-| GET /runs e /runs/{id} | Lista paginada e snapshot versionado |
-| GET /runs/{id}/tasks e /runs/{id}/artifacts | Evidência vinculada à execução |
-| GET /runs/{id}/events | SSE, Last-Event-ID como sequência; replay seguido de eventos ao vivo |
-| POST /runs/{id}/cancel | Solicita cancelamento idempotente; conclusão confirmada por estado |
-| POST /runs/{id}/tasks/{task_id}/retry | Nova tentativa após reconciliação |
-| POST /runs/{id}/tasks/{task_id}/review | accepted/rejected, motivo e expected_revision |
-| POST /runs/{id}/integrate | Integra somente resultados aceitos, reais e íntegros |
+---
 
-Mesma chave e mesmo payload devolvem mesmo resultado; chave reutilizada com payload diferente retorna 409. Revisão vencida/transição inválida: 409; schema inválido: 422; recurso ausente: 404; credencial inválida: 401/403; dependência obrigatória indisponível: 503. Envelope de erro: `code`, `message`, `run_id` opcional, `retryable`; sem traceback/segredo. Falha assíncrona de executor aparece no estado/evento, não modifica retroativamente o HTTP 202.
+### 3.6 Algoritmos Centrais (Detalhamento Técnico)
 
-SSE entrega pelo menos uma vez; cliente deduplica por run/seq. Retenção que invalida cursor retorna erro explícito e solicita novo snapshot. Inferência em `/v1/chat/completions` não inicia mutações Git; manter ID estável por resposta e rejeitar parâmetros/ferramentas não suportados em vez de ignorá-los.
+#### 3.6.1 Protocolo SSE com Heartbeat, Replay e Resiliência (RT16)
 
-### 3.B. Rotas propostas da expansão (/v1/control-plane)
+**Formato de frame estrito:**
+```
+event: <tipo>          # ex: run.started, task.completed, attempt.rate_limited
+id: <seq>              # sequência monotônica por run (inteiro)
+retry: <ms>            # sugerido 15000 (15s) para reconexão do cliente
+data: <JSON payload>   # payload redigido (sem segredos)
+```
 
-Todas as rotas abaixo são propostas para realização futura de `RF16` a `RF25`. Todas exigem token de autenticação local com escopo apropriado.
+**Heartbeat / Ping:** A cada 15 segundos, servidor emite frame `event: heartbeat` com `data: {}` e `retry: 15000`. Impede encerramento por timeout em proxies reversos, load balancers e firewalls corporativos.
 
-| Método e rota | Semântica da expansão |
-| --- | --- |
-| GET /areas, POST /areas | Lista e cria áreas lógicas de trabalho |
-| GET /workspaces, POST /workspaces | Lista e cadastra workspaces vinculados a áreas |
-| GET /projects/{id}/repositories, POST /projects/{id}/repositories | Associa repositório com validação de raiz e caminho canônico |
-| GET /agents, GET /executors, GET /capabilities | Consulta catálogo de agentes, executores e status de certificação |
-| GET /profiles, POST /profiles | Cadastra e lista perfis combináveis de execução |
-| POST /profiles/{id}/resolve | Valida combinação e devolve snapshot efetivo imutável pré-execução |
-| GET /sessions, GET /sessions/{id}/threads | Lista sessões ativas e suas árvores de threads |
-| GET /sessions/{id}/events | SSE com cursor `Last-Event-ID` para eventos da sessão e de suas threads |
-| GET /runs/{id}/metrics | Retorna amostras de métricas com valores `observed`, `stale` ou `unknown` |
-| GET /runs/{id}/route-decisions | Retorna trilha auditável de seleção de rota e candidatos avaliados |
-| GET /memory, POST /memory | Consulta e grava memórias sob consentimento explícito prévio |
-| POST /memory/{id}/revoke | Revoga memória e impede seu uso em novas execuções |
-| POST /consents, POST /consents/{id}/revoke | Registra e revoga consentimentos para memória ou extensões |
-| POST /discovery/scan | Inicia varredura opt-in restrita a raízes locais allowlisted |
-| GET /discovery/resources | Lista recursos descobertos e seus estados de confiança |
-| POST /discovery/resources/{id}/approve, POST /discovery/resources/{id}/reject | Aprova ou rejeita recurso descoberto; registra principal |
-| GET /skills, POST /skills, GET /mcps, POST /mcps | Gerencia skills e servidores MCP; segredos são apenas referências |
-| GET /extensions, POST /extensions/install | Instala extensão com manifesto verificado e consentimento |
-| POST /extensions/{id}/revoke, POST /extensions/{id}/rollback | Revoga extensão imediatamente ou restaura versão anterior |
-| GET /preferences, PUT /preferences | Consulta e atualiza preferências escopadas por usuário/área/projeto |
-| GET /transports, GET /transports/{id}/health | Consulta transportes registrados e seus healthchecks observados |
-| POST /tokens, POST /tokens/{id}/revoke | Emite e revoga tokens locais com escopos granulares |
+**Buffer de replay:** Ring buffer em memória (ex.: últimos 500 eventos por run) para replay imediato de reconexões rápidas (< 30s). Fallback: busca indexada no SQLite (`WHERE run_id=? AND seq > ? ORDER BY seq`) para reconexões tardias.
 
-#### Regras de erro adicionais da expansão
-- `401 Unauthorized`: token ausente, formato inválido ou assinatura local não reconhecida.
-- `403 Forbidden`: token válido, mas sem escopo para o recurso (ex.: token de leitura tentando aprovar recurso descoberto ou disparar integração).
-- `409 Conflict`: consentimento ausente para gravação de memória; tentativa de ativação de recurso em estado `untrusted`; conflito de hash de recurso descoberto.
-- `410 Gone`: cursor de SSE expirado na retenção; cliente deve solicitar novo snapshot completo.
-- `422 Unprocessable Entity`: perfil com combinação incompatível de capacidades (ex.: executor sem suporte a worktree pareado com tarefa que exige isolamento).
+**Deduplicação cliente:** Cliente mantém `last_seq` processado. No replay, ignora eventos com `seq <= last_seq`. Sequência monotônica garante ordenação.
 
-#### Equivalência em linha de comando (CLI)
-A CLI `hydra` implementará comandos idênticos consumindo a mesma camada de serviço de aplicação: `hydra area`, `hydra project`, `hydra repo`, `hydra agent`, `hydra profile`, `hydra session`, `hydra metrics`, `hydra memory`, `hydra discovery`, `hydra extension`, `hydra preference`, `hydra transport`, `hydra token`. Toda operação CLI suportará flags `--json` para integração scriptável e códigos de saída refletindo sucesso ou falha da operação.
+**Cursor expirado:** Se `Last-Event-ID` refere-se a sequência já purgada pela retenção (padrão: 7 dias ou 10k eventos/run), servidor retorna HTTP 410 Gone com payload `{ "code": "CURSOR_EXPIRED", "message": "Cursor expirado, solicite snapshot completo via GET /runs/{id}/events?from=0" }`.
 
-### Segurança e limites
+#### 3.6.2 Code Stitching e Handoff Técnico (RT08, RT26-Relay)
 
-Bind local padrão; token local para comandos e leitura de evidência, CORS com allowlist. Não registrar tokens. Autorizar raiz do projeto e normalizar caminhos/symlinks. Worktree não constitui sandbox: capacidade de contenção depende do executor. Testes e comandos são entradas autorizadas do projeto, executados com limites; logs são redigidos antes de exposição. Cancelamento só é anunciado concluído após verificar árvore encerrada no SO certificado.
+**Checkpoint incremental do stream:** `bridge/worker_runner.py` captura saída do executor em chunks. A cada chamada de ferramenta (tool call) ou a cada N linhas de stdout, persiste `HandoffCheckpoint` com:
+- `instructions_json`: objetivo original + critérios de aceite + decisões
+- `git_sha`: SHA base da worktree no momento
+- `diff_artifact_ids`: IDs dos artefatos de diff gerados até então
+- `tools_executed_json`: lista de `{tool, args, result_summary, exit_code, timestamp}`
+- `partial_output_json`: stdout/stderr relevantes (últimos 50 KB)
+- `next_step`: descrição textual do próximo passo planejado
 
-Segurança ampliada (RT25): o servidor rejeitará qualquer configuração com `allow_origins=["*"]` associada a credenciais ativas. Tokens de acesso utilizam derivação segura (PBKDF2/Argon2) e nunca são logados ou persistidos em texto plano. O módulo `core/redaction.py` interceptará todos os eventos antes da escrita no banco e antes da transmissão via SSE, expurgando padrões de tokens, chaves SSH, senhas e credenciais OAuth. Nenhum comando de execução ou script de extensão terá acesso a variáveis de ambiente não filtradas ou a soquetes de comunicação fora das allowlists de rede do projeto.
+**Âncora de costura (stitch anchor):** Ao retomar (Relay ou Persistente), o sistema:
+1. Carrega `HandoffCheckpoint` mais recente da tentativa
+2. Usa `tree-sitter` (parser AST) para analisar arquivos modificados no diff parcial
+3. Identifica o último nó sintático completo (função, classe, bloco) antes do corte
+4. Injeta no prompt de continuação: contexto até a âncora + instrução "continue from here"
+5. Valida integridade sintática do arquivo mesclado antes de aplicar (parse completo sem erros)
+
+**Verificação de integridade:** Antes de aplicar patch mesclado, roda `ast.parse()` (Python) ou equivalente tree-sitter para a linguagem. Falha → rejeita costura, exige reparo manual.
+
+#### 3.6.3 Scheduler de DAG e Controle de Concorrência (RT07, RT26-Swarm)
+
+**Validação topológica (Kahn):**
+```python
+def validate_dag(tasks: List[TaskSpec]) -> ValidationResult:
+    # Build adjacency list and in-degree map
+    adj = {t.id: [] for t in tasks}
+    in_degree = {t.id: 0 for t in tasks}
+    for t in tasks:
+        for dep in t.dependencies:
+            if dep not in adj: return Error("dependency_not_in_dag")
+            adj[dep].append(t.id)
+            in_degree[t.id] += 1
+    # Kahn's algorithm
+    queue = [tid for tid, deg in in_degree.items() if deg == 0]
+    topo = []
+    while queue:
+        u = queue.pop(0)
+        topo.append(u)
+        for v in adj[u]:
+            in_degree[v] -= 1
+            if in_degree[v] == 0:
+                queue.append(v)
+    if len(topo) != len(tasks):
+        return Error("cycle_detected", cycle_nodes=find_cycle(adj))
+    return Ok(topo)
+```
+
+**Gerenciador de concorrência:** `asyncio.Semaphore(max_parallel_worktrees)`. Tarefas `ready` (dependências satisfeitas) adquirem semáforo antes de spawn. Liberam ao terminar (sucesso, falha, cancelamento). `max_parallel_worktrees` configurável no `BudgetPolicy` / `RunSpec` (padrão: 3).
+
+**Máquina de estados do nó DAG:**
+```
+WAITING_DEPENDENCY  --(deps satisfied)-->  READY
+READY               --(semaphore acquire)-->  RUNNING
+RUNNING             --(success + checks)-->  COMPLETED_CHECKS
+RUNNING             --(failure)-->  FAILED
+RUNNING             --(cancelled)-->  CANCELLED
+COMPLETED_CHECKS    --(review accepted)-->  READY_FOR_REVIEW
+COMPLETED_CHECKS    --(review rejected)-->  FAILED
+COMPLETED_CHECKS    --(auto-repair triggered)-->  RUNNING (nova tentativa)
+```
+
+#### 3.6.4 Gerenciamento Físico de Worktrees (RT05, RT26-Swarm)
+
+**Nomenclatura e isolamento:** `.orchestrator/worktree/<run_id>_<task_id>_<attempt_ordinal>/`. Cada tentativa tem worktree própria. Worktree de integração separada: `.orchestrator/worktree/integrate_<run_id>/`.
+
+**Prevenção/limpeza de locks abandonados:**
+- Antes de `git worktree add`, verifica e remove `.git/worktrees/<name>/lock` órfãos (processo não existe)
+- `git worktree prune --expire=0` em startup e após crash detectado
+- Windows: `taskkill /PID <pid> /T /F` para árvore; Linux/macOS: `os.killpg(os.getpgid(pid), SIGKILL)`
+
+**Tratamento multiplataforma:**
+- Windows: caminhos longos (`\\?\` prefix), file locks obrigatórios (`git` falha se arquivo aberto)
+- POSIX: inode-based, symlinks permitidos (validar que não escapam da raiz canônica)
+- Normalização: `os.path.realpath()` para resolver symlinks antes de validar `allowed_paths`
+
+#### 3.6.5 Auto-Healing (Reparação Cirúrgica) (RT12, RF12)
+
+**Extração determinística de falha:**
+1. Captura `exit_code`, `stdout`, `stderr` do check falho
+2. Parsing por linguagem/tool: regex para stack trace + arquivo:linha (ex.: `File "foo.py", line 42`)
+3. Isola trecho de código relevante (±20 linhas ao redor do erro)
+4. Constrói prompt de reparo contendo **apenas**: patch aplicado, erro isolado, código atual do arquivo
+
+**Política de teto:**
+- `max_repair_attempts` por tarefa (padrão: 2, configurável no `BudgetPolicy`)
+- Cada reparo consome orçamento (tokens, custo, tempo)
+- Esgotamento → tarefa `failed` final; dependentes bloqueadas
+- Tentativas de reparo são `TaskAttempt` com `ordinal` incrementado e `parent_attempt_id` para rastreabilidade
+
+**Validação de reparo:** Mesmos checks da tarefa original + check de regressão (rodar testes não modificados).
+
+#### 3.6.6 Modelo Relacional SQLite — DDL e Índices (RT03, RT11, RT16, RT17)
+
+```sql
+-- Modo WAL e performance
+PRAGMA journal_mode = WAL;
+PRAGMA busy_timeout = 5000;
+PRAGMA foreign_keys = ON;
+PRAGMA synchronous = NORMAL;
+
+-- Tabela base: projects
+CREATE TABLE projects (
+    id TEXT PRIMARY KEY,
+    canonical_root TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Runs
+CREATE TABLE runs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    spec_json TEXT NOT NULL,           -- RunSpec completo com schema_version
+    base_sha TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('queued','running','waiting','reviewing','succeeded','failed','cancelled')),
+    revision INTEGER NOT NULL DEFAULT 1,  -- concorrência otimista
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_runs_project ON runs(project_id);
+CREATE INDEX idx_runs_status ON runs(status);
+
+-- Tasks
+CREATE TABLE tasks (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    spec_json TEXT NOT NULL,           -- TaskSpec completo
+    status TEXT NOT NULL CHECK (status IN ('pending','running','needs_context','blocked','failed','ready_for_review','accepted','rejected','cancelled')),
+    revision INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_tasks_run ON tasks(run_id);
+CREATE INDEX idx_tasks_status ON tasks(run_id, status);
+
+-- Task Dependencies (DAG edges)
+CREATE TABLE task_dependencies (
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    prerequisite_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    PRIMARY KEY (task_id, prerequisite_id)
+);
+-- Constraint: no self-ref, no cross-run (validado na aplicação)
+
+-- Attempts
+CREATE TABLE attempts (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL,          -- 1, 2, 3...
+    executor_id TEXT NOT NULL,
+    provider_model_json TEXT NOT NULL,
+    provider_session TEXT,
+    process_status TEXT CHECK (process_status IN ('queued','running','exited','timed_out','cancelled','crashed')),
+    started_at TEXT,
+    finished_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (task_id, ordinal)
+);
+CREATE INDEX idx_attempts_task ON attempts(task_id);
+
+-- Workspaces (por tentativa)
+CREATE TABLE workspaces (
+    id TEXT PRIMARY KEY,
+    attempt_id TEXT NOT NULL UNIQUE REFERENCES attempts(id) ON DELETE CASCADE,
+    canonical_path TEXT NOT NULL UNIQUE,
+    base_sha TEXT NOT NULL,
+    branch TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('preparing','ready','integrating','conflicted','preserved','cleaned'))
+);
+
+-- Results
+CREATE TABLE results (
+    id TEXT PRIMARY KEY,
+    attempt_id TEXT NOT NULL UNIQUE REFERENCES attempts(id) ON DELETE CASCADE,
+    exit_code INTEGER,
+    simulated BOOLEAN NOT NULL DEFAULT 0,
+    outcome TEXT CHECK (outcome IN ('success','failure','partial')),
+    summary TEXT,
+    patch_artifact_id TEXT REFERENCES artifacts(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Artifacts
+CREATE TABLE artifacts (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    attempt_id TEXT REFERENCES attempts(id) ON DELETE SET NULL,
+    relative_path TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('patch','check_output','log','handoff','export','pr_package')),
+    sha256 TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (run_id, relative_path)
+);
+CREATE INDEX idx_artifacts_run ON artifacts(run_id);
+CREATE INDEX idx_artifacts_attempt ON artifacts(attempt_id);
+
+-- Check Results
+CREATE TABLE check_results (
+    id TEXT PRIMARY KEY,
+    result_id TEXT REFERENCES results(id) ON DELETE CASCADE,
+    integration_id TEXT REFERENCES integrations(id) ON DELETE CASCADE,
+    command_json TEXT NOT NULL,
+    cwd TEXT NOT NULL,
+    tested_sha TEXT NOT NULL,
+    exit_code INTEGER NOT NULL,
+    output_artifact_id TEXT REFERENCES artifacts(id),
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    CHECK (result_id IS NOT NULL OR integration_id IS NOT NULL),
+    CHECK (result_id IS NULL OR integration_id IS NULL)
+);
+
+-- Reviews
+CREATE TABLE reviews (
+    id TEXT PRIMARY KEY,
+    result_id TEXT NOT NULL REFERENCES results(id) ON DELETE CASCADE,
+    actor TEXT NOT NULL,
+    decision TEXT NOT NULL CHECK (decision IN ('accepted','rejected')),
+    reason TEXT,
+    expected_revision INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Events (SSE + auditoria)
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,              -- monotônico por run
+    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    attempt_id TEXT REFERENCES attempts(id) ON DELETE SET NULL,
+    type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,        -- redigido
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (run_id, seq)
+);
+CREATE INDEX idx_events_run_seq ON events(run_id, seq);
+CREATE INDEX idx_events_task ON events(task_id);
+
+-- Integrations
+CREATE TABLE integrations (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    workspace_path TEXT NOT NULL,
+    expected_base_sha TEXT NOT NULL,
+    result_sha TEXT,
+    status TEXT NOT NULL CHECK (status IN ('pending','running','succeeded','conflicted','failed')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Integration Items (ordem de merge)
+CREATE TABLE integration_items (
+    integration_id TEXT NOT NULL REFERENCES integrations(id) ON DELETE CASCADE,
+    result_id TEXT NOT NULL REFERENCES results(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    PRIMARY KEY (integration_id, position)
+);
+
+-- Handoff Checkpoints
+CREATE TABLE handoff_checkpoints (
+    id TEXT PRIMARY KEY,
+    attempt_id TEXT NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+    instructions_json TEXT NOT NULL,
+    git_sha TEXT NOT NULL,
+    diff_artifact_ids TEXT NOT NULL,   -- JSON array
+    tools_executed_json TEXT NOT NULL,
+    partial_output_json TEXT,
+    next_step TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Metric Samples
+CREATE TABLE metric_samples (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL CHECK (scope IN ('run','attempt','session','thread')),
+    scope_id TEXT NOT NULL,            -- attempt_id, session_id, etc.
+    kind TEXT NOT NULL CHECK (kind IN ('queue','duration','tokens_in','tokens_out','cost')),
+    value REAL,                        -- NULL = unknown
+    unit TEXT NOT NULL,
+    source TEXT NOT NULL,              -- ex: 'omniroute', 'local_calc', 'provider_api'
+    observed_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('observed','stale','unknown')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_metrics_run ON metric_samples(run_id);
+CREATE INDEX idx_metrics_scope ON metric_samples(scope, scope_id);
+
+-- Route Decisions
+CREATE TABLE route_decisions (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    candidates_json TEXT NOT NULL,
+    selected_route TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    fallback_chain_json TEXT NOT NULL,
+    decision_source TEXT NOT NULL CHECK (decision_source IN ('hydra','omnirouter','operator')),
+    timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Budget Policies
+CREATE TABLE budget_policies (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL UNIQUE REFERENCES runs(id) ON DELETE CASCADE,
+    max_usd REAL,
+    max_tokens_in INTEGER,
+    max_tokens_out INTEGER,
+    max_wall_seconds INTEGER,
+    alert_threshold_pct REAL NOT NULL DEFAULT 80.0,
+    status TEXT NOT NULL CHECK (status IN ('active','alerted','frozen','exhausted')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+---
+
+### 3.7 API Proposta — Especificação Completa
+
+**Prefixo:** `/v1/control-plane`. Autenticação: token local (header `Authorization: Bearer <token>`). CORS: allowlist estrita (config `server.cors_allow_origins`), sem wildcard com credenciais.
+
+#### 3.7.1 Núcleo (MVP)
+
+| Método | Rota | Request | Response | Semântica |
+|--------|------|---------|----------|-----------|
+| POST | `/projects` | `ProjectCreateRequest` | `ProjectResponse` | Valida raiz permitida, cadastra projeto |
+| POST | `/runs` | `RunCreateRequest` + `Idempotency-Key` | `202 Accepted` + `RunResponse` | Cria run, retorna run_id |
+| GET | `/runs` | query: `project_id`, `status`, `page`, `size` | `PaginatedResponse<RunSummary>` | Lista paginada |
+| GET | `/runs/{id}` | — | `RunDetailResponse` | Snapshot versionado (revision) |
+| GET | `/runs/{id}/tasks` | — | `List<TaskResponse>` | Tarefas da run |
+| GET | `/runs/{id}/artifacts` | query: `kind` | `List<ArtifactResponse>` | Evidência vinculada |
+| GET | `/runs/{id}/events` | header: `Last-Event-ID` (opcional) | `text/event-stream` (SSE) | Replay + eventos ao vivo |
+| POST | `/runs/{id}/cancel` | `CancelRequest` | `CancelResponse` | Cancelamento idempotente |
+| POST | `/runs/{id}/tasks/{task_id}/retry` | `RetryRequest` | `RetryResponse` | Nova tentativa após reconciliação |
+| POST | `/runs/{id}/tasks/{task_id}/review` | `ReviewRequest` | `ReviewResponse` | accepted/rejected + motivo + expected_revision |
+| POST | `/runs/{id}/integrate` | `IntegrateRequest` | `IntegrateResponse` | Integra só resultados aceitos, reais, íntegros |
+
+**Idempotência:** `Idempotency-Key` + hash do payload (SHA-256). Mesma chave + mesmo payload → mesmo resultado (202 com mesmo run_id). Chave reutilizada com payload diferente → 409 Conflict.
+
+**Erros:** Envelope `{ "code": "...", "message": "...", "run_id": "...", "retryable": bool }`. Códigos: 400 (validação), 401 (auth), 403 (escopo), 404 (recurso), 409 (conflito/idempotência), 410 (cursor expirado), 422 (schema/compatibilidade), 503 (dependência indisponível). Sem traceback/segredo no payload.
+
+**SSE:** Entrega pelo menos uma vez. Cliente deduplica por `(run_id, seq)`. Heartbeat a cada 15s (`event: heartbeat`). Cursor expirado → 410.
+
+**Inferência:** `/v1/chat/completions` (compatível OpenAI) não inicia mutações Git. ID estável por resposta. Rejeita parâmetros/ferramentas não suportados (422).
+
+#### 3.7.2 Expansão (/v1/control-plane)
+
+| Método | Rota | Semântica |
+|--------|------|-----------|
+| GET/POST | `/areas` | Lista/cria áreas lógicas |
+| GET/POST | `/workspaces` | Lista/cadastra workspaces vinculados a áreas |
+| GET/POST | `/projects/{id}/repositories` | Associa repositório com validação canônica |
+| GET | `/agents`, `/executors`, `/capabilities` | Consulta catálogo com certificação |
+| GET/POST | `/profiles` | Cadastra/lista perfis combináveis |
+| POST | `/profiles/{id}/resolve` | Valida combinação → `ProfileSnapshot` imutável |
+| GET | `/sessions`, `/sessions/{id}/threads` | Lista sessões e árvores de threads |
+| GET | `/sessions/{id}/events` | SSE com cursor para sessão + threads |
+| GET | `/runs/{id}/metrics` | `MetricSample` com observed/stale/unknown |
+| GET | `/runs/{id}/route-decisions` | Trilha auditável de seleção de rota |
+| GET/POST | `/memory` | Consulta/grava memórias (exige consentimento) |
+| POST | `/memory/{id}/revoke` | Revoga memória |
+| POST | `/consents`, `/consents/{id}/revoke` | Registra/revoga consentimentos |
+| POST | `/discovery/scan` | Varredura opt-in em raízes allowlisted |
+| GET | `/discovery/resources` | Lista recursos com trust_status |
+| POST | `/discovery/resources/{id}/approve\|reject` | Aprova/rejeita recurso; registra principal |
+| GET/POST | `/skills`, `/mcps` | Gerencia skills/MCPs; segredos = referências |
+| GET/POST | `/extensions`, `/extensions/install` | Instala extensão com manifesto + consentimento |
+| POST | `/extensions/{id}/revoke\|rollback` | Revoga imediato ou restaura versão anterior |
+| GET/PUT | `/preferences` | Preferências escopadas (user/area/project) |
+| GET | `/transports`, `/transports/{id}/health` | Transportes registrados + healthchecks |
+| POST | `/tokens`, `/tokens/{id}/revoke` | Emite/revoga tokens locais com escopos granulares |
+
+**Regras de erro da expansão:**
+- 401: token ausente/inválido/assinatura não reconhecida
+- 403: token válido mas sem escopo (ex.: read-only tentando aprovar)
+- 409: consentimento ausente para memória; recurso `untrusted` ativado; hash conflitante
+- 410: cursor SSE expirado → solicitar snapshot completo
+- 422: perfil incompatível (ex.: executor sem worktree + tarefa que exige isolamento)
+
+#### 3.7.3 Schemas Pydantic de Referência (Entrada/Saída)
+
+```python
+# model.py — esquemas centrais (excertos)
+
+class ProjectCreateRequest(BaseModel):
+    canonical_root: DirectoryPath
+    name: str = Field(min_length=1, max_length=100)
+    base_branch: str = "main"
+    base_sha: Optional[str] = None  # auto-resolve se None
+
+class ProjectResponse(BaseModel):
+    id: str
+    canonical_root: str
+    name: str
+    base_branch: str
+    base_sha: str
+    created_at: datetime
+
+class RunCreateRequest(BaseModel):
+    project_id: str
+    objective: str = Field(min_length=10, max_length=5000)
+    mode: Literal["swarm", "relay", "persist"] = "swarm"
+    task_spec: TaskSpecRequest
+    budget: Optional[BudgetPolicyRequest] = None
+    profile_id: Optional[str] = None
+    idempotency_key: str = Field(min_length=16, max_length=64)
+
+class TaskSpecRequest(BaseModel):
+    objective: str
+    acceptance_criteria: List[CheckSpec] = Field(min_length=1)
+    allowed_paths: List[str] = Field(default_factory=lambda: ["**/*"])
+    dependencies: List[str] = Field(default_factory=list)  # task_ids
+    timeout_seconds: int = Field(default=300, ge=30, le=3600)
+    max_repair_attempts: int = Field(default=2, ge=0, le=5)
+
+class CheckSpec(BaseModel):
+    command: str = Field(min_length=1)
+    cwd: Optional[str] = None
+    description: str = ""
+
+class BudgetPolicyRequest(BaseModel):
+    max_usd: Optional[float] = Field(default=None, ge=0)
+    max_tokens_in: Optional[int] = Field(default=None, ge=0)
+    max_tokens_out: Optional[int] = Field(default=None, ge=0)
+    max_wall_seconds: Optional[int] = Field(default=None, ge=60)
+    alert_threshold_pct: float = Field(default=80.0, ge=50, le=99)
+
+class RunResponse(BaseModel):
+    run_id: str
+    status: RunStatus
+    created_at: datetime
+
+class RunDetailResponse(BaseModel):
+    run_id: str
+    project_id: str
+    spec: RunSpecFull
+    status: RunStatus
+    revision: int
+    base_sha: str
+    tasks: List[TaskResponse]
+    budget: Optional[BudgetStatus]
+    created_at: datetime
+    updated_at: datetime
+
+class ReviewRequest(BaseModel):
+    decision: Literal["accepted", "rejected"]
+    reason: str = Field(min_length=1, max_length=2000)
+    expected_revision: int = Field(ge=1)
+
+class IntegrateRequest(BaseModel):
+    force: bool = False  # se True, tenta resolver conflitos automaticamente (merge_repair)
+
+# SSE Event payloads (redigidos)
+class RunEventPayload(BaseModel):
+    run_id: str
+    seq: int
+    type: str
+    task_id: Optional[str] = None
+    attempt_id: Optional[str] = None
+    payload: Dict[str, Any]  # já redigido
+    timestamp: datetime
+```
+
+#### 3.7.4 Equivalência CLI
+
+`hydra` implementa comandos idênticos consumindo a mesma camada de serviço:
+`hydra area`, `hydra project`, `hydra repo`, `hydra agent`, `hydra profile`, `hydra session`, `hydra metrics`, `hydra memory`, `hydra discovery`, `hydra extension`, `hydra preference`, `hydra transport`, `hydra token`, `hydra run`, `hydra review`, `hydra integrate`, `hydra cancel`, `hydra retry`. Flags: `--json` (saída estruturada), `--output` (arquivo), códigos de saída: 0=sucesso, 1=erro válido, 2=erro de sistema, 3=idempotência/conflito.
+
+---
+
+### 3.8 Segurança e limites
+
+Bind local padrão (`127.0.0.1:8000`); token local para comandos e leitura de evidência; CORS com allowlist estrita (config `server.cors_allow_origins`, sem `["*"]` com credenciais). Não registrar tokens. Autorizar raiz do projeto e normalizar caminhos/symlinks (`os.path.realpath`). Worktree não constitui sandbox: contenção depende do executor. Testes e comandos são entradas autorizadas do projeto, executados com limites (timeout, cgroup se disponível); logs redigidos antes de exposição. Cancelamento só anunciado concluído após verificar árvore encerrada no SO certificado (`psutil` + tree kill).
+
+**Segurança ampliada (RT25):**
+- Servidor rejeita configuração com `allow_origins=["*"]` + credenciais ativas
+- Tokens de acesso: derivação PBKDF2/Argon2; nunca logados ou persistidos em texto plano
+- `core/redaction.py` intercepta **todos** eventos antes de escrita no banco e transmissão SSE: expurga padrões de tokens (`sk-`, `ghp_`, `glpat-`, `xoxb-`, `Bearer `), chaves SSH (`-----BEGIN OPENSSH PRIVATE KEY-----`), senhas (`password=`, `secret=`, `api_key=`), credenciais OAuth, URLs com user:pass
+- Nenhum comando de execução ou script de extensão acessa variáveis de ambiente não filtradas ou soquetes fora das allowlists de rede do projeto
+- `SecretRef` usa provedores externos (`env`, `vault`, `keyring`); valor bruto nunca em perfil, evento, prompt, memória, artefato
+
+---
 
 ## 4. Pré-condições
 
-Configuração validada, schema compatível, repo acessível, executor elegível e orçamento suficiente. Uma tarefa em execução possui no máximo uma tentativa ativa; recuperação deve reconciliar processo antigo antes de novo spawn. Para a expansão (RT13–RT25), áreas, repositórios, perfis, recursos locais descobertos e extensões exigem concessão prévia de autorização e verificação de integridade antes do uso operacional; nenhum recurso é ativado implicitamente por mera existência no sistema de arquivos.
+Configuração validada, schema compatível, repo acessível, executor elegível e orçamento suficiente. Uma tarefa em execução possui no máximo uma tentativa ativa; recuperação deve reconciliar processo antigo antes de novo spawn. Para a expansão (RT13–RT30), áreas, repositórios, perfis, recursos locais descobertos, extensões, orçamentos, conflitos e empacotamento exigem concessão prévia de autorização e verificação de integridade antes do uso operacional; nenhum recurso é ativado implicitamente por mera existência no sistema de arquivos. Modo de orquestração selecionado deve ser compatível com capabilities do executor.
 
 ## 5. Pós-condições
 
-Resultado persistido com checks e referências de artefato; evento correlacionado; integração e limpeza têm resultado próprio. Falha de persistência impede anúncio de sucesso. Não há alterações silenciosas da branch ativa do operador. Operações de consentimento de memória ou aprovação de extensão geram registros auditáveis imutáveis; revogações impedem que novas execuções acessem o recurso revogado.
+Resultado persistido com checks e referências de artefato; evento correlacionado; integração e limpeza têm resultado próprio. Falha de persistência impede anúncio de sucesso. Não há alterações silenciosas da branch ativa do operador. Operações de consentimento de memória ou aprovação de extensão geram registros auditáveis imutáveis; revogações impedem que novas execuções acessem o recurso revogado. Orçamento respeitado com alertas e congelamento auditáveis. Conflitos resolvidos com evidência. PR package gerado com descrição completa quando autorizado.
 
 ## 6. Invariantes
 
 Transação para estado/evento, exclusão mútua da integração, resultados imutáveis, tarefas dependentes no mesmo run, contrato fixado por hash e limites de tempo/tentativas. Métricas registram duração, filas e falhas sem inventar custo/token não informado (`unknown` permanece `unknown`).
 
-Invariantes da expansão: (1) checkpoints de execução são separados de memória adaptativa persistente; (2) texto produzido por agente ou declaração textual de sucesso nunca constituem prova de execução ou validação de check; (3) recursos descobertos iniciam no estado `untrusted` e só transitam com aprovação de principal autenticado; (4) extensões operam em processo isolado e não têm acesso direto ao banco de dados do control plane; (5) a interface visual consome apenas read models persistidos e não pode alterar estado sem comando autenticado correspondente; (6) a UI é operável por teclado, com foco visível, rótulos semânticos e estados comunicados sem dependência exclusiva de cor.
+Invariantes da expansão:
+1. Checkpoints de execução são separados de memória adaptativa persistente (tabelas e lifecycles distintos)
+2. Texto produzido por agente ou declaração textual de sucesso nunca constituem prova de execução ou validação de check
+3. Recursos descobertos iniciam no estado `untrusted` e só transitam com aprovação de principal autenticado
+4. Extensões operam em processo isolado e não têm acesso direto ao banco de dados do control plane
+5. A interface visual consome apenas read models persistidos e não pode alterar estado sem comando autenticado correspondente
+6. A UI é operável por teclado, com foco visível, rótulos semânticos e estados comunicados sem dependência exclusiva de cor (WCAG AA)
+7. Snapshots de perfil (`ProfileSnapshot`) e preferências (`PreferenceSnapshot`) são imutáveis por run
+8. Eventos SSE sequenciais por run, com heartbeat e replay por cursor; deduplicação cliente por `(run_id, seq)`
+9. SQLite WAL + `busy_timeout=5000` + FKs + concorrência otimista via `revision`
+10. Exportação e logs passam por redactor determinístico (regex + entropia) antes de exposição
+
+---
 
 ## 7. Falhas e recuperação
 
-Cobrir disco cheio, lock do banco, subprocesso órfão, arquivo fora do escopo, conflito, quota desconhecida e conexão perdida. Em efeito externo ambíguo, marcar blocked e exigir reconciliação. Não aplicar retry cego nem deduplicação textual como garantia de integridade de código.
+Cobrir: disco cheio, lock do banco, subprocesso órfão, arquivo fora do escopo, conflito, quota desconhecida, conexão perdida. Em efeito externo ambíguo, marcar `blocked` e exigir reconciliação. Não aplicar retry cego nem deduplicação textual como garantia de integridade de código.
 
-Falhas da expansão: (1) descoberta de recurso adulterado (divergência de hash) força transição para `untrusted` e bloqueia execução; (2) tentativa de escrita de memória sem consentimento ativo gera erro `409` e não persiste dados; (3) perda de conexão SSE é reconciliada por cursor `Last-Event-ID` com deduplicação sem conclusão prematura; (4) extensão incompatível ou revogada é terminada de forma síncrona sem afetar a integridade do processo principal.
+**Falhas da expansão:**
+1. Descoberta de recurso adulterado (divergência de hash) → transição automática `untrusted` + bloqueio execução
+2. Tentativa de escrita de memória sem consentimento ativo → erro 409, nenhuma persistência
+3. Perda de conexão SSE → reconciliada por cursor `Last-Event-ID` com deduplicação sem conclusão prematura
+4. Extensão incompatível ou revogada → terminada síncrona sem afetar integridade do processo principal
+5. Orçamento esgotado + recusa de extensão → run `budget_exhausted`; evidência preservada
+6. Conflito de merge não resolvido → worktree preservada; run `conflicted`; opções: auto_repair, manual, discard
+7. HITL timeout → tentativa `failed` com motivo `hitl_timeout`; evidência preservada
 
-### 7.A. Critérios negativos objetivos
+### 7.A Critérios negativos objetivos (expandido)
 
-| Caso de teste negativo | Comportamento obrigatório do sistema | Requisito |
-| --- | --- | --- |
-| Repositório fora da allowlist de projetos | Rejeição imediata com código 403 e registro em log de auditoria; nenhum processo Git é iniciado | RT13 |
-| Caminho com symlink ou tentativa de traversal fora da raiz autorizada | Bloqueio imediato da operação e registro da violação; rejeição com código 400 | RT13 |
-| Repositório secundário sem concessão explícita de autorização | Tentativa de acesso bloqueada; permissão do repositório primário não é herdada | RT13 |
-| Driver CLI não certificado selecionado em modo de produção | Execução bloqueada antes do spawn com erro tipado informando ausência de certificação | RT14 |
-| Perfil combinando capacidades incompatíveis (ex.: tarefa exige isolamento, executor não suporta) | Rejeição na validação pré-execução com código 422 e indicação da incompatibilidade | RT15 |
-| Alteração de definição de perfil enquanto um run correspondente está em andamento | Snapshot do run em execução permanece imutável e inalterado; novo perfil afeta apenas novos runs | RT15 |
-| Cliente SSE reconecta com `Last-Event-ID` expirado pela política de retenção | Servidor retorna código 410 (Gone) ou erro tipado orientando solicitação de novo snapshot completo | RT16 |
-| Evento retransmitido durante reconciliação de conexão SSE | Cliente deduplica pelo par (escopo, sequência monotônica) sem processar efeito duplicado | RT16 |
-| Provedor de inferência não retorna métricas de tokens ou custo | Valor registrado como `unknown`; nunca preenchido com zero ou estimativa inventada | RT17 |
-| Quota de modelo indisponível por queda de gateway | Status exibido como `unknown` ou `stale`; proibido reportar 100% disponível | RT17/RT18 |
-| Gravação de memória solicitada sem consentimento ativo registrado | Recusa imediata com código 409 e nenhuma persistência de dados em disco | RT19 |
-| Checkpoint técnico de tentativa tenta ser importado automaticamente como memória de longo prazo | Bloqueio por validação de esquema; checkpoint e memória possuem tabelas e lifecycles separados | RT19 |
-| Recurso descoberto localmente tem seu hash alterado no disco | Recurso transita automaticamente para `untrusted` e tem execução bloqueada até nova aprovação | RT20 |
-| Segredo configurado como referência tem seu valor exposto em prompt, evento ou log | Falha de validação no módulo de redaction e sanitização antes de qualquer emissão | RT21 |
-| Extensão ou plugin tenta acessar banco de dados do core diretamente | Acesso negado pelo isolamento de processo e falta de permissão de soquete/arquivo | RT22 |
-| Extensão revogada tenta emitir novas chamadas de ferramenta | Interceptação pelo `ExtensionHost` e bloqueio imediato com evento de auditoria | RT22 |
-| Preferência inferida tenta sobrescrever instrução explícita de projeto sem opt-in | Ação bloqueada; instrução explícita tem precedência estrita no snapshot | RT23 |
-| Interface visual tenta marcar tarefa como aceita sem comando versionado correspondente | Bloqueio de ação; a UI é consumidora de API e não autoridade de decisão | RT23 |
-| Transporte SSH com chave de host divergente da esperada | Conexão abortada imediatamente sem bypass silencioso de verificação | RT24 |
-| Requisição HTTP recebida com cabeçalho de origem não allowlisted ou CORS wildcard com credenciais | Rejeição com código 403 Forbidden; credenciais não processadas | RT25 |
+| Caso de teste negativo | Comportamento obrigatório | Requisito |
+|------------------------|---------------------------|-----------|
+| Repositório fora da allowlist | 403 + log auditoria; nenhum Git iniciado | RT13 |
+| Symlink/traversal fora da raiz | 400 + bloqueio + log violação | RT13 |
+| Repo secundário sem autorização | Bloqueado; permissão primária não herdada | RT13 |
+| Driver CLI não certificado em produção | Bloqueado antes do spawn + erro tipado | RT14 |
+| Perfil com capabilities incompatíveis | 422 na validação pré-exec + indicação da incompatibilidade | RT15 |
+| Alteração de perfil durante run ativo | Snapshot do run imutável; novo perfil afeta só novos runs | RT15 |
+| Cliente SSE com `Last-Event-ID` expirado | 410 Gone + orientação snapshot completo | RT16 |
+| Evento retransmitido na reconciliação | Cliente deduplica por (run, seq) sem efeito duplicado | RT16 |
+| Provedor não retorna tokens/custo | `unknown`; nunca zero ou estimativa | RT17 |
+| Quota indisponível por queda gateway | `unknown`/`stale`; proibido 100% | RT17/RT18 |
+| Gravação memória sem consentimento | 409 imediato; zero persistência | RT19 |
+| Checkpoint técnico → memória auto | Bloqueio por schema; tabelas/lifecycles separados | RT19 |
+| Recurso descoberto com hash alterado | Transição `untrusted` automática + bloqueio | RT20 |
+| Segredo exposto em prompt/evento/log | Falha validação redaction antes de emissão | RT21 |
+| Extensão tenta acessar DB core | Acesso negado por isolamento de processo | RT22 |
+| Extensão revogada emite chamada | Interceptação `ExtensionHost` + bloqueio + auditoria | RT22 |
+| Preferência inferida sobrepõe explícita | Bloqueio; explícita tem precedência no snapshot | RT23 |
+| UI marca aceita sem comando versionado | Bloqueio; UI é consumidora, não autoridade | RT23 |
+| SSH host key divergente | Abort imediato; sem bypass silencioso | RT24 |
+| Origem não allowlisted / CORS wildcard + creds | 403 Forbidden; credenciais não processadas | RT25 |
+| Modo Swarm com DAG cíclico | 422 na submissão; run não criado | RT26 |
+| HITL timeout expirado | Tentativa `failed` + `hitl_timeout` + evidência | RT27 |
+| Conflito merge sem resolução | Worktree preservada; status `conflicted`; opções ofertadas | RT28 |
+| Orçamento 100% + recusa extensão | Run `budget_exhausted`; evidência preservada | RT29 |
+| PR package sem autorização | Não criado; exportação local só sob demanda | RT30 |
+
+---
 
 ## 8. Tasks iniciais rastreáveis
 
 Todas pendentes. Cada linha é uma unidade de implementação com testes no mesmo commit; não autoriza execução de provedores pagos. Specs S01–S13 detalham posteriormente cada módulo.
 
-| Task | Depende | RF / RT | Arquivos de propriedade | Definição de concluído |
-| --- | --- | --- | --- | --- |
-| T01 Config canônica | — | RF02 / RT01 | config.py, config.yaml, .gitignore, tests/test_config.py | Aliases resolvidos; inválidos recusados; runtime ignorado |
-| T02 Contratos e estados | T01 | RF03/RF07 / RT02 | model.py, contrato_execucao.md, tests/test_model.py | Schemas e transições válidos/inválidos cobertos |
-| T03 Store e migração | T02 | RF03/RF05 / RT03/RT11 | core/checkpointer.py, engine/checkpointer.py, tests/test_checkpointer.py | Restart, chave idempotente e transação testados |
-| T04 Runner e fake | T03 | RF04/RF06 / RT04 | bridge/worker_runner.py, tests/test_worker_runner.py | Cwd real, erro, timeout e árvore cancelada comprovados |
-| T05 Workspace Git | T04 | RF01/RF04 / RT05 | core/git_workspace.py, tests/test_git_workspace.py | SHA fixo e worktree real; estado do usuário preservado |
-| T06 Checks e integração | T05 | RF07/RF08 / RT06 | core/git_workspace.py, core/run_service.py, tests/test_integration.py | Patch real, escopo, conflito e checks combinados governam aceite |
-| T07 Entrada M1 | T06 | RF03–RF08 / RT10 | cli.py, server.py, tests/test_server.py, tests/test_cli.py | Submeter/consultar/cancelar/revisar usam mesmo serviço com autorização |
-| T08 CI e manual M1 | T07 | RF15 / RT12 | .github/workflows/ci.yml, doc/j_manual/README.md, pyproject.toml | Testes offline e instalação reproduzível; driver real com certificação separada |
+### 8.1 Núcleo (T01 a T08)
 
-Paths Python da tabela são relativos a `src/hydra_orch/`, exceto `tests/`, configuração e documentação. Arquivos ainda inexistentes são destinos propostos. T01–T07 concretizam S01–S05/M1; T08 inicia S13. Swarm, retomada e expansão seguem S06–S12 do plano e só recebem status concluído com seus gates. Validar no mínimo Python 3.10 e versão corrente escolhida no CI; SO anunciado precisa validar gestão de processos.
+| Task | Depende | RF / RT | Arquivos de propriedade | Definição de concluído (DoD) |
+|------|---------|---------|-------------------------|------------------------------|
+| **T01** Config canônica | — | RF02 / RT01 | `config.py`, `config.yaml`, `.gitignore`, `tests/test_config.py` | Aliases resolvidos; inválidos recusados; runtime ignorado |
+| **T02** Contratos e estados | T01 | RF03/RF07 / RT02 | `model.py`, `contrato_execucao.md`, `tests/test_model.py` | Schemas Pydantic + transições válidos/inválidos cobertos |
+| **T03** Store e migração | T02 | RF03/RF05 / RT03/RT11 | `core/checkpointer.py`, `migrations/`, `tests/test_checkpointer.py` | Restart, chave idempotente, transação, WAL, FKs testados |
+| **T04** Runner e fake | T03 | RF04/RF06 / RT04 | `bridge/worker_runner.py`, `tests/test_worker_runner.py` | Cwd real, erro, timeout, árvore cancelada, fake só dry-run |
+| **T05** Workspace Git | T04 | RF01/RF04 / RT05 | `core/git_workspace.py`, `tests/test_git_workspace.py` | SHA fixo, worktree real, estado usuário preservado, lock cleanup |
+| **T06** Checks e integração | T05 | RF07/RF08 / RT06 | `core/git_workspace.py`, `core/run_service.py`, `tests/test_integration.py` | Patch real, escopo, conflito, checks combinados governam aceite |
+| **T07** Entrada M1 (CLI/API) | T06 | RF03–RF08 / RT10 | `cli.py`, `server.py`, `tests/test_server.py`, `tests/test_cli.py` | Submeter/consultar/cancelar/revisar usam mesmo serviço + auth |
+| **T08** CI e manual M1 | T07 | RF15 / RT12 | `.github/workflows/ci.yml`, `doc/j_manual/README.md`, `pyproject.toml` | Testes offline reproduzíveis; driver real com certificação separada |
 
-### 8.2. Tasks da expansão (T09 a T24 — propostas)
+Paths Python relativos a `src/hydra_orch/`, exceto `tests/`, config, docs. T01–T07 concretizam S01–S05/M1; T08 inicia S13. Validar Python ≥ 3.10 e SO anunciado (gestão de processos testada).
 
-Todas as tarefas abaixo são propostas para realização dos requisitos `RF16` a `RF25` e `RT13` a `RT25`. Nenhuma capacidade é considerada entregue antes da aprovação dos testes unitários, de processo e de segurança especificados.
+### 8.2 Expansão (T09 a T28 — propostas)
 
 | Task | Depende | RF / RT | Arquivos de propriedade propostos | Definição de concluído (DoD) |
-| --- | --- | --- | --- | --- |
-| T09 Auth e CORS estrito | T07 | RF15/RF24 / RT25 | server.py, core/auth.py, core/redaction.py, tests/test_auth.py | Token local obrigatório; allowlist de CORS estrita sem wildcard credenciado; redaction de segredos validada em testes |
-| T10 Migrações do banco de control plane | T03, T09 | RF16–RF25 / RT03/RT25 | core/checkpointer.py, migrations/, tests/test_migrations.py | Tabelas de expansão versionadas; rollback testado; FKs ativas; banco legado preservado sem exclusão |
-| T11 Registry de áreas e repositórios | T10 | RF16 / RT13 | core/workspace_registry.py, tests/test_workspace_registry.py | Hierarquia Area/Workspace/Project/Repo persistida; acesso a repositório não autorizado ou traversal bloqueado |
-| T12 Catálogo de agentes e capabilities | T02, T04, T10 | RF17, RF14 / RT14 | core/agent_registry.py, config.yaml, tests/test_agent_registry.py | Catálogo com capabilities declaradas; driver não certificado bloqueado em modo produto; ausência de CLI é erro |
-| T13 Perfis e snapshots imutáveis | T11, T12 | RF17, RF23 / RT15 | core/profile_service.py, tests/test_profile.py | Resolução de perfis/combos com validação pré-execução; snapshot imutável com hash gerado para cada run |
-| T14 Sessões, threads e SSE replay | T03, T07, T10 | RF18, RF05 / RT16 | core/session_service.py, server.py, tests/test_sse_replay.py | Árvore de sessões e threads; stream SSE com Last-Event-ID, replay e deduplicação lógica comprovados |
-| T15 Métricas de observabilidade | T03, T10, T14 | RF19 / RT17 | core/metrics.py, tests/test_metrics.py | Fila, duração, tokens e custo vinculados a runs com estados observed, stale ou unknown; zero não é inventado |
-| T16 Seleção adaptativa de rotas | T12, T15 | RF20, RF11 / RT18 | core/route_selector.py, bridge/omniroute_client.py, tests/test_route_selector.py | Decisão de rota registrada com candidatos e motivo; modo direto sem OmniRoute comprovado em teste |
-| T17 Consentimento e memória adaptativa | T09, T10 | RF21 / RT19 | core/consent.py, core/memory_store.py, tests/test_memory.py | Escrita de memória exige ConsentRecord ativo; revogação funcional; isolamento total contra checkpoints técnicos |
-| T18 Discovery local controlado | T09, T11 | RF22 / RT20 | core/discovery.py, tests/test_discovery.py | Varredura opt-in restrita a raízes permitidas; cálculo de hash e estado untrusted; sem ativação automática |
-| T19 Skills, MCPs e secret references | T12, T17, T18 | RF17, RF22 / RT21 | core/skill_registry.py, bridge/mcp_client.py, tests/test_secrets.py | Segredos gerenciados como referências externas; resolução no spawn com env filtrado; valores brutos nunca persistidos |
-| T20 Isolamento de extensões e plugins | T18, T19 | RF24 / RT22 | core/extension_host.py, tests/test_extension.py | Manifesto validado; processo isolado sem acesso a DB core; revogação de plugin interrompe efeitos imediatamente |
-| T21 Preferências e acessibilidade | T13, S11 | RF23 / RT23 | core/preferences.py, tests/test_preferences.py, doc/h_test/README.md | Preferências escopadas e reversíveis; checklist de acessibilidade (teclado, foco, roles e contraste) validado |
-| T22 Transportes certificados | T04, T09 | RF25, RF14 / RT24 | bridge/transport_registry.py, bridge/ssh_tunnel.py, tests/test_transport.py | Alvo, identidade e healthcheck verificados; host SSH alterado falha conexão; isolamento de saídas concorrentes |
-| T23 CLI de control plane estendida | T11–T22 | RF16–RF25 / RT13–RT25 | cli.py, tests/test_cli.py | Comandos CLI para áreas, projetos, perfis, memória, discovery e extensões consumindo a mesma camada de serviço |
-| T24 CI estendido e runbooks operacionais | T08, T23 | RF15, RF23, RF25 / RT12 | .github/workflows/ci.yml, doc/j_manual/README.md | Suíte de testes offline cobrindo regras negativas da expansão; documentação de auditoria e runbooks atualizada |
+|------|---------|---------|-----------------------------------|------------------------------|
+| **T09** Auth e CORS estrito | T07 | RF15/RF24 / RT25 | `server.py`, `core/auth.py`, `core/redaction.py`, `tests/test_auth.py` | Token local obrigatório; CORS allowlist estrita; redaction validada |
+| **T10** Migrações control plane | T03, T09 | RF16–RF30 / RT03/RT25 | `core/checkpointer.py`, `migrations/`, `tests/test_migrations.py` | Tabelas expansão versionadas; rollback; FKs ativas; legado preservado |
+| **T11** Registry áreas/repos | T10 | RF16 / RT13 | `core/workspace_registry.py`, `tests/test_workspace_registry.py` | Hierarquia Area/WS/Project/Repo persistida; traversal bloqueado |
+| **T12** Catálogo agentes/capabilities | T02, T04, T10 | RF17, RF14 / RT14 | `core/agent_registry.py`, `config.yaml`, `tests/test_agent_registry.py` | Capabilities declaradas; driver não certificado bloqueado; CLI ausente = erro |
+| **T13** Perfis e snapshots imutáveis | T11, T12 | RF17, RF23 / RT15 | `core/profile_service.py`, `tests/test_profile.py` | Validação pré-exec; snapshot imutável com hash por run |
+| **T14** Sessões, threads, SSE replay | T03, T07, T10 | RF18, RF05 / RT16 | `core/session_service.py`, `server.py`, `tests/test_sse_replay.py` | Árvore sessões/threads; SSE Last-Event-ID, replay, dedup comprovados |
+| **T15** Métricas observabilidade | T03, T10, T14 | RF19 / RT17 | `core/metrics.py`, `tests/test_metrics.py` | Fila, duração, tokens, custo com observed/stale/unknown; zero não inventado |
+| **T16** Seleção adaptativa rotas | T12, T15 | RF20, RF11 / RT18 | `core/route_selector.py`, `bridge/omniroute_client.py`, `tests/test_route_selector.py` | RouteDecision auditável; modo direto sem OmniRoute testado |
+| **T17** Consentimento e memória | T09, T10 | RF21 / RT19 | `core/consent.py`, `core/memory_store.py`, `tests/test_memory.py` | Escrita exige ConsentRecord; revogação funcional; isolamento checkpoints |
+| **T18** Discovery local controlado | T09, T11 | RF22 / RT20 | `core/discovery.py`, `tests/test_discovery.py` | Varredura opt-in allowlist; hash + untrusted; sem ativação auto |
+| **T19** Skills, MCPs, secret refs | T12, T17, T18 | RF17, RF22 / RT21 | `core/skill_registry.py`, `bridge/mcp_client.py`, `tests/test_secrets.py` | Segredos como referências; resolução no spawn com env filtrado |
+| **T20** Isolamento extensões/plugins | T18, T19 | RF24 / RT22 | `core/extension_host.py`, `tests/test_extension.py` | Manifesto validado; processo isolado sem DB core; revogação imediata |
+| **T21** Preferências e acessibilidade | T13, S11 | RF23 / RT23 | `core/preferences.py`, `tests/test_preferences.py`, `doc/h_test/README.md` | Preferências escopadas/reversíveis; checklist a11y (teclado, foco, roles, contraste) |
+| **T22** Transportes certificados | T04, T09 | RF25, RF14 / RT24 | `bridge/transport_registry.py`, `bridge/ssh_tunnel.py`, `tests/test_transport.py` | Alvo, identidade, healthcheck; host key SSH alterada falha; isolamento saídas |
+| **T23** CLI control plane estendida | T11–T22 | RF16–RF30 / RT13–RT25 | `cli.py`, `tests/test_cli.py` | Comandos para áreas, projetos, perfis, memória, discovery, extensões |
+| **T24** CI estendido e runbooks | T08, T23 | RF15, RF23, RF25 / RT12 | `.github/workflows/ci.yml`, `doc/j_manual/README.md` | Testes offline cobrindo regras negativas expansão; runbooks atualizados |
+| **T25** Orquestração Swarm/Relay/Persist | T06, T13 | RF26 / RT26 | `engine/swarm.py`, `engine/relay.py`, `engine/persist.py`, `tests/test_orchestration.py` | 3 modos funcionais: DAG+semáforo, handoff checkpoint, pausa/retomada janela |
+| **T26** HITL (Humano-no-Loop) | T07, T14 | RF27 / RT27 | `core/hitl.py`, `core/run_service.py`, `tests/test_hitl.py` | Pausa needs_context/needs_approval; timeout; retomada com resposta; evidência |
+| **T27** Resolução conflitos merge | T06, T08 | RF28 / RT28 | `core/conflict_resolver.py`, `core/git_workspace.py`, `tests/test_conflict.py` | Relatório 3-way; merge_repair com orçamento; opções manual/discard |
+| **T28** Budgeting e PR Packaging | T07, T15 | RF29, RF30 / RT29, RT30 | `core/budget.py`, `core/packaging.py`, `tests/test_budget_packaging.py` | Tetos USD/tokens/tempo; alerta 80%/congelamento 100%; PR package auto |
 
-### 8.3. Faseamento e etapas propostas (S00 a S18)
-
-As etapas S00 a S13 mantêm-se como definidas no [plano de desenvolvimento](../a_context/plano_desenvolvimento.md). As etapas S14 a S18 são propostas para formalizar as especificações técnicas da expansão após o marco M1:
+### 8.3 Faseamento e etapas propostas (S00 a S20)
 
 ```text
-V0 (Núcleo verificável):   S00 -> S01 -> S02 -> S03 -> S04 -> S05 -> M1 (T01-T08)
-V1 (Control plane visual): M1  -> S10 (API) -> S11 (UI fina) -> T09
-V2 (Workspaces e perfis):  S14 (workspaces_perfis.md: T10, T11, T12, T13)
-V3 (Coordenação e rotas):  S06 (swarm) -> S07 (handoff) -> S08 (quota) -> S15 (sessoes_observabilidade.md: T14, T15, T16)
-Gate de segurança V4:      S16 (seguranca_proveniencia.md: validação de auth, secrets, consentimento e allowlists)
-V4 (Memória e extensões):  S16 -> S17 (memoria_discovery_extensoes.md: T17, T18, T19, T20) -> S18 (acessibilidade_transportes.md: T21, T22, T23, T24)
+V0 (Núcleo verificável):      S00 -> S01 -> S02 -> S03 -> S04 -> S05 -> M1 (T01-T08)
+V1 (Control plane + HITL):    M1  -> S10 (API) -> S11 (UI) -> T09, T26
+V2 (Workspaces e Perfis):     S14 (workspaces_perfis.md: T10, T11, T12, T13)
+V3 (Coordenação, Rotas, Swarm/Relay/Persist):
+                              S06 (swarm) -> S07 (handoff) -> S08 (quota)
+                              -> S15 (sessoes_observabilidade.md: T14, T15, T16, T25)
+Gate de Segurança V4:         S16 (seguranca_proveniencia.md: auth, secrets, consent, allowlists)
+V4 (Memória, Discovery, Extensões, Conflitos, Budget, PR):
+                              S16 -> S17 (memoria_discovery_extensoes.md: T17, T18, T19, T20, T27)
+                              -> S18 (acessibilidade_transportes.md: T21, T22)
+                              -> S19 (budget_packaging.md: T28)
+                              -> S20 (cli_ci_manual.md: T23, T24)
 ```
 
 Nenhuma etapa da expansão pode anteceder a conclusão do marco M1 de execução verificável local.
 
-### 8.4. Matriz de rastreabilidade (RF → RT → Task → Evidência → Caso Negativo)
+### 8.4 Matriz de rastreabilidade (RF → RT → Task → Evidência → Caso Negativo)
 
-| RF | RT | Task | Etapa | Evidência de conclusão | Caso negativo correspondente (§7.A) |
-| --- | --- | --- | --- | --- | --- |
-| RF01–RF08 (RF01, RF02, RF03, RF04, RF05, RF06, RF07, RF08) | RT01–RT10 | T01–T07 | S01–S05 / M1 | Execução de subprocesso real em fixture temporária com diff e check registrados | CLI ausente falha; simulação rejeitada |
-| RF09, RF10, RF11, RF12 | RT07–RT09 | T02, T06 | S06–S09 | Swarm coordenado por DAG, retomada/handoff sob gate e quota unknown | Ciclo em DAG rejeitado; quota offline unknown |
-| RF13–RF15 | RT10–RT12 | T07, T08 | S10–S13 | Bootstrap funcional, exportação sanitizada e suíte offline sem dependência de contas | CORS irrestrito rejeitado; artefato alterado falha |
-| RF16 | RT13, RT25 | T10, T11 | S14 | Testes unitários de cadastro e resolução canônica de múltiplos repositórios e áreas | Repositório fora de allowlist ou traversal recusado |
-| RF17 | RT14, RT15, RT21 | T12, T13, T19 | S14 | Validador de perfis rejeita incompatibilidades; snapshot imutável gravado no run | Driver não certificado em produção falha antes do spawn |
-| RF18 | RT16 | T14 | S15 | Replay de eventos SSE com cursor `Last-Event-ID` e ordenação monotônica | Conexão perdida reconciliada sem duplicação lógica |
-| RF19 | RT17 | T15 | S15 | Endpoint de métricas exibe tokens e custos com proveniência e status explícito | Provedor sem tokens gera status unknown (nunca zero) |
-| RF20 | RT18 | T16 | S15 | Trilha auditável de `RouteDecision` gravada com candidatos, motivo e fallback | Rota inelegível nunca é selecionada; modo direto OK |
-| RF21 | RT19 | T10, T17 | S17 (pós-S16) | Persistência de memória vinculada a `ConsentRecord`; tabela isolada de checkpoints | Tentativa de escrita sem consentimento retorna 409 |
-| RF22 | RT20, RT21 | T18, T19 | S17 (pós-S16) | Varredura em raiz allowlisted registra recursos com hash e status untrusted | Recurso com hash alterado bloqueado e desativado |
-| RF23 | RT23, RT15 | T13, T21 | S18 / S11 | Checklist automatizado e manual de acessibilidade (teclado, foco e contraste) | Preferência inferida não sobrepõe instrução de projeto |
-| RF24 | RT22 | T20 | S17 (pós-S16) | Extensão executada em processo isolado; revogação bloqueia novas chamadas | Tentativa de acesso a DB core por plugin é bloqueada |
-| RF25 | RT24, RT14 | T22 | S18 / S12 | Verificação de chave de host SSH e healthcheck tipado de transportes | Host SSH com chave modificada aborta conexão |
-| Transversal | RT25 | T09 | S16 | Middleware de autenticação local rejeita tokens inválidos e sanitiza logs/eventos | CORS wildcard com credenciais retorna erro 403 |
+| RF | RT | Task | Etapa | Evidência de conclusão | Caso negativo (§7.A) |
+|----|----|------|-------|------------------------|----------------------|
+| RF01–RF08 | RT01–RT10 | T01–T07 | S01–S05/M1 | Subprocesso real em fixture com diff/check | CLI ausente falha; simulação rejeitada |
+| RF09, RF10, RF11, RF12 | RT07–RT09, RT12 | T02, T06, T25 | S06–S09 | Swarm DAG, handoff, quota unknown | Ciclo DAG rejeitado; quota offline unknown |
+| RF13–RF15 | RT10–RT12 | T07, T08, T26 | S10–S13 | Bootstrap, exportação sanitizada, suíte offline | CORS irrestrito rejeitado; artefato alterado falha |
+| RF16 | RT13, RT25 | T10, T11 | S14 | Cadastro/resolução canônica multi-repo/área | Repo fora allowlist/traversal recusado |
+| RF17 | RT14, RT15, RT21 | T12, T13, T19 | S14 | Perfil validador rejeita incompatibilidades; snapshot imutável | Driver não certificado falha antes spawn |
+| RF18 | RT16 | T14 | S15 | Replay SSE Last-Event-ID monotônico | Conexão perdida reconciliada sem dup |
+| RF19 | RT17 | T15 | S15 | Métricas com proveniência + status explícito | Provedor sem tokens → unknown |
+| RF20 | RT18 | T16 | S15 | RouteDecision com candidatos/motivo/fallback | Rota inelegível nunca selecionada; direto OK |
+| RF21 | RT19 | T10, T17 | S17 (pós-S16) | Memória vinculada a ConsentRecord; isolada checkpoints | Escrita sem consentimento → 409 |
+| RF22 | RT20, RT21 | T18, T19 | S17 (pós-S16) | Varredura allowlist → hash + untrusted | Hash alterado → blocked |
+| RF23 | RT23, RT15 | T13, T21 | S18/S11 | Checklist a11y automatizado/manual | Inferida não sobrepõe explícita |
+| RF24 | RT22 | T20 | S17 (pós-S16) | Extensão isolada; revogação bloqueia efeitos | Acesso DB core por plugin bloqueado |
+| RF25 | RT24, RT14 | T22 | S18/S12 | Host key SSH verificada; healthcheck tipado | Host key modificada aborta |
+| RF26 | RT26 | T25 | S15 | 3 modos: DAG+semáforo, handoff, pausa/retomada | DAG cíclico → 422 |
+| RF27 | RT27 | T26 | S11 | HITL needs_context/approval + timeout + retomada | Timeout → failed + evidência |
+| RF28 | RT28 | T27 | S05/S17 | Conflito 3-way + merge_repair + opções | Worktree preservada; não toca branch user |
+| RF29 | RT29 | T28 | S19 | Budget 80% alert / 100% freeze / extend | Recusa → budget_exhausted |
+| RF30 | RT30 | T28 | S19/S13 | PR package auto com descrição completa | Sem autorização → não publica |
+| Transversal | RT25 | T09 | S16 | Auth local + CORS estrita + redaction | CORS wildcard + creds → 403 |
 
-### 8.5. Documentos de coerência pendentes (não editados nesta etapa)
+---
+
+### 8.5 Documentos de coerência pendentes
 
 A formalização completa da arquitetura da expansão exigirá o alinhamento dos seguintes documentos em etapas documentais dedicadas, antes da codificação das tarefas correspondentes:
 
-- `doc/b_spc/contrato_execucao.md`: formalização dos schemas JSON de `ProfileSnapshot`, `Session`, `Thread`, `ConsentRecord`, `MemoryEntry` e eventos de control plane.
-- `doc/b_spc/arquitetura_hydra_omniroute_ui.md`: atualização dos diagramas de blocos para incluir o `AgentRegistry`, `DiscoveryService` e `ExtensionHost`.
-- `doc/d_mer/mer.md` e `mer.mmd`: modelagem relacional formal das tabelas de expansão (`areas`, `workspaces`, `repositories`, `profiles`, `sessions`, `memories`, etc.).
-- `doc/e_class/diagrama_classe.md` e `diagrama_classe.mmd`: diagramas de classe para as interfaces e serviços de control plane.
-- `doc/b_spc/README.md`: sincronização dos contadores normativos para `RF01–RF25`, `RT01–RT25` e `T01–T24`.
-- `doc/f_api/README.md`, `doc/h_test/README.md`, `doc/i_infra/README.md`, `doc/j_manual/README.md`: detalhamento de endpoints, matriz de testes de segurança/a11y, infraestrutura de sandboxing e runbooks.
+- `doc/b_spc/contrato_execucao.md`: formalização dos schemas JSON de `ProfileSnapshot`, `Session`, `Thread`, `ConsentRecord`, `MemoryEntry`, `HandoffCheckpoint`, `BudgetPolicy`, `ConflictReport`, `PRPackage` e eventos de control plane.
+- `doc/b_spc/arquitetura_hydra_omniroute_ui.md`: atualização dos diagramas de blocos para incluir `AgentRegistry`, `DiscoveryService`, `ExtensionHost`, `BudgetGovernor`, `ConflictResolver`, `PRPackager`.
+- `doc/d_mer/mer.md` e `mer.mmd`: modelagem relacional formal das tabelas de expansão (`areas`, `workspaces`, `repositories`, `profiles`, `sessions`, `memories`, `metric_samples`, `route_decisions`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`, etc.).
+- `doc/e_class/diagrama_classe.md` e `diagrama_classe.mmd`: diagramas de classe para interfaces e serviços de control plane (incluindo `BudgetGovernor`, `ConflictResolver`, `PRPackager`, `HitlManager`).
+- `doc/b_spc/README.md`: sincronização dos contadores normativos para `RF01–RF30`, `RT01–RT30`, `RNF01–RNF10` e `T01–T28`.
+- `doc/f_api/openapi.yaml`: especificação OpenAPI 3.0 completa para `/v1/control-plane/*` e `/v1/chat/completions`.
+- `doc/h_test/README.md`: matriz de rastreabilidade RF/RT → testes, estratégia hermética, critérios de cobertura, testes de segurança/a11y.
+- `doc/i_infra/README.md`: infraestrutura de sandboxing, gestão de processos multiplataforma, certificação de drivers.
+- `doc/j_manual/README.md`: manuais de configuração, autenticação, SSH, operação M1–M4, runbooks de auditoria e recuperação.
 
-## 9. Exemplos técnicos
+---
 
-### 9.1. Núcleo verificável
+## 9. Requisitos Não-Funcionais (RNF01 a RNF10)
 
-POST de RunSpec com projeto, objetivo, base SHA e tarefa delimitada cria run queued e evento numa transação. Worker fake altera arquivo numa fixture; check registra SHA/exit code. Resultado vira ready_for_review. Review com revisão correta aceita; integração aplica em worktree própria e repete check. Mesma submissão não gera outro processo; review com revisão antiga retorna 409.
+| ID | Categoria | Requisito | Métrica / Critério de Aceite |
+|----|-----------|-----------|------------------------------|
+| **RNF01** | Performance | Despacho de subprocesso executor < 300ms após agendamento | P99 ≤ 300ms em fixture local (medido em `tests/test_worker_runner.py::test_dispatch_latency`) |
+| **RNF02** | Consumo de Recursos | Processo Hydra Control Plane ≤ 200MB RAM em repouso; ≤ 500MB sob carga (4 worktrees ativas) | Monitoramento contínuo em CI; `memory_profiler` em testes de integração |
+| **RNF03** | Compatibilidade SO | Suporte formal testado: Windows 11 (`taskkill /T /F`), Ubuntu 22.04+ / macOS 13+ (`os.killpg` + process groups) | CI matrix: Windows + Linux + macOS; testes de tree kill em cada SO |
+| **RNF04** | Integridade de Dados | Zero perda de eventos em encerramento abrupto (persistência antecede ou mesma transação da emissão) | Teste de crash simulado (`kill -9` / `TerminateProcess`) + verificação de eventos no banco |
+| **RNF05** | Segurança e Higiene | 100% de segredos expurgados em logs, eventos SSE, artefatos, exportações (regex + entropia) | Teste de redactor com corpus de segredos conhecidos + falsos positivos < 0.1% |
+| **RNF06** | Disponibilidade | Reinicialização do servidor em < 5s (incluindo migração DB e reconciliação de órfãos) | Benchmark de startup frio + quente em CI |
+| **RNF07** | Escalabilidade Local | Suporta até 10 runs concorrentes, 20 worktrees ativas, 100 tasks em fila sem degradação > 2x latência base | Teste de carga local (locust/k6) em CI opcional |
+| **RNF08** | Observabilidade | 100% de operações críticas (run, task, attempt, check, review, integrate, cancel) emitem evento SSE com payload redigido | Cobertura de eventos verificada em `tests/test_events_coverage.py` |
+| **RNF09** | Manutenibilidade | Cobertura de testes ≥ 80% em `core/`, `bridge/`, `engine/`; 100% em `model.py` (schemas) | `pytest --cov=src/hydra_orch --cov-fail-under=80` |
+| **RNF10** | Portabilidade | Zero dependências de runtime não-vendored; Python stdlib + dependências declaradas em `pyproject.toml` | `pip-audit` + `cyclonedx-bom` em CI; sem `sys.path` hacks |
 
-### 9.2. Exemplos técnicos da expansão (proposto)
+---
 
-**Resolução de perfil e snapshot:** operador solicita execução associando um perfil configurado com Claude Code (driver CLI proposto) e modelo via OmniRouter. O `ProfileResolver` valida se as capabilities exigidas pela tarefa (ex.: isolamento em worktree) são suportadas pelo driver. Se compatível, gera `ProfileSnapshot` com hash imutável e grava na transação do run. Se o driver não for certificado ou faltar a CLI, a chamada falha no HTTP 422 antes de qualquer processo ser iniciado.
+## 10. Exemplos técnicos
 
-**Reconexão SSE com cursor:** cliente visual conecta-se a `/v1/control-plane/sessions/{id}/events` enviando cabeçalho `Last-Event-ID: 42`. O servidor recupera do banco eventos persistidos a partir da sequência 43, emite-os em ordem monotônica e prossegue transmitindo eventos ao vivo. Se a conexão cair na sequência 45, o cliente reconecta com `Last-Event-ID: 45` e deduplica pelo identificador de evento, sem perder estado nem duplicar ações.
+### 10.1 Núcleo verificável
 
-**Consentimento e gravação de memória:** ao identificar uma preferência durável, o sistema emite solicitação de consentimento (`ConsentRecord` no estado `requested`). Somente após comando autenticado do usuário em `POST /consents/{id}` o status transita para `granted`. A gravação em `POST /memory` valida a existência do consentimento ativo antes de persistir a `MemoryEntry`. Se o consentimento for revogado via `POST /consents/{id}/revoke`, execuções futuras deixam de receber o fragmento de memória na injeção de contexto.
+POST de `RunSpec` com projeto, objetivo, base SHA e tarefa delimitada cria run `queued` e evento numa transação. Worker fake altera arquivo numa fixture; check registra SHA/exit code. Resultado vira `ready_for_review`. Review com revisão correta aceita; integração aplica em worktree própria e repete check. Mesma submissão não gera outro processo; review com revisão antiga retorna 409.
 
-**Discovery local rejeitando adulteração:** o serviço `DiscoveryService` executa varredura opt-in em raiz autorizada, encontrando um manifesto de skill em disco. O sistema calcula o SHA-256 do arquivo e registra `DiscoveredResource` como `untrusted`. O operador aprova a skill via API/CLI e o status vira `approved`. Se em momento posterior o arquivo da skill for alterado em disco, o próximo hash check detecta a divergência, transita o recurso imediatamente para `untrusted` e impede sua execução em qualquer sessão até nova aprovação explícita.
+### 10.2 Exemplos técnicos da expansão (proposto)
+
+**Resolução de perfil e snapshot:** Operador solicita execução associando perfil com Claude Code (driver CLI proposto, `is_certified=false`) e modelo via OmniRouter. `ProfileResolver` valida se capabilities exigidas (ex.: isolamento em worktree) são suportadas pelo driver. Se compatível, gera `ProfileSnapshot` com hash imutável (SHA-256 do JSON efetivo) e grava na transação do run. Se driver não certificado ou CLI ausente, falha HTTP 422 antes de qualquer processo.
+
+**Reconexão SSE com cursor:** Cliente visual conecta a `/v1/control-plane/sessions/{id}/events` com header `Last-Event-ID: 42`. Servidor recupera do banco eventos a partir da sequência 43, emite em ordem monotônica e prossegue com eventos ao vivo. Se conexão cai na sequência 45, cliente reconecta com `Last-Event-ID: 45` e deduplica por `(run_id, seq)` sem perder estado nem duplicar ações.
+
+**Consentimento e gravação de memória:** Ao identificar preferência durável, sistema emite solicitação (`ConsentRecord` estado `requested`). Após comando autenticado `POST /consents/{id}` → `granted`. Gravação `POST /memory` valida consentimento ativo antes de persistir `MemoryEntry`. Revogação via `POST /consents/{id}/revoke` impede uso em novos runs.
+
+**Discovery local rejeitando adulteração:** `DiscoveryService` varre raiz autorizada, encontra manifesto de skill. Calcula SHA-256, registra `DiscoveredResource` como `untrusted`. Operador aprova via API/CLI → `approved`. Se arquivo alterado em disco, próximo hash check detecta divergência, transita para `untrusted` e impede execução até nova aprovação.
+
+**Handoff Relay com Code Stitching:** Executor atinge rate limit (evento `attempt.rate_limited`). Hydra cria `HandoffCheckpoint` com diff parcial, ferramentas executadas, próximo passo. Seleciona provedor fallback compatível. Nova tentativa carrega checkpoint; `tree-sitter` identifica âncora sintática no último nó completo; injeta prompt "continue from here". Valida integridade sintática antes de aplicar patch mesclado.
+
+**Swarm com DAG e Auto-Healing:** Run modo `swarm` com T1→T2, T1→T3. Scheduler valida DAG (Kahn), despacha T1. T1 falha check. Operador solicita reparo → nova tentativa T1 (ordinal 2) com prompt de reparo contendo só erro + código atual. `max_repair_attempts=2` respeitado. T1 aceita → T2, T3 tornam-se `ready` e despachadas em paralelo (semáforo `max_parallel_worktrees=3`). Todas aceitas → integração serializada com checks combinados.
+
+**Budgeting com alerta e congelamento:** Run com `max_usd=2.00`, `alert_threshold_pct=80`. Em $1.60 → `BudgetPolicy` status `alerted`, evento `budget.alerted` emitido. Em $2.00 → status `frozen`, run pausa com `waiting` causa `budget_frozen`, evento `budget.frozen`. Operador aprova extensão $1.00 via `POST /budget/{run_id}/extend` → status `active`, run retoma. Recusa → `budget_exhausted`, run `failed`.
+
+**PR Package automático:** Run concluído com 3 tasks aceitas. Política de publicação autorizada. `PRPackager.build()` cria branch `pr/<run_id>`, descrição Markdown com: objetivo, 3 commits (SHA + mensagem), 12 checks (comando + exit_code + duração), diff sumarizado (4 arquivos, +120/-45 linhas), métricas (tokens: 45k in / 18k out, custo: $0.87, duração: 14min), decisões de review. `PRPackager.publish()` faz push no remote configurado.
+
+**Resolução de conflito assistida:** Integração detecta conflito em `src/api/routes.py`. `ConflictResolver.analyze()` gera `ConflictReport` com base/ours/theirs SHA, arquivos conflitantes, diff 3-way. Operador escolhe "auto_repair" → `ConflictResolver.auto_repair()` cria `TaskAttempt` tipo `merge_repair` com orçamento próprio, prompt contendo conflito + arquivos base. Se checks passam → integração prossegue. Se falha → operador escolhe "manual" (worktree preservada) ou "discard" (tarefa rejected).
+
+---
+
+## 11. Glossary e Acrônimos
+
+| Termo | Significado |
+|-------|-------------|
+| API | Application Programming Interface |
+| AST | Abstract Syntax Tree |
+| CDP | Chrome DevTools Protocol |
+| CI | Continuous Integration |
+| CLI | Command Line Interface |
+| DAG | Directed Acyclic Graph |
+| DBC-9 | Design by Contract — 9 partes (Purpose, Why, Contract, Preconditions, Postconditions, Invariants, Failure Modes, How, Examples) |
+| DDL | Data Definition Language |
+| ER | Entity-Relationship |
+| FK | Foreign Key |
+| Git | Sistema de controle de versão distribuído |
+| HITL | Human-in-the-Loop |
+| HTTP | Hypertext Transfer Protocol |
+| IDE | Integrated Development Environment |
+| JSON | JavaScript Object Notation |
+| MCP | Model Context Protocol |
+| MER | Modelo Entidade-Relacionamento |
+| MVP | Minimum Viable Product |
+| OmniRoute | Gateway opcional de inferência, quota e fallback |
+| OpenAPI | Especificação de API REST |
+| PK | Primary Key |
+| PR | Pull Request |
+| PRD | Product Requirements Document |
+| RF | Requisito Funcional |
+| RNF | Requisito Não-Funcional |
+| RT | Requisito Técnico |
+| SSE | Server-Sent Events |
+| SSH | Secure Shell |
+| Swarm | Modo de orquestração paralela com worktrees isoladas |
+| Relay | Modo de orquestração com handoff entre provedores |
+| Persistente | Modo de orquestração com auto-resume por janela de cota |
+| SQLite | Banco de dados relacional embarcado |
+| UI | User Interface |
+| UUID | Universally Unique Identifier |
+| WAL | Write-Ahead Logging (modo SQLite) |
+| WebSocket | Protocolo de comunicação full-duplex |
+| YAML | YAML Ain't Markup Language |

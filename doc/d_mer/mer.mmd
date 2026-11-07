@@ -1,4 +1,5 @@
 erDiagram
+    %% NÚCLEO (V0)
     PROJECT ||--o{ RUN : possui
     RUN ||--|{ TASK : contem
     TASK ||--o{ TASK_DEPENDENCY : depende
@@ -6,7 +7,7 @@ erDiagram
     TASK ||--o{ ATTEMPT : tenta
     ATTEMPT ||--o| WORKSPACE : prepara
     ATTEMPT ||--o| RESULT : produz
-    ATTEMPT ||--o{ CHECKPOINT : preserva
+    ATTEMPT ||--o{ HANDOFF_CHECKPOINT : preserva
     RUN ||--o{ EVENT : registra
     RUN ||--o{ ARTIFACT : armazena
     ATTEMPT o|--o{ ARTIFACT : origina
@@ -17,10 +18,17 @@ erDiagram
     RESULT ||--o{ INTEGRATION_ITEM : participa
     INTEGRATION o|--o{ CHECK_RESULT : valida
     RUN o|--o{ COMMAND : correlaciona
+    RUN ||--o| BUDGET_POLICY : governa
+    RUN ||--o{ METRIC_SAMPLE : mede
+    RUN ||--o{ ROUTE_DECISION : decide
+    RUN ||--o{ PR_PACKAGE : empacota
+
     PROJECT {
         text id PK
         text canonical_root UK
         text name
+        text created_at
+        text updated_at
     }
     RUN {
         text id PK
@@ -30,6 +38,7 @@ erDiagram
         text status
         int revision
         text created_at
+        text updated_at
     }
     TASK {
         text id PK
@@ -37,6 +46,8 @@ erDiagram
         text spec_json
         text status
         int revision
+        text created_at
+        text updated_at
     }
     TASK_DEPENDENCY {
         text task_id PK,FK
@@ -52,6 +63,7 @@ erDiagram
         text process_status
         text started_at
         text finished_at
+        text created_at
     }
     WORKSPACE {
         text id PK
@@ -69,6 +81,7 @@ erDiagram
         text outcome
         text summary
         text patch_artifact_id FK
+        text created_at
     }
     ARTIFACT {
         text id PK
@@ -78,6 +91,7 @@ erDiagram
         text kind
         text sha256
         int size_bytes
+        text created_at
     }
     CHECK_RESULT {
         text id PK
@@ -100,12 +114,15 @@ erDiagram
         int expected_revision
         text created_at
     }
-    CHECKPOINT {
+    HANDOFF_CHECKPOINT {
         text id PK
         text attempt_id FK
-        text schema_version
+        text instructions_json
         text git_sha
-        text context_json
+        text diff_artifact_ids_json
+        text tools_executed_json
+        text partial_output_json
+        text next_step
         text created_at
     }
     EVENT {
@@ -125,6 +142,7 @@ erDiagram
         text expected_base_sha
         text result_sha
         text status
+        text created_at
     }
     INTEGRATION_ITEM {
         text integration_id PK,FK
@@ -139,4 +157,307 @@ erDiagram
         text run_id FK
         text response_json
         text status
+    }
+    BUDGET_POLICY {
+        text id PK
+        text run_id FK,UK
+        real max_usd
+        int max_tokens_in
+        int max_tokens_out
+        int max_wall_seconds
+        real alert_threshold_pct
+        text status
+        text created_at
+    }
+    METRIC_SAMPLE {
+        text id PK
+        text run_id FK
+        text scope
+        text scope_id
+        text kind
+        real value
+        text unit
+        text source
+        text observed_at
+        text status
+        text created_at
+    }
+    ROUTE_DECISION {
+        text id PK
+        text run_id FK
+        text candidates_json
+        text selected_route
+        text reason
+        text fallback_chain_json
+        text decision_source
+        text timestamp
+    }
+    PR_PACKAGE {
+        text id PK
+        text run_id FK
+        text pr_branch
+        text description_markdown
+        text commits_json
+        text checks_summary_json
+        text diff_summary_json
+        text metrics_json
+        text created_at
+    }
+
+    %% EXPANSÃO CONTROL PLANE (V1-V4)
+    AREA ||--o{ WORKSPACE_EXP : contem
+    WORKSPACE_EXP ||--o{ PROJECT_EXP : agrega
+    PROJECT_EXP ||--o{ REPOSITORY : referencia
+    REPOSITORY ||--o| AUTHORIZATION : autoriza
+    AREA ||--o{ AUTHORIZATION : concede
+    AGENT_DEFINITION ||--o{ CAPABILITY_DECLARATION : declara
+    PROFILE ||--o| PROFILE_SNAPSHOT : snapshot
+    PROFILE }o--o{ SKILL_DEFINITION : inclui
+    PROFILE }o--o{ MCP_DEFINITION : inclui
+    PROFILE ||--o| BUDGET_POLICY_EXP : define
+    RUN ||--o{ SESSION : inicia
+    SESSION ||--o{ THREAD : ramifica
+    THREAD }o--o{ THREAD : pai_filho
+    SESSION ||--o{ EVENT_EXP : registra
+    MEMORY_ENTRY }|--o{ CONSENT_RECORD : requer
+    DISCOVERED_RESOURCE ||--o| SKILL_DEFINITION : origina
+    DISCOVERED_RESOURCE ||--o| MCP_DEFINITION : origina
+    EXTENSION_MANIFEST ||--o{ EXTENSION_INSTALL : instala
+    EXTENSION_INSTALL }|--o{ CONSENT_RECORD : requer
+    TRANSPORT_DEFINITION ||--o{ TRANSPORT_HEALTH : monitora
+    ACCESS_TOKEN }|--o{ CONSENT_RECORD : escopo
+    CONFLICT_REPORT }|--o| INTEGRATION : resolve
+
+    AREA {
+        text id PK
+        text name
+        text description
+        text owner_principal_id
+        text created_at
+    }
+    WORKSPACE_EXP {
+        text id PK
+        text area_id FK
+        text name
+        text status
+        text created_at
+        text updated_at
+    }
+    PROJECT_EXP {
+        text id PK
+        text workspace_id FK
+        text name
+        text metadata_json
+        text canonical_root UK
+        text base_branch
+        text base_sha
+        text created_at
+        text updated_at
+    }
+    REPOSITORY {
+        text id PK
+        text project_id FK
+        text root_canonical
+        text base_branch
+        text base_sha
+        text allowed_paths_json
+        text authorization_id FK,UK
+        text created_at
+        text updated_at
+    }
+    AUTHORIZATION {
+        text id PK
+        text resource_ref
+        text principal_id
+        text scopes_json
+        text granted_at
+        text revoked_at
+    }
+    AGENT_DEFINITION {
+        text id PK
+        text name
+        text version
+        text driver_type
+        text declared_capabilities_json
+        text limitations_json
+        boolean is_certified
+        text created_at
+    }
+    CAPABILITY_DECLARATION {
+        text id PK
+        text agent_definition_id FK
+        text name
+        text version
+        boolean supports_tools
+        boolean supports_workspace
+        boolean supports_cancellation
+        boolean supports_streaming
+        text certified_on
+    }
+    PROFILE {
+        text id PK
+        text name
+        text agent_ref FK
+        text model_ref
+        text executor_ref FK
+        text skills_refs_json
+        text mcp_refs_json
+        text memory_policy_json
+        text resource_limits_json
+        text orchestration_mode
+        text created_at
+        text updated_at
+    }
+    PROFILE_SNAPSHOT {
+        text id PK
+        text profile_id FK
+        text snapshot_hash
+        text effective_config_json
+        text created_at
+    }
+    SKILL_DEFINITION {
+        text id PK
+        text name
+        text version
+        text manifest_ref
+        text permissions_declared_json
+        text checksum
+        text created_at
+    }
+    MCP_DEFINITION {
+        text id PK
+        text server_name
+        text transport_type
+        text endpoint
+        text secret_ref FK
+        text declared_tools_json
+        text permissions_json
+        text created_at
+    }
+    SECRET_REF {
+        text id PK
+        text secret_name
+        text provider_type
+        text source_key
+    }
+    EXTENSION_MANIFEST {
+        text id PK
+        text name
+        text version
+        text entrypoint
+        text permissions_required_json
+        text compatible_api_version
+        text checksum
+        text created_at
+    }
+    EXTENSION_INSTALL {
+        text id PK
+        text extension_manifest_id FK
+        text status
+        text consent_record_id FK
+        text installed_at
+        text revoked_at
+    }
+    SESSION {
+        text id PK
+        text run_id FK
+        text origin_ref
+        text agent_ref FK
+        text state
+        text created_at
+        text closed_at
+    }
+    THREAD {
+        text id PK
+        text session_id FK
+        text parent_thread_id FK
+        text agent_ref FK
+        text state
+        int last_seq
+        text created_at
+    }
+    MEMORY_ENTRY {
+        text id PK
+        text scope_type
+        text scope_id
+        text content_redacted
+        text author_ref
+        text consent_id FK
+        int version
+        text retention_policy_id
+        text status
+        text created_at
+        text expires_at
+    }
+    CONSENT_RECORD {
+        text id PK
+        text principal_id
+        text purpose
+        text scope
+        text granted_at
+        text revoked_at
+    }
+    DISCOVERED_RESOURCE {
+        text id PK
+        text resource_type
+        text source_canonical_path
+        text content_hash
+        text capabilities_json
+        text trust_status
+        text discovered_at
+        text approved_at
+        text approved_by
+    }
+    PREFERENCE {
+        text id PK
+        text scope_type
+        text scope_id
+        text key
+        text value_json
+        text source
+        int version
+        text created_at
+        text updated_at
+    }
+    PREFERENCE_SNAPSHOT {
+        text id PK
+        text run_id FK
+        text preferences_hash
+        text resolved_preferences_json
+        text created_at
+    }
+    TRANSPORT_DEFINITION {
+        text id PK
+        text type
+        text target_identity
+        text capabilities_json
+        boolean is_certified
+        text created_at
+    }
+    TRANSPORT_HEALTH {
+        text id PK
+        text transport_id FK
+        text status
+        text last_check_at
+        text error_detail
+    }
+    ACCESS_TOKEN {
+        text id PK
+        text token_hash
+        text principal_id
+        text scopes_json
+        text expires_at
+        text revoked_at
+    }
+    CONFLICT_REPORT {
+        text id PK
+        text integration_id FK
+        text base_sha
+        text ours_sha
+        text theirs_sha
+        text conflicted_files_json
+        text resolution_options_json
+        text status
+        text created_at
+        text resolved_at
     }
