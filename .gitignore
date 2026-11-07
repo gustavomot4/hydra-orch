@@ -44,6 +44,7 @@ orchestrator_checkpoints.db
 
 # Hydra worktrees and runtime artifacts
 .orchestrator/
+.hydra/
 worktrees/
 worktree/
 

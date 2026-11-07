@@ -5,8 +5,8 @@ hydra:
   proxy_port: 8000
   default_mode: 1 # 1: Swarm Multi-Sessao | 2: Relay Sequencial | 3: Persistente Auto-Resume
   preferred_primary_model: "claude-pro"
-  worktree_base_dir: ".hydra/worktree"
-  state_db: ".hydra/state.db"
+  worktree_base_dir: ".orchestrator/worktree"
+  state_db: ".orchestrator/checkpoints.sqlite"
   auto_heal_build_errors: true
   max_heal_attempts: 3
 
@@ -14,10 +14,10 @@ hydra:
 # INTEGRAÇÃO COM O OMNIROUTE GATEWAY (Conexão OAuth Assinaturas + Free Tiers)
 # ============================================================================
 omniroute:
-  # Optional gateway: Hydra continues to support direct executors when disabled.
+  # Optional gateway: Hydra operates in direct mode when disabled or connection_mode is disabled.
   enabled: false
   auto_start_daemon: false
-  connection_mode: "optional" # disabled | optional | required
+  connection_mode: "disabled" # disabled | optional | required
   base_url: "http://127.0.0.1:20128/v1"
   quota_api_url: "http://127.0.0.1:20128/api/usage/quota"
   default_routing_strategy: "auto/thrifty"
