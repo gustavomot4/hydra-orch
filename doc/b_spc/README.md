@@ -36,12 +36,6 @@ Para implementação e testes, seguir a sequência:
 | [`prd_funcional.md`](prd_funcional.md) | PRD Funcional (DBC-9) | RF01–RF38, UC01–UC10, RB01–RB28, aceite observável | `v01_02_0000` |
 | [`prd_tecnico.md`](prd_tecnico.md) | PRD Técnico (DBC-9) | RT01–RT38, RNF01–RNF15, API, algoritmos, T01–T44 | `v01_02_0000` |
 | [`prd_hydra_orch.md`](prd_hydra_orch.md) | PRD de Visão | Visão unificada, modos Swarm/Relay/Persistente, conectores | `v05_00_0000` |
-| [`marca.md`](marca.md) | Brief de Marca | Essência, personas, tom de voz, anti-clichê, regras de interface | `v01_00_0000` |
-| [`design_system.md`](design_system.md) | Design System | Tokens de cores OKLCH, tipografia, geometria, 3 direções visuais | `v01_00_0000` |
-| [`prancha_visual.html`](prancha_visual.html) | Prancha Interativa | Showcase visual com SVGs, paletas, contraste e mockups comparativos | `v01_00_0000` |
-| [`direcao_a.html`](direcao_a.html) | Mockup Direção A | Tela isolada em Steel Slate Precision (Azul Aço #184e77) | `v01_00_0000` |
-| [`direcao_b.html`](direcao_b.html) | Mockup Direção B | Tela isolada em Bioluminescent Abyssal Hydra (#0e5f4b, Recomendada) | `v01_00_0000` |
-| [`direcao_c.html`](direcao_c.html) | Mockup Direção C | Tela isolada em Monolith Titanium & Amber (#854d0e) | `v01_00_0000` |
 | [`contrato_execucao.md`](contrato_execucao.md) | Contrato de Interface | Entidades RunSpec, TaskSpec, TaskAttempt, TaskResult, RunEvent, HandoffCheckpoint | `v01_00_0000` |
 | [`arquitetura_hydra_omniroute_ui.md`](arquitetura_hydra_omniroute_ui.md) | Fronteiras Arquiteturais | Hydra control plane vs OmniRoute vs executores vs UI | `v01_00_0000` |
 | [`taxonomia_file_system.md`](taxonomia_file_system.md) | Norma Arquitetural | Singularidade, prefixos a_..j_, runtime `.orchestrator/` | `v01_00_0000` |
