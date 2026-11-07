@@ -4,7 +4,7 @@
 **Caminho Canônico:** `doc/g_code/stack.md`
 **Versão:** `v01_00_0000`
 **Status:** `APROVADO / NORMATIVO`
-**Autoridade:** Decisão arquitetural baseada em `prd_tecnico.md`, `arquitetura_hydra_omniroute_ui.md`, `i_infra/README.md`.
+**Autoridade:** Decisão arquitetural baseada em `prd_tecnico.md`, `architecture.md`, `i_infra/README.md`.
 **Escopo:** Linguagens, frameworks, dependências, estrutura de pacotes, tooling, CI/CD para backend (Python) e frontend (React/TS).
 
 ---

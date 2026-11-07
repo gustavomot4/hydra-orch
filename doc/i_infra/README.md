@@ -4,7 +4,7 @@
 **Caminho Canônico:** `doc/i_infra/`
 **Versão:** `v01_01_0000`
 **Status:** `PROPOSTO / EM DESENVOLVIMENTO`
-**Autoridade:** Arquitetura do hydra-orch, complementando `prd_tecnico.md`, `arquitetura_hydra_omniroute_ui.md`.
+**Autoridade:** Arquitetura do hydra-orch, complementando `prd_tecnico.md`, `../g_code/architecture.md`.
 **Escopo:** Topologia de rede, tunelamento SSH, gateway OmniRoute, contêineres, sandboxing, certificação de drivers, gestão de processos multiplataforma.
 
 ---

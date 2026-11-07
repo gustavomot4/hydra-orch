@@ -4,20 +4,24 @@
 **Caminho Canônico:** `doc/b_spc/prd_funcional.md`
 **Versão:** `v01_02_0000`
 **Status:** `PROPOSTO / EM DESENVOLVIMENTO`
-**Autoridade:** Arquitetura do hydra-orch alinhada a `taxonomia_file_system.md` e [`plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md).
+**Autoridade:** Arquitetura do hydra-orch alinhada a [`../a_context/taxonomia_file_system.md`](../a_context/taxonomia_file_system.md) e [`plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md).
 **Escopo:** Requisitos funcionais (RF01 a RF38), casos de uso detalhados (UC01 a UC10), regras de negócio (RB01 a RB28), critérios de aceite e rastreabilidade DBC-9.
 
 **Estado das capacidades:** RF01–RF15 formam o núcleo verificável (V0); RF16–RF25 formalizam a expansão control plane (V1–V4); RF26–RF30 detalham modos de orquestração, interação humano-no-loop, resolução de conflitos, governança de orçamento e empacotamento de entrega. RF31–RF38 incorporam a expansão de comandos de sessão, geração multimodal, MCP control plane avançado, RAG corporativo, integrações com Jira/Kanbanize, voz bidirecional, Computer Use e Hub/Foundry de LLMs locais (V5–V6). Todas as capacidades permanecem `PROPOSTO / NÃO IMPLEMENTADO` até seus gates técnicos e certificações.
 
 ---
 
-Status: especificação proposta para implementação. Base: revisão registrada no [plano](../a_context/plano_desenvolvimento.md). Não representa funcionalidades já certificadas. Este documento detalha o comportamento esperado; o [PRD técnico](prd_tecnico.md) define sua realização. Contratos de execução em [`contrato_execucao.md`](contrato_execucao.md); fronteiras arquiteturais em [`arquitetura_hydra_omniroute_ui.md`](arquitetura_hydra_omniroute_ui.md).
+Status: especificação funcional normativa proposta para implementação. Base: revisão registrada no [plano](../a_context/plano_desenvolvimento.md) e síntese da [visão de produto](../a_context/visao_produto.md). Não representa funcionalidades já certificadas. Este documento detalha o comportamento esperado do produto; o [PRD técnico](prd_tecnico.md) define sua realização e contratos executáveis.
 
 ## 1. Propósito
 
-Permitir que um usuário organize áreas de trabalho, projetos e repositórios, escolha ou componha perfis de agentes e acompanhe tarefas de engenharia por uma interface visual e pelas superfícies CLI/API. O Hydra deve coordenar inferência, executores, sessões, evidências e decisões apoiado em arquivos, patches e checks verificáveis, sem transformar saída textual em prova de execução.
+Permitir que um usuário organize áreas de trabalho, projetos e repositórios, escolha ou componha perfis de agentes e acompanhe tarefas de engenharia por uma interface visual e pelas superfícies CLI/API. O Hydra opera como control plane de engenharia de software unificando a inteligência de orquestração sobre quatro motores centrais integrados:
+1. **Decompositor de Tarefas por Tamanho e Dificuldade (`Task Decomposer`):** Avalia pedidos de engenharia, decompõe em módulos pontuados por complexidade (1 a 10) e orquestra a alocação de modelos e executores combinando especialidade técnica com disponibilidade e limites de cota.
+2. **Gerador de Contrato Base Imutável (`Contract-First Engine`):** Produz contratos formais e imutáveis (OpenAPI, esquemas de dados, tipagens e grafos de tarefas) antes do disparo de agentes concorrentes, impedindo divergências entre backend, frontend, banco e testes.
+3. **Orquestrador de Enxame em Git Worktrees (`Multi-Session Swarm`):** Dispara sessões paralelas em worktrees isoladas, aplicando symlinks em diretórios pesados e serializando o merge em branch de integração validada por suíte de testes (com auto-healing limitado).
+4. **Motor de Auto-Resume e Costura de Código (`Stream Checkpointer & Code Stitcher`):** Intercepta o stream de geração em tempo real em buffer SQLite WAL, permitindo pausar e aguardar reabertura de cota (Modo Persistente) ou costurar a continuação em outro provedor (Modo Relay) via âncoras sintáticas sem duplicação de tokens.
 
-O sistema deve suportar três modos de orquestração distintos — **Swarm** (paralelo com worktrees isoladas), **Relay** (handoff estruturado entre provedores) e **Persistente** (auto-resume por janela de cota) — com seleção explícita pelo operador e transições governadas por políticas de orçamento e capacidade.
+O sistema suporta três modos de orquestração distintos — **Swarm** (paralelo com worktrees isoladas), **Relay** (handoff estruturado entre provedores) e **Persistente** (auto-resume por janela de cota) — com seleção explícita pelo operador e transições governadas por políticas de orçamento e capacidade.
 
 ## 2. Justificativa e usuários
 

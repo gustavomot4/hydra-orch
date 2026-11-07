@@ -16,7 +16,7 @@ Este diretório concentra a documentação de arquitetura de código do **hydra-
 | Arquivo | Tipo | Descrição |
 |---------|------|-----------|
 | [`stack.md`](stack.md) | Especificação Normativa | Stack tecnológica completa (backend Python, frontend React/TS, infra, tooling, CI/CD, estrutura de diretórios, convenções) |
-| `architecture.md` | Arquitetura (planejado) | Mapeamento de responsabilidades entre camadas (`core`, `engine`, `bridge`, `adapter`), padrões DBC para serviços internos |
+| [`architecture.md`](architecture.md) | Arquitetura Normativa | Mapeamento de responsabilidades entre camadas (`core`, `engine`, `bridge`, `adapter`), fronteiras Hydra vs OmniRoute vs UI |
 | `patterns.md` | Padrões (planejado) | Design patterns, error handling, testing patterns, async patterns |
 
 ## Stack Tecnológica
@@ -130,8 +130,8 @@ src/hydra_orch/
 | Documento | Link |
 |-----------|------|
 | Stack Completa | [`stack.md`](stack.md) |
+| Arquitetura e Fronteiras | [`architecture.md`](architecture.md) |
 | PRD Técnico | [`../b_spc/prd_tecnico.md`](../b_spc/prd_tecnico.md) |
-| Contrato Execução | [`../b_spc/contrato_execucao.md`](../b_spc/contrato_execucao.md) |
 | API OpenAPI | [`../f_api/openapi.yaml`](../f_api/openapi.yaml) |
 | Testes | [`../h_test/README.md`](../h_test/README.md) |
 | Infraestrutura | [`../i_infra/README.md`](../i_infra/README.md) |

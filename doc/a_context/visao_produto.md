@@ -1,17 +1,17 @@
-# prd_hydra_orch — Visão Geral do Produto e Modos de Execução
+# visao_produto — Visão Geral do Produto e Modos de Execução
 
-**Identificador Formal:** `prd_hydra_orch.md`
-**Caminho Canônico:** `doc/b_spc/prd_hydra_orch.md`
+**Identificador Formal:** `visao_produto.md`
+**Caminho Canônico:** `doc/a_context/visao_produto.md`
 **Versão:** `v05_00_0000`
-**Status:** `DOCUMENTO DE VISÃO / BASE HISTÓRICA`
-**Autoridade:** PRD unificado consolidando modos Swarm, Relay e Persistente, complementado por [`prd_funcional.md`](prd_funcional.md) e [`prd_tecnico.md`](prd_tecnico.md).
-**Escopo:** Visão de produto, proposta de valor, ecossistema e arquitetura estratégica.
+**Status:** `DOCUMENTO DE VISÃO / BASE HISTÓRICA V5.0`
+**Autoridade:** Visão original de produto do hydra-orch consolidando modos Swarm, Relay e Persistente, agora formalmente especificada em [`../b_spc/prd_funcional.md`](../b_spc/prd_funcional.md) e [`../b_spc/prd_tecnico.md`](../b_spc/prd_tecnico.md).
+**Escopo:** Visão de produto, proposta de valor, ecossistema e arquitetura estratégica original.
 
 ---
 
-Para requisitos detalhados e desenvolvimento por tasks, seguir o [PRD funcional](prd_funcional.md) e o [PRD técnico](prd_tecnico.md), acompanhados do [diagrama de classes](../e_class/diagrama_classe.md) e do [MER](../d_mer/mer.md). Este documento preserva a visão histórica; divergências de implementação são resolvidas pelas specs propostas e pelo plano, sem declarar capacidades entregues.
+Para requisitos normativos detalhados e desenvolvimento por tasks, consultar o [PRD funcional](../b_spc/prd_funcional.md) e o [PRD técnico](../b_spc/prd_tecnico.md), acompanhados do [diagrama de classes](../e_class/diagrama_classe.md) e do [MER](../d_mer/mer.md). Este documento preserva a visão histórica e estratégica do produto; divergências de implementação são resolvidas pelas specs propostas em `doc/b_spc/` e pelo plano mestre, sem declarar capacidades entregues antes da conclusão dos respectivos gates.
 
-> **Status de leitura:** este PRD registra a visão de produto, incluindo hipóteses ainda não validadas de suporte externo, latência e continuidade. A [arquitetura de referência](arquitetura_hydra_omniroute_ui.md) define OmniRoute como opcional e o [contrato de execução](contrato_execucao.md) exige evidência de ferramentas, artefatos e checks. O [plano de desenvolvimento](../a_context/plano_desenvolvimento.md) organiza a revisão do estado atual e a sequência proposta de specs; exemplos antigos de caminhos `.hydra/`, modos numéricos e YAML precisam de reconciliação em S00/S01. A taxonomia vigente determina runtime em `.orchestrator/`. O roadmap de quatro sprints abaixo é uma proposta histórica, não um compromisso de prazo ou entrega concluída.
+> **Status de leitura:** este documento registra a visão de produto original, incluindo hipóteses ainda não validadas de suporte externo, latência e continuidade. A arquitetura de referência define o gateway OmniRoute como opcional e o PRD técnico exige evidência de ferramentas, artefatos e checks. O [plano de desenvolvimento](plano_desenvolvimento.md) organiza a revisão do estado atual e a sequência proposta de specs; exemplos antigos de caminhos `.hydra/`, modos numéricos e YAML foram reconciliados para a taxonomia vigente com runtime em `.orchestrator/`. O roadmap de quatro sprints abaixo é um registro histórico, não um compromisso de prazo ou entrega concluída.
 
 **Projeto / Repositório:** `hydra-orch` (Binário CLI: `hydra`)
 **Versão:** 5.0 (Arquitetura sobre OmniRoute + Inteligência de Engenharia de Software)
@@ -131,7 +131,7 @@ hydra run "Construa uma aplicação completa de uma barbearia com agendamento, p
 O `hydra-orch` executa **4 fases automatizadas**:
 
 #### Fase A: Avaliação de Tamanho/Dificuldade e Geração do Contrato Base (`contract.py`)
-Para que 4 IAs trabalhando ao mesmo tempo não criem nomes de rotas ou colunas de banco diferentes, o orquestrador chama o modelo arquiteto (`claude_pro`) para gerar um pacote de contrato imutável na pasta `.hydra/contracts/`:
+Para que 4 IAs trabalhando ao mesmo tempo não criem nomes de rotas ou colunas de banco diferentes, o orquestrador chama o modelo arquiteto (`claude_pro`) para gerar um pacote de contrato imutável na pasta `.orchestrator/contract/`:
 * `schema.prisma` (ou SQL DDL): Define as tabelas `User`, `Barber`, `Service`, `Appointment` e `Payment`.
 * `openapi.json`: Define todos os endpoints (`GET /api/barbers`, `POST /api/appointments`) e seus payloads JSON.
 * `task_graph.json`: Lista as sub-tarefas pontuadas por **dificuldade ($1\text{ a }10$)** e **estimativa de tokens**:
@@ -142,10 +142,10 @@ Para que 4 IAs trabalhando ao mesmo tempo não criem nomes de rotas ou colunas d
 
 #### Fase B: Isolamento Automático em Git Worktrees (`swarm.py`)
 O `hydra-orch` cria instantaneamente 4 branches e 4 diretórios de trabalho independentes usando `git worktree add`, criando links simbólicos (`symlinks`) para `node_modules` e `.venv` para não duplicar gigabytes em disco:
-* `.hydra/worktree/wt-backend` (Branch: `hydra/backend`)
-* `.hydra/worktree/wt-frontend` (Branch: `hydra/frontend`)
-* `.hydra/worktree/wt-db-tests` (Branch: `hydra/db-tests`)
-* `.hydra/worktree/wt-docs` (Branch: `hydra/docs`)
+* `.orchestrator/worktree/wt-backend` (Branch: `hydra/backend`)
+* `.orchestrator/worktree/wt-frontend` (Branch: `hydra/frontend`)
+* `.orchestrator/worktree/wt-db-tests` (Branch: `hydra/db-tests`)
+* `.orchestrator/worktree/wt-docs` (Branch: `hydra/docs`)
 
 #### Fase C: Execução Simultânea de Workers
 Em cada Worktree, o `hydra-orch` dispara um trabalhador autônomo em background (usando **OpenCode CLI**, **Aider** ou os agentes nativos **Claude Code / Codex CLI / Gemini CLI**) apontando para a rota correspondente no OmniRoute e injetando o Contrato Base como regra estrita de leitura. Todas as 4 frentes codificam seus arquivos ao mesmo tempo.
@@ -205,8 +205,8 @@ hydra:
   proxy_port: 8000
   default_mode: 1 # 1: Swarm Multi-Sessao | 2: Relay Sequencial | 3: Persistente Auto-Resume
   preferred_primary_model: "claude-pro"
-  worktree_base_dir: ".hydra/worktree"
-  state_db: ".hydra/state.db"
+  worktree_base_dir: ".orchestrator/worktree"
+  state_db: ".orchestrator/state.db"
   auto_heal_build_errors: true
   max_heal_attempts: 3
 
@@ -333,6 +333,6 @@ hydra-orch/
 2. **Sprint 2 — Stream Checkpointer, Auto-Resume & Code Stitcher (`checkpointer.py` & `server.py`):**
    * Construir o proxy FastAPI na porta `8000` com gravação contínua em SQLite, implementando o **Modo 3** (pausar quando os tokens do Claude Pro acabam no meio da resposta, aguardar o timer do OmniRoute e costurar o resto do código sozinho) e o **Modo 2** (costurar o restante imediatamente usando outra IA).
 3. **Sprint 3 — Gerador de Contrato Base & Decompositor de Dificuldade (`contract.py` & `decomposer.py`):**
-   * Implementar a inteligência que recebe um pedido grande (como a aplicação da barbearia), pontua as tarefas de $1\text{ a }10$ e gera os arquivos de contrato imutáveis (`.hydra/contracts/`) antes da codificação.
+   * Implementar a inteligência que recebe um pedido grande (como a aplicação da barbearia), pontua as tarefas de $1\text{ a }10$ e gera os arquivos de contrato imutáveis (`.orchestrator/contract/`) antes da codificação.
 4. **Sprint 4 — Motor Swarm em Git Worktrees & Auto-Healing (`swarm.py` & `healer.py`):**
    * Automatizar a criação das Git Worktrees com *symlinks*, disparar as 4 sessões paralelas simultâneas e executar o merge + bateria de testes automatizados ao final.

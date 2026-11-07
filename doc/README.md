@@ -3,7 +3,7 @@
 **Versão:** `v01_01_0000`
 **Status:** `PROPOSTO / EM DESENVOLVIMENTO`
 
-Esta pasta reúne a documentação canônica do projeto **hydra-orch**, estruturada rigorosamente conforme as diretrizes de taxonomia oficial da equipe (`doc/b_spc/taxonomia_file_system.md`), ordenação sequencial por prefixos cognitivos (`a_...`, `b_...`) e regra da singularidade absoluta.
+Esta pasta reúne a documentação canônica do projeto **hydra-orch**, estruturada rigorosamente conforme as diretrizes de taxonomia oficial da equipe (`doc/a_context/taxonomia_file_system.md`), ordenação sequencial por prefixos cognitivos (`a_...`, `b_...`) e regra da singularidade absoluta.
 
 ---
 
@@ -13,8 +13,8 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 
 | Prefixo | Diretório | Domínio Documental | Finalidade Principal | Status |
 |---------|-----------|-------------------|----------------------|--------|
-| `a_` | [`a_context/`](a_context/) | Contexto & Planejamento | Investigação Alethe, diagnóstico, plano mestre S00–S28 | ✅ Completo |
-| `b_` | [`b_spc/`](b_spc/) | Especificações & PRDs | PRD Funcional (RF01–38), PRD Técnico (RT01–38, RNF01–15), Contratos, Arquitetura, Taxonomia | ✅ Completo |
+| `a_` | [`a_context/`](a_context/) | Contexto & Planejamento | Investigação Alethe, diagnóstico, plano mestre S00–S28, taxonomia e visão | ✅ Completo |
+| `b_` | [`b_spc/`](b_spc/) | Especificações & PRDs | PRD Funcional (RF01–38) e PRD Técnico (RT01–38, RNF01–15, Contratos, DDL) | ✅ Completo |
 | `c_` | [`c_activity/`](c_activity/) | Atividades & Processos | Casos de uso UC01–UC10 com Mermaid TB/LR, DBC-9, Meta-JSON | ✅ Completo |
 | `d_` | [`d_mer/`](d_mer/) | Dados & MER | Modelo Entidade-Relacionamento (núcleo + expansão), DDL SQLite, índices | ✅ Completo |
 | `e_` | [`e_class/`](e_class/) | Classes & Tipagem | Diagramas de classes (núcleo + control plane), interfaces, serviços | ✅ Completo |
@@ -31,12 +31,8 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 ### Especificações Normativas (`b_spc/`)
 | Arquivo | Versão | Escopo |
 |---------|--------|--------|
-| `prd_funcional.md` | `v01_02_0000` | RF01–RF38, UC01–UC10, RB01–RB28 |
-| `prd_tecnico.md` | `v01_02_0000` | RT01–RT38, RNF01–RNF15, T01–T44, S00–S28 |
-| `contrato_execucao.md` | `v01_00_0000` | RunSpec, TaskSpec, TaskAttempt, TaskResult, RunEvent, HandoffCheckpoint |
-| `arquitetura_hydra_omniroute_ui.md` | `v01_00_0000` | Fronteiras: Hydra CP, OmniRoute, Executores, UI |
-| `taxonomia_file_system.md` | `v01_00_0000` | Singularidade, prefixos, runtime `.orchestrator/` |
-| `prd_hydra_orch.md` | `v05_00_0000` | Visão histórica unificada (referência) |
+| `prd_funcional.md` | `v01_02_0000` | RF01–RF38, UC01–UC10, RB01–RB28, proposta de valor |
+| `prd_tecnico.md` | `v01_02_0000` | RT01–RT38, RNF01–RNF15, contratos de execução, DDL SQLite, T01–T44, S00–S28 |
 
 ### Casos de Uso (`c_activity/`)
 | Arquivo | Fluxo | Requisitos |
@@ -148,14 +144,14 @@ RF → UC → RT → RNF → Task (T##) → Etapa (S##) → Evidência (Teste) �
 
 ## Próximos Passos para Implementação
 
-1. **Validar specs** — Revisar `prd_funcional.md`, `prd_tecnico.md`, `contrato_execucao.md`
-2. **Alinhar `model.py`** — Implementar schemas Pydantic para todos entidades (RF01–RF30)
+1. **Validar specs** — Revisar `prd_funcional.md` e `prd_tecnico.md` (com contratos incorporados em §3.4)
+2. **Alinhar `model.py`** — Implementar schemas Pydantic para todas as entidades (RF01–RF38)
 3. **Criar `config.yaml`** — Baseado na especificação em `j_manual/README.md` §2.2
 4. **Iniciar T01** — Config canônica (`config.py`, `config.yaml`, testes)
 5. **Seguir faseamento** — T01→T08 para M1; expansão conforme gates
 
 ---
 
-**Norma de Arquitetura:** [`b_spc/taxonomia_file_system.md`](b_spc/taxonomia_file_system.md)<br>
+**Norma de Taxonomia:** [`a_context/taxonomia_file_system.md`](a_context/taxonomia_file_system.md)<br>
 **Plano Mestre:** [`a_context/plano_desenvolvimento.md`](a_context/plano_desenvolvimento.md)<br>
 **Contexto Histórico:** [`a_context/CONTEXTO-ORQUESTRACAO.md`](a_context/CONTEXTO-ORQUESTRACAO.md)

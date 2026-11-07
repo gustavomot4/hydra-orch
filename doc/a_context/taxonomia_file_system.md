@@ -1,7 +1,7 @@
 # taxonomia_file_system — Taxonomia Oficial do File System do hydra-orch
 
 **Identificador Formal:** `taxonomia_file_system.md`
-**Caminho Canônico:** `doc/b_spc/taxonomia_file_system.md`
+**Caminho Canônico:** `doc/a_context/taxonomia_file_system.md`
 **Versão:** `v01_00_0000`
 **Status:** `APROVADO / NORMATIVO`
 **Autoridade:** Síntese normativa baseada nos padrões de governança do `hydra-orch` (`AGENTS.md`, `doc/a_context/CONTEXTO-ORQUESTRACAO.md` e diretrizes de arquitetura do projeto).
@@ -53,7 +53,7 @@ Modelos de linguagem operam sob janelas de contexto restritas e custosas. Quando
 
 ### 1.8. How (Como Aplicar e Manter)
 1. **Auditoria de Entrada:** Antes de adicionar qualquer pasta ou arquivo, consulte a tabela de taxonomia oficial (§ 4) e a tabela de termos singulares (§ 3).
-  - `prd_hydra_orch.md`: PRD unificado do produto, modos de execução (Swarm, Relay, Persistente) e conectores universais.
+2. **Consulta a PRDs Canônicos:** Consulte `doc/b_spc/prd_funcional.md` e `doc/b_spc/prd_tecnico.md` para contratos e requisitos vigentes, e `doc/a_context/visao_produto.md` para a visão histórica do produto.
 3. **Troca de Contexto Operacional:** Entradas versionáveis de tarefas para agentes e orquestradores são depositadas em `ws/a_input/`; saídas locais de execução ficam confinadas em `ws/b_output/`.
 4. **Refatoração Contínua:** Ao detectar qualquer termo plural em código, configuração ou pasta, o agente responsável deve emitir a correção para o formato singular compatível.
 
@@ -219,19 +219,16 @@ hydra-orch/
 │
 ├── doc/                        # Documentação oficial do projeto (singular)
 │   ├── README.md              # Guia e índice geral da documentação técnica
-│   ├── a_context/             # Contexto histórico, investigações e planejamento mestre
+│   ├── a_context/             # Contexto histórico, investigações, planejamento mestre e governança
 │   │   ├── README.md          # Catálogo e índice de documentos de contexto
 │   │   ├── CONTEXTO-ORQUESTRACAO.md # Contexto arquitetural e achados de agentes
-│   │   └── plano_desenvolvimento.md # Plano mestre de especificação e desenvolvimento
-│   ├── b_spc/                 # Especificações formais, PRDs e padrões de governança
+│   │   ├── plano_desenvolvimento.md # Plano mestre de especificação e desenvolvimento
+│   │   ├── visao_produto.md   # Visão original e estratégica do produto (V5.0)
+│   │   └── taxonomia_file_system.md # Este documento oficial de taxonomia e governança
+│   ├── b_spc/                 # Especificações formais e PRDs canônicos
 │   │   ├── README.md          # Catálogo e índice de especificações técnicas
-│   │   ├── prd_funcional.md   # Requisitos funcionais (RF01 a RF15) e critérios de aceite
-│   │   ├── prd_tecnico.md     # Requisitos técnicos (RT01 a RT12), contratos e tasks T01-T08
-│   │   ├── arquitetura_hydra_omniroute_ui.md       # Fronteiras Hydra, gateway, executores e UI
-│   │   ├── contrato_execucao.md                    # Contratos verificáveis de execução
-│   │   ├── prd_hydra_orch.md                      # PRD unificado do produto, modos de execução e conectores
-
-│   │   └── taxonomia_file_system.md              # Este documento oficial de taxonomia
+│   │   ├── prd_funcional.md   # PRD Funcional (RF01–RF38, UC01–UC10, RB01–RB28)
+│   │   └── prd_tecnico.md     # PRD Técnico (RT01–RT38, RNF01–RNF15, contratos, DDL, T01–T44)
 │   ├── c_activity/            # Diagramas de atividades e fluxos de processos
 │   ├── d_mer/                 # Modelo Entidade-Relacionamento e esquemas relacionais
 │   │   ├── README.md          # Catálogo de esquemas relacionais
@@ -317,17 +314,13 @@ Substitui a pasta plural `docs/`. Divide-se formalmente em 10 etapas canônicas 
 - `doc/a_context/`: Contexto conceitual, investigações históricas e planejamento mestre:
   - `README.md`: Índice de contexto e planejamento.
   - `CONTEXTO-ORQUESTRACAO.md`: Registro da arquitetura de orquestração e achados comparativos de agentes.
-  - `plano_desenvolvimento.md`: Plano mestre de especificação e desenvolvimento com gaps A01–A18 e tasks T01–T08.
-- `doc/b_spc/`: Especificações formais normativas e PRDs:
+  - `plano_desenvolvimento.md`: Plano mestre de especificação e desenvolvimento com gaps A01–A18 e tasks T01–T44.
+  - `visao_produto.md`: Visão estratégica original do produto (V5.0), proposta de valor e modos de execução.
+  - `taxonomia_file_system.md`: A presente norma oficial de taxonomia e governança do repositório.
+- `doc/b_spc/`: Especificações formais normativas e PRDs canônicos:
   - `README.md`: Catálogo e índice de especificações técnicas.
-
-  - `prd_funcional.md`: Requisitos funcionais (RF01 a RF15), jornadas de usuário e regras de negócio.
-  - `prd_tecnico.md`: Requisitos técnicos (RT01 a RT12), contratos de serviço, máquinas de estado e decomposição implementável.
-  - `taxonomia_file_system.md`: A presente norma oficial de taxonomia do repositório.
-
-  - `arquitetura_hydra_omniroute_ui.md`: Fronteiras do control plane, OmniRoute opcional, executores e interface visual.
-  - `contrato_execucao.md`: Contrato proposto de execução verificável e eventos para a interface.
-  - `prd_hydra_orch.md`: PRD unificado do produto, modos de execução (Swarm, Relay, Persistente) e conectores universais.
+  - `prd_funcional.md`: Requisitos funcionais (RF01 a RF38), jornadas de usuário UC01–UC10 e regras de negócio RB01–RB28.
+  - `prd_tecnico.md`: Requisitos técnicos (RT01 a RT38), RNF01–RNF15, contratos de execução, DDL SQLite e decomposição de tasks T01–T44.
 
 - `doc/c_activity/`: Diagramas de atividades e fluxos de processos (com `README.md` e `.gitkeep`).
 - `doc/d_mer/`: Modelo Entidade-Relacionamento e esquemas relacionais:
@@ -391,7 +384,7 @@ Para prevenir o consumo descontrolado de tokens de contexto e garantir alinhamen
 ### 6.2. Invariância de Nomes de Arquivos (Proibição de Timestamps)
 - Diretriz fundamental de governança do `hydra-orch` (`AGENTS.md` e taxonomia normativa): **nenhum arquivo de documentação, especificação ou código deve conter timestamps, datas ou sufixos incrementais em seu nome**.
 - Exemplo Incorreto: `PRD_Swarm_20261105.md`, `taxonomia_v2_final.md`.
-  - `prd_hydra_orch.md`: PRD unificado do produto, modos de execução (Swarm, Relay, Persistente) e conectores universais.
+- Exemplo Correto: `doc/b_spc/prd_funcional.md`, `doc/b_spc/prd_tecnico.md`, `doc/a_context/visao_produto.md`.
 - **Justificativa:** Nomes mutáveis quebram referências cruzadas em Markdown, invalidam caches de LLM, obrigam buscas globais recorrentes e acumulam arquivos zumbis no repositório. A evolução cronológica de qualquer arquivo é controlada unicamente pelos metadados do Git.
 
 ### 6.3. Isolamento de Contexto e Escopo Cirúrgico

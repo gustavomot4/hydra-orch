@@ -16,29 +16,24 @@ Este diretório contém as especificações formais do **hydra-orch**. Todas as 
 Para implementação e testes, seguir a sequência:
 
 1. [`prd_funcional.md`](prd_funcional.md) — Requisitos funcionais **RF01 a RF38**, casos de uso **UC01 a UC10**, regras de negócio **RB01 a RB28**, critérios de aceite observáveis
-2. [`prd_tecnico.md`](prd_tecnico.md) — Requisitos técnicos **RT01 a RT38**, requisitos não-funcionais **RNF01 a RNF15**, contratos de serviço, máquinas de estado, API REST, algoritmos centrais, critérios negativos, tasks **T01 a T44**
-3. [`contrato_execucao.md`](contrato_execucao.md) — Contrato de entidades de execução (RunSpec, TaskSpec, TaskAttempt, TaskResult, RunEvent, HandoffCheckpoint)
-4. [`arquitetura_hydra_omniroute_ui.md`](arquitetura_hydra_omniroute_ui.md) — Fronteiras arquiteturais: Hydra control plane, OmniRoute gateway opcional, executores, UI
-5. [`taxonomia_file_system.md`](taxonomia_file_system.md) — Norma de organização do repositório (singularidade, prefixos ordenados, runtime `.orchestrator/`)
-6. [`../d_mer/mer.md`](../d_mer/mer.md) — Modelo Entidade-Relacionamento completo (núcleo + expansão), DDL SQLite, índices
-7. [`../e_class/diagrama_classe.md`](../e_class/diagrama_classe.md) — Diagrama de classes e interfaces (núcleo + expansão control plane)
-8. [`../c_activity/`](../c_activity/) — Casos de uso **UC01 a UC10** com diagramas Mermaid TB/LR, DBC-9, Meta-Information JSON
-9. [`../f_api/openapi.yaml`](../f_api/openapi.yaml) — Especificação OpenAPI 3.0 completa para `/v1/control-plane/*` e `/v1/chat/completions`
-10. [`../h_test/README.md`](../h_test/README.md) — Matriz de rastreabilidade RF/RT → testes, estratégia hermética, critérios de cobertura
-11. [`../i_infra/README.md`](../i_infra/README.md) — Infraestrutura: SSH, OmniRoute, contêineres, sandboxing, certificação drivers
-12. [`../j_manual/README.md`](../j_manual/README.md) — Manuais operacionais: instalação, configuração, CLI, UI, runbooks, recuperação, auditoria, acessibilidade
-13. [`../a_context/plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md) — Plano mestre de entregas, fases S00–S28, gates, marcos M1–M4, V5–V6
+2. [`prd_tecnico.md`](prd_tecnico.md) — Requisitos técnicos **RT01 a RT38**, requisitos não-funcionais **RNF01 a RNF15**, contratos formais de execução, máquinas de estado, API REST, algoritmos centrais, critérios negativos, tasks **T01 a T44**
+3. [`../a_context/taxonomia_file_system.md`](../a_context/taxonomia_file_system.md) — Norma de organização do repositório (singularidade, prefixos ordenados, runtime `.orchestrator/`)
+4. [`../g_code/architecture.md`](../g_code/architecture.md) — Fronteiras arquiteturais: Hydra control plane, OmniRoute gateway opcional, executores, UI
+5. [`../d_mer/mer.md`](../d_mer/mer.md) — Modelo Entidade-Relacionamento completo (núcleo + expansão), DDL SQLite, índices
+6. [`../e_class/diagrama_classe.md`](../e_class/diagrama_classe.md) — Diagrama de classes e interfaces (núcleo + expansão control plane)
+7. [`../c_activity/`](../c_activity/) — Casos de uso **UC01 a UC10** com diagramas Mermaid TB/LR, DBC-9, Meta-Information JSON
+8. [`../f_api/openapi.yaml`](../f_api/openapi.yaml) — Especificação OpenAPI 3.0 completa para `/v1/control-plane/*` e `/v1/chat/completions`
+9. [`../h_test/README.md`](../h_test/README.md) — Matriz de rastreabilidade RF/RT → testes, estratégia hermética, critérios de cobertura
+10. [`../i_infra/README.md`](../i_infra/README.md) — Infraestrutura: SSH, OmniRoute, contêineres, sandboxing, certificação drivers
+11. [`../j_manual/README.md`](../j_manual/README.md) — Manuais operacionais: instalação, configuração, CLI, UI, runbooks, recuperação, auditoria, acessibilidade
+12. [`../a_context/plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md) — Plano mestre de entregas, fases S00–S28, gates, marcos M1–M4, V5–V6
 
 ## Catálogo de Especificações
 
 | Arquivo | Tipo | Descrição | Versão |
 |---------|------|-----------|--------|
-| [`prd_funcional.md`](prd_funcional.md) | PRD Funcional (DBC-9) | RF01–RF38, UC01–UC10, RB01–RB28, aceite observável | `v01_02_0000` |
-| [`prd_tecnico.md`](prd_tecnico.md) | PRD Técnico (DBC-9) | RT01–RT38, RNF01–RNF15, API, algoritmos, T01–T44 | `v01_02_0000` |
-| [`prd_hydra_orch.md`](prd_hydra_orch.md) | PRD de Visão | Visão unificada, modos Swarm/Relay/Persistente, conectores | `v05_00_0000` |
-| [`contrato_execucao.md`](contrato_execucao.md) | Contrato de Interface | Entidades RunSpec, TaskSpec, TaskAttempt, TaskResult, RunEvent, HandoffCheckpoint | `v01_00_0000` |
-| [`arquitetura_hydra_omniroute_ui.md`](arquitetura_hydra_omniroute_ui.md) | Fronteiras Arquiteturais | Hydra control plane vs OmniRoute vs executores vs UI | `v01_00_0000` |
-| [`taxonomia_file_system.md`](taxonomia_file_system.md) | Norma Arquitetural | Singularidade, prefixos a_..j_, runtime `.orchestrator/` | `v01_00_0000` |
+| [`prd_funcional.md`](prd_funcional.md) | PRD Funcional (DBC-9) | RF01–RF38, UC01–UC10, RB01–RB28, proposta de valor e critérios de aceite observáveis | `v01_02_0000` |
+| [`prd_tecnico.md`](prd_tecnico.md) | PRD Técnico (DBC-9) | RT01–RT38, RNF01–RNF15, contratos canônicos de execução, DDL SQLite, algoritmos, T01–T44 | `v01_02_0000` |
 
 ## Contadores Normativos Atuais
 

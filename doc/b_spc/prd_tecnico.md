@@ -4,12 +4,12 @@
 **Caminho Canônico:** `doc/b_spc/prd_tecnico.md`
 **Versão:** `v01_02_0000`
 **Status:** `PROPOSTO / EM DESENVOLVIMENTO`
-**Autoridade:** Arquitetura do hydra-orch, complementando `prd_funcional.md`, `contrato_execucao.md` e [`plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md).
-**Escopo:** Requisitos técnicos (RT01 a RT38), requisitos não-funcionais (RNF01 a RNF15), contratos de serviço, máquinas de estado, API REST, algoritmos centrais, critérios negativos e tasks T01 a T44.
+**Autoridade:** Arquitetura do hydra-orch, complementando [`prd_funcional.md`](prd_funcional.md), [`../a_context/plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md) e [`../g_code/architecture.md`](../g_code/architecture.md).
+**Escopo:** Requisitos técnicos (RT01 a RT38), requisitos não-funcionais (RNF01 a RNF15), contratos formais de execução, fronteiras arquiteturais, máquinas de estado, esquemas DDL, API REST, algoritmos centrais, critérios negativos e tasks T01 a T44.
 
 ---
 
-Status: arquitetura alvo proposta, sem alegação de implementação. RT01–RT12 e T01–T08 cobrem o núcleo inicial; RT13–RT30 e T09–T28 cobrem a expansão proposta (áreas, perfis, sessões, observabilidade, memória, discovery, extensões, acessibilidade, transportes, modos de orquestração, HITL, resolução de conflitos, budgeting, empacotamento PR) e permanecem não implementados. Complementa o [PRD funcional](prd_funcional.md), o [contrato](contrato_execucao.md) e o [plano](../a_context/plano_desenvolvimento.md). Modelagem: [classes](../e_class/diagrama_classe.md) e [MER](../d_mer/mer.md), a serem atualizados em etapa documental própria.
+Status: arquitetura técnica normativa proposta, sem alegação de implementação prévia. RT01–RT12 e T01–T08 cobrem o núcleo inicial verificável (M1); RT13–RT30 e T09–T28 cobrem a expansão de control plane (áreas, perfis, sessões, observabilidade, memória, discovery, extensões, acessibilidade, transportes, modos de orquestração, HITL, resolução de conflitos, budgeting, empacotamento PR); RT31–RT38 e T29–T44 incorporam comandos de sessão, geração multimodal, MCP avançado, RAG corporativo/pessoal, conectores Jira/Kanbanize, voz duplex, Computer Use e hub local de LLMs. Complementa o [PRD funcional](prd_funcional.md) e o [plano](../a_context/plano_desenvolvimento.md). Modelagem relacional em [MER](../d_mer/mer.md) e classes em [diagrama de classes](../e_class/diagrama_classe.md).
 
 ## 1. Propósito
 
@@ -75,7 +75,100 @@ A arquitetura proposta separa claramente os serviços de control plane (áreas, 
 
 ---
 
-### 3.3 Serviços e módulos
+### 3.3 Fronteiras Arquiteturais e Modos de Instalação
+
+O Hydra opera como o **control plane de engenharia de software**, o **OmniRoute** como um gateway opcional de inferência e a futura interface visual como uma consumidora estrita da API do Hydra.
+
+#### Fronteiras de Responsabilidade
+
+```text
+Interface visual (web, desktop ou mobile)
+  -> consulta projetos, execuções, worktrees, diffs, quotas e decisões (somente read models)
+  -> emite comandos explícitos autenticados; nunca decide resultados nem infere sucesso
+Hydra control plane (FastAPI + SQLite WAL + Git workspace)
+  -> planeja, decompõe tarefas, isola worktrees, valida contratos, executa checks, integra e persiste estado
+  -> núcleo de verdade do sistema: a prova de engenharia é o artefato (patch, check exit code, evento persistido)
+Executores de agentes (workers)
+  -> Claude Code, OpenAI Codex CLI, Gemini CLI, OpenCode, Aider, IDE bridge ou agente local
+  -> rodam isolados em worktrees dedicadas, sem autoridade para aprovar o próprio trabalho
+OmniRoute (gateway opcional de inferência)
+  -> roteia requisições de LLM, aplica fallbacks, rastreia cotas de 5h e janelas de rate limit
+  -> desacoplado: o Hydra opera nativamente em modo direto (sem OmniRoute) se configurado
+Git e ambientes de execução
+  -> branches, worktrees reais, semáforo de concorrência, testes herméticos e branches de integração
+```
+
+#### Modos de Instalação
+
+| Perfil | Componentes Ativos | Cenário Operacional |
+| :--- | :--- | :--- |
+| **Direto** | Hydra + CLI autenticada local (ex.: Claude Code / Aider) | Primeiro uso, testes e desenvolvimento offline simplificado sem gateway |
+| **Gateway** | Hydra + OmniRoute Gateway + executores múltiplos | Rotação automática de assinaturas ($20), cotas, modelos free e fallbacks |
+| **Remoto (SSH)** | Perfil Gateway + Host SSH remoto (GPU local/casa) | Processamento de builds, migrations e testes pesados em PC remoto via túnel |
+| **Visual** | Qualquer perfil acima + cliente Web / UI | Operação visual completa, inspeção gráfica de diffs e aprovação humana (HITL) |
+
+O `config.yaml` utiliza as chaves `omniroute.enabled` e `omniroute.connection_mode` (`disabled`, `optional`, `required`) para governar o gateway. O Hydra falha observavelmente antes de qualquer spawn se o modo for `required` e o daemon do gateway estiver inacessível.
+
+---
+
+### 3.4 Contrato Canônico de Execução Verificável
+
+O contrato canônico de execução padroniza toda a comunicação entre o control plane, executores de agentes, gateways de inferência e a interface visual. Este contrato estabelece que texto gerado por LLMs nunca é tratado como trabalho de engenharia comprovado sem evidências tangíveis de execução.
+
+#### Entidades Centrais de Execução
+
+| Entidade | Responsabilidade Arquitetural | Estado Mínimo Obrigatório |
+| :--- | :--- | :--- |
+| `RunSpec` | Execução completa iniciada pelo operador ou trigger | `run_id`, `project_id`, `objective`, `base_sha`, `base_branch`, `budget_policy`, `orchestration_mode`, `schema_version` |
+| `TaskSpec` | Unidade atômica e delimitada entregue a um executor | `task_id`, `run_id`, `objective`, `acceptance_criteria` (comandos de check), `dependencies`, `allowed_paths`, `assigned_executor` |
+| `TaskAttempt` | Tentativa concreta de execução de uma tarefa | `attempt_id`, `task_id`, `ordinal` (1, 2, ...), `provider`, `model`, `started_at`, `finished_at`, `exit_reason` |
+| `TaskResult` | Resultado técnico verificável da tentativa | `result_id`, `attempt_id`, `process_status`, `task_status`, `patch_commit_sha`, `checks_executed`, `artifacts`, `risk_level`, `simulated` |
+| `RunEvent` | Linha do tempo imutável e monotônica de eventos | `seq` (monotônico), `run_id`, `timestamp`, `event_type`, `correlation_id`, `redacted_payload` |
+| `HandoffCheckpoint` | Contexto de continuidade independente de provedor | `checkpoint_id`, `attempt_id`, `instructions`, `git_sha`, `affected_files`, `tools_executed`, `partial_output`, `next_step` |
+
+#### Separação Estrita de Estados
+
+O ciclo de vida do processo do SO e o ciclo de vida da tarefa lógica são rigorosamente desacoplados:
+
+```text
+Ciclo de Vida do Processo (SO):
+  queued -> running -> exited | timed_out | cancelled | crashed
+
+Ciclo de Vida da Tarefa (Engenharia):
+  pending -> running -> needs_context | blocked | failed | ready_for_review -> accepted | rejected | cancelled
+
+Ciclo de Vida da Integração:
+  not_integrated -> integrating -> integrated | conflicted | discarded
+```
+
+**Invariante de Aceite:** Um processo que termina em `exited` com código de retorno zero (`exit_code = 0`) **NÃO** implica que a tarefa foi aceita. Respostas simuladas, saídas sem patch ou tarefas com ausência de execução de checks obrigatórios são categorizadas como falhas de execução e têm o avanço para merge bloqueado.
+
+#### Requisitos Normativos para Integrar uma Tarefa
+
+Para que o resultado de uma tarefa seja aceito e elegível para merge na branch de integração:
+1. **Estado Observável:** A tentativa deve terminar em estado observável e persistido no SQLite (`checkpoints.sqlite`).
+2. **Execução Real Comprovada:** O campo `simulated` deve ser obrigatoriamente `false` (exceto em modo dry-run explícito).
+3. **Atribuição Git Exclusiva:** As alterações de código devem estar confinadas e comprovadamente atribuídas à worktree e branch da respectiva tarefa (`.orchestrator/worktree/<run_id>_<task_id>`).
+4. **Evidência de Checks:** Todos os comandos de verificação definidos em `TaskSpec.acceptance_criteria` devem ter sido executados, com exit code `0`, duração e saídas stdout/stderr gravadas como artefatos indexados por SHA-256.
+5. **Merge Serializado e Auditado:** A integração deve ocorrer na branch dedicada `integrate/<run_id>`, registrando hash de sucesso ou relatório de conflito 3-way (`ConflictReport`) antes da remoção da worktree.
+6. **Preservação de Falhas:** Em caso de falha de teste ou conflito, os artefatos, worktrees e evidências permanecem preservados para inspeção pelo operador ou ação de auto-healing.
+
+#### Handoff Estruturado entre Provedores
+
+A transferência de contexto entre modelos (modos Relay e Persistente) não se apoia em histórico de chat ou em texto parcial cru. O `HandoffCheckpoint` agrega o objetivo original, critérios de aceite, decisões já consolidadas, estado Git (`git_sha` e diffs parciais), resumo de ferramentas invocadas, último bloco sintático completo analisado via AST/tree-sitter (stitch anchor) e o próximo passo pendente.
+
+#### Catálogo Mínimo de Eventos para UI e Observabilidade
+
+Os eventos emitidos via SSE possuem sequência monotônica (`id: <seq>`) e redaction compulsória de credenciais:
+- **Ciclo de Run:** `run.created`, `run.started`, `run.waiting`, `run.resumed`, `run.finished`, `run.cancelled`.
+- **Ciclo de Tarefa:** `task.queued`, `task.started`, `task.needs_context`, `task.needs_approval`, `task.ready_for_review`, `task.accepted`, `task.rejected`, `task.completed`, `task.failed`, `task.cancelled`.
+- **Tentativas e Handoff:** `attempt.started`, `attempt.provider_selected`, `attempt.rate_limited`, `attempt.handoff_created`, `attempt.finished`.
+- **Artefatos e Integração:** `artifact.created`, `check.started`, `check.finished`, `merge.started`, `merge.completed`, `merge.conflicted`.
+- **Infraestrutura e Sessão:** `heartbeat`, `budget.alerted`, `budget.frozen`, `voice.transcription`, `computer_use.action_requested`.
+
+---
+
+### 3.5 Serviços e módulos
 
 **Núcleo (existentes/propostos):**
 - `core/run_service.py` — coordena run/revisão/cancelamento
@@ -124,7 +217,7 @@ A arquitetura proposta separa claramente os serviços de control plane (áreas, 
 
 ---
 
-### 3.4 Entidades, estados e interfaces da expansão (proposto)
+### 3.6 Entidades, estados e interfaces da expansão (proposto)
 
 Todas as entidades e interfaces abaixo são especificações conceituais para realização futura dos requisitos `RF16` a `RF30`. Elas não afirmam implementação prévia.
 
@@ -226,7 +319,7 @@ ConflictReport:
 
 ---
 
-### 3.5 Dados e estados
+### 3.7 Dados e estados
 
 **SQLite:** Foreign keys habilitadas (`PRAGMA foreign_keys=ON`); modo WAL obrigatório (`PRAGMA journal_mode=WAL`); `PRAGMA busy_timeout = 5000` para concorrência control plane + webhooks; migração versionada; transações curtas; concorrência otimista via coluna `revision` (inteiro). Artefatos no filesystem: gravar arquivo temporário, `fsync`, rename atômico, só então registrar referência. Após crash, reconciliar órfãos (arquivos sem ref / refs sem arquivo) sem apagar automaticamente.
 
@@ -241,7 +334,7 @@ Tabela `checkpoints` restrita à recuperação técnica de execuções; `memory_
 
 ---
 
-### 3.6 Algoritmos Centrais (Detalhamento Técnico)
+### 3.8 Algoritmos Centrais (Detalhamento Técnico)
 
 #### 3.6.1 Protocolo SSE com Heartbeat, Replay e Resiliência (RT16)
 
@@ -577,11 +670,11 @@ CREATE TABLE budget_policies (
 
 ---
 
-### 3.7 API Proposta — Especificação Completa
+### 3.9 API Proposta — Especificação Completa
 
 **Prefixo:** `/v1/control-plane`. Autenticação: token local (header `Authorization: Bearer <token>`). CORS: allowlist estrita (config `server.cors_allow_origins`), sem wildcard com credenciais.
 
-#### 3.7.1 Núcleo (MVP)
+#### 3.9.1 Núcleo (MVP)
 
 | Método | Rota | Request | Response | Semântica |
 |--------|------|---------|----------|-----------|
@@ -605,7 +698,7 @@ CREATE TABLE budget_policies (
 
 **Inferência:** `/v1/chat/completions` (compatível OpenAI) não inicia mutações Git. ID estável por resposta. Rejeita parâmetros/ferramentas não suportados (422).
 
-#### 3.7.2 Expansão (/v1/control-plane)
+#### 3.9.2 Expansão (/v1/control-plane)
 
 | Método | Rota | Semântica |
 |--------|------|-----------|
@@ -639,7 +732,7 @@ CREATE TABLE budget_policies (
 - 410: cursor SSE expirado → solicitar snapshot completo
 - 422: perfil incompatível (ex.: executor sem worktree + tarefa que exige isolamento)
 
-#### 3.7.3 Schemas Pydantic de Referência (Entrada/Saída)
+#### 3.9.3 Schemas Pydantic de Referência (Entrada/Saída)
 
 ```python
 # model.py — esquemas centrais (excertos)
@@ -730,7 +823,7 @@ class RunEventPayload(BaseModel):
 
 ---
 
-### 3.8 Segurança e limites
+### 3.10 Segurança e limites
 
 Bind local padrão (`127.0.0.1:8000`); token local para comandos e leitura de evidência; CORS com allowlist estrita (config `server.cors_allow_origins`, sem `["*"]` com credenciais). Não registrar tokens. Autorizar raiz do projeto e normalizar caminhos/symlinks (`os.path.realpath`). Worktree não constitui sandbox: contenção depende do executor. Testes e comandos são entradas autorizadas do projeto, executados com limites (timeout, cgroup se disponível); logs redigidos antes de exposição. Cancelamento só anunciado concluído após verificar árvore encerrada no SO certificado (`psutil` + tree kill).
 
@@ -823,7 +916,7 @@ Todas pendentes. Cada linha é uma unidade de implementação com testes no mesm
 | Task | Depende | RF / RT | Arquivos de propriedade | Definição de concluído (DoD) |
 |------|---------|---------|-------------------------|------------------------------|
 | **T01** Config canônica | — | RF02 / RT01 | `config.py`, `config.yaml`, `.gitignore`, `tests/test_config.py` | Aliases resolvidos; inválidos recusados; runtime ignorado |
-| **T02** Contratos e estados | T01 | RF03/RF07 / RT02 | `model.py`, `contrato_execucao.md`, `tests/test_model.py` | Schemas Pydantic + transições válidos/inválidos cobertos |
+| **T02** Contratos e estados | T01 | RF03/RF07 / RT02 | `model.py`, `prd_tecnico.md (§3.4)`, `tests/test_model.py` | Schemas Pydantic + transições válidos/inválidos cobertos |
 | **T03** Store e migração | T02 | RF03/RF05 / RT03/RT11 | `core/checkpointer.py`, `migrations/`, `tests/test_checkpointer.py` | Restart, chave idempotente, transação, WAL, FKs testados |
 | **T04** Runner e fake | T03 | RF04/RF06 / RT04 | `bridge/worker_runner.py`, `tests/test_worker_runner.py` | Cwd real, erro, timeout, árvore cancelada, fake só dry-run |
 | **T05** Workspace Git | T04 | RF01/RF04 / RT05 | `core/git_workspace.py`, `tests/test_git_workspace.py` | SHA fixo, worktree real, estado usuário preservado, lock cleanup |
@@ -935,8 +1028,8 @@ Nenhuma etapa da expansão pode anteceder a conclusão do marco M1 de execução
 
 A formalização completa da arquitetura da expansão exigirá o alinhamento dos seguintes documentos em etapas documentais dedicadas, antes da codificação das tarefas correspondentes:
 
-- `doc/b_spc/contrato_execucao.md`: formalização dos schemas JSON de `ProfileSnapshot`, `Session`, `Thread`, `ConsentRecord`, `MemoryEntry`, `HandoffCheckpoint`, `BudgetPolicy`, `ConflictReport`, `PRPackage`, `MediaJob`, `KnowledgeDocument`, `ComputerUseAction`, `LocalModelSpec` e eventos de control plane.
-- `doc/b_spc/arquitetura_hydra_omniroute_ui.md`: atualização dos diagramas de blocos para incluir `AgentRegistry`, `DiscoveryService`, `ExtensionHost`, `BudgetGovernor`, `ConflictResolver`, `PRPackager`, `McpService`, `ComputerUseGovernor`, `KnowledgeRetriever`.
+- `doc/b_spc/prd_tecnico.md` (§3.4): formalização dos schemas JSON de `ProfileSnapshot`, `Session`, `Thread`, `ConsentRecord`, `MemoryEntry`, `HandoffCheckpoint`, `BudgetPolicy`, `ConflictReport`, `PRPackage`, `MediaJob`, `KnowledgeDocument`, `ComputerUseAction`, `LocalModelSpec` e eventos de control plane.
+- `doc/g_code/architecture.md`: atualização dos diagramas de blocos para incluir `AgentRegistry`, `DiscoveryService`, `ExtensionHost`, `BudgetGovernor`, `ConflictResolver`, `PRPackager`, `McpService`, `ComputerUseGovernor`, `KnowledgeRetriever`.
 - `doc/d_mer/mer.md` e `mer.mmd`: modelagem relacional formal das tabelas de expansão (`areas`, `workspaces`, `repositories`, `profiles`, `sessions`, `memories`, `metric_samples`, `route_decisions`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`, `media_jobs`, `knowledge_*`, `computer_use_actions`, `local_models`).
 - `doc/e_class/diagrama_classe.md` e `diagrama_classe.mmd`: diagramas de classe para interfaces e serviços de control plane (incluindo `BudgetGovernor`, `ConflictResolver`, `PRPackager`, `HitlManager`, `KnowledgeRetriever`, `ComputerUseGovernor`).
 - `doc/b_spc/README.md`: sincronização dos contadores normativos para `RF01–RF38`, `RT01–RT38`, `RNF01–RNF15` e `T01–T44`.

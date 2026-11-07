@@ -6,7 +6,7 @@ Estas regras valem para agentes trabalhando neste repositório. Instruções exp
 
 - Repositório principal: https://github.com/gustavomot4/hydra-orch.git.
 - Leia `doc/a_context/CONTEXTO-ORQUESTRACAO.md` antes de decisões de arquitetura; distingue achados do Alethe, implementação atual e propostas.
-- Consulte `doc/b_spc/taxonomia_file_system.md` para a taxonomia oficial de pastas e arquivos (regra do singular e prefixos ordenados).
+- Consulte `doc/a_context/taxonomia_file_system.md` para a taxonomia oficial de pastas e arquivos (regra do singular e prefixos ordenados).
 - Python >= 3.10, pacote em `src/hydra_orch`, testes em `tests`, configuração em `pyproject.toml` e `config.yaml`.
 - O Git e o pacote Python já estão inicializados. Preserve esse histórico; não recrie o repositório ou o pacote a cada tarefa.
 - Não descreva geração de texto como execução comprovada de agentes ou implementação concluída sem validar o comportamento.
