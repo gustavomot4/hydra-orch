@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Ícone Oficial do Hydra: DAG Trident / Nós da Hidra (Legível em 16px e 32px) -->
+  <path d="M5 10 C5 19, 12 20, 16 24 C20 20, 27 19, 27 10" stroke="#0e5f4b" stroke-width="3" stroke-linecap="round"/>
+  <path d="M16 4 L16 28" stroke="#0e5f4b" stroke-width="3" stroke-linecap="round"/>
+  <path d="M10 28 L22 28" stroke="#0e5f4b" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="5" cy="10" r="3.5" fill="#0e5f4b"/>
+  <circle cx="16" cy="4" r="3.5" fill="#0e5f4b"/>
+  <circle cx="27" cy="10" r="3.5" fill="#0e5f4b"/>
+  <circle cx="16" cy="19" r="2.5" fill="#ffffff" stroke="#0e5f4b" stroke-width="2"/>
+</svg>

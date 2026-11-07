@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hydra — Prancha de Identidade Visual e Direções de Design</title>
+  <!-- Fontes do Google Fonts correspondentes às recomendações do kit-frontend -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Hanken+Grotesk:wght@500;600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      /* Padrão Inicial: Direção B (Abyssal Bio-Emerald) */
+      --dir-primary: #0e5f4b;
+      --dir-primary-hover: #024d3c;
+      --dir-primary-soft: #d5f8eb;
+      --dir-on-primary-soft: #0e5f4b;
+      --dir-bg: #f3f8f6;
+      --dir-surface: #ffffff;
+      --dir-text: #111e19;
+      --dir-muted: #5e6d67;
+      --dir-line: #d7e1dd;
+      --dir-border-control: #81908a;
+      --dir-font-title: 'Hanken Grotesk', system-ui, sans-serif;
+      --dir-font-body: 'Instrument Sans', system-ui, sans-serif;
+      --dir-radius-ctrl: 8px;
+      --dir-radius-card: 12px;
+      --dir-shadow: 0 2px 8px rgba(14, 95, 75, 0.06);
+
+      --color-success: #007835;
+      --color-success-soft: #e1f5e4;
+      --color-warning: #8a5601;
+      --color-warning-soft: #fcecd9;
+      --color-danger: #a43b35;
+      --color-danger-soft: #fee9e6;
+      --color-info: #0465af;
+      --color-info-soft: #e3f0fe;
+    }
+
+    /* Modos de Direção */
+    body.mode-dir-a {
+      --dir-primary: #184e77;
+      --dir-primary-hover: #013d65;
+      --dir-primary-soft: #e2f1fe;
+      --dir-on-primary-soft: #184e77;
+      --dir-bg: #f4f7fb;
+      --dir-surface: #ffffff;
+      --dir-text: #131c23;
+      --dir-muted: #606a74;
+      --dir-line: #d8dfe6;
+      --dir-border-control: #838e98;
+      --dir-font-title: 'Instrument Sans', system-ui, sans-serif;
+      --dir-font-body: 'Instrument Sans', system-ui, sans-serif;
+      --dir-radius-ctrl: 6px;
+      --dir-radius-card: 8px;
+      --dir-shadow: 0 1px 3px rgba(19, 28, 35, 0.08);
+    }
+
+    body.mode-dir-c {
+      --dir-primary: #854d0e;
+      --dir-primary-hover: #703e01;
+      --dir-primary-soft: #ffead9;
+      --dir-on-primary-soft: #854d0e;
+      --dir-bg: #faf6f3;
+      --dir-surface: #ffffff;
+      --dir-text: #211911;
+      --dir-muted: #72675d;
+      --dir-line: #e4dcd6;
+      --dir-border-control: #958a80;
+      --dir-font-title: 'Barlow Condensed', sans-serif;
+      --dir-font-body: 'Instrument Sans', sans-serif;
+      --dir-radius-ctrl: 3px;
+      --dir-radius-card: 4px;
+      --dir-shadow: none;
+    }
+
+    /* Tema Escuro Opcional */
+    body.theme-dark {
+      --dir-bg: #0b1613;
+      --dir-surface: #13221e;
+      --dir-text: #e0ebe7;
+      --dir-muted: #8ca39b;
+      --dir-line: #223832;
+      --dir-border-control: #4d6860;
+      --dir-primary: #6ec5ad;
+      --dir-primary-hover: #7edec3;
+      --dir-primary-soft: #10382e;
+      --dir-on-primary-soft: #9ee8d3;
+    }
+    body.mode-dir-a.theme-dark {
+      --dir-bg: #0d151c;
+      --dir-surface: #16222b;
+      --dir-text: #e1eaef;
+      --dir-muted: #8598a6;
+      --dir-line: #243542;
+      --dir-border-control: #4b6273;
+      --dir-primary: #6da5cf;
+      --dir-primary-hover: #86bee8;
+      --dir-primary-soft: #14334a;
+      --dir-on-primary-soft: #9ed4fc;
+    }
+    body.mode-dir-c.theme-dark {
+      --dir-bg: #161412;
+      --dir-surface: #221f1c;
+      --dir-text: #ece6df;
+      --dir-muted: #9c9187;
+      --dir-line: #38332e;
+      --dir-border-control: #635b54;
+      --dir-primary: #deb887;
+      --dir-primary-hover: #edd1aa;
+      --dir-primary-soft: #382c1e;
+      --dir-on-primary-soft: #f7e0c4;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--dir-bg);
+      color: var(--dir-text);
+      font-family: var(--dir-font-body);
+      line-height: 1.5;
+      padding: 32px 24px;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    /* Top Control Switcher Bar */
+    .control-panel {
+      position: sticky;
+      top: 16px;
+      z-index: 100;
+      background: var(--dir-surface);
+      border: 1px solid var(--dir-line);
+      border-radius: var(--dir-radius-card);
+      padding: 14px 20px;
+      margin-bottom: 32px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .switcher-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .switcher-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--dir-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-switch {
+      padding: 8px 14px;
+      border-radius: var(--dir-radius-ctrl);
+      border: 1px solid var(--dir-border-control);
+      background: var(--dir-surface);
+      color: var(--dir-text);
+      font-family: var(--dir-font-body);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-switch:hover {
+      background: var(--dir-primary-soft);
+      color: var(--dir-on-primary-soft);
+      border-color: var(--dir-primary);
+    }
+
+    .btn-switch.active {
+      background: var(--dir-primary);
+      color: #ffffff;
+      border-color: var(--dir-primary);
+    }
+
+    /* Header e Apresentação */
+    header {
+      margin-bottom: 40px;
+      border-bottom: 1px solid var(--dir-line);
+      padding-bottom: 24px;
+    }
+
+    .header-tag {
+      display: inline-block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: var(--dir-primary-soft);
+      color: var(--dir-on-primary-soft);
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-family: var(--dir-font-title);
+      font-size: 38px;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+
+    .header-sub {
+      font-size: 17px;
+      color: var(--dir-muted);
+      max-width: 840px;
+    }
+
+    /* Seções de Grade */
+    .section-title {
+      font-family: var(--dir-font-title);
+      font-size: 22px;
+      font-weight: 700;
+      margin: 36px 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .section-title::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--dir-line);
+    }
+
+    /* Grid de Logotipos */
+    .logo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 20px;
+      margin-bottom: 32px;
+    }
+
+    .logo-card {
+      background: var(--dir-surface);
+      border: 1px solid var(--dir-line);
+      border-radius: var(--dir-radius-card);
+      padding: 24px;
+      box-shadow: var(--dir-shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .logo-preview-box {
+      padding: 24px 16px;
+      border-radius: var(--dir-radius-ctrl);
+      border: 1px solid var(--dir-line);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #ffffff;
+      min-height: 110px;
+    }
+
+    .logo-preview-box.dark {
+      background: #0b1613;
+      border-color: #223832;
+    }
+
+    .logo-info h3 {
+      font-family: var(--dir-font-title);
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .logo-info p {
+      font-size: 13px;
+      color: var(--dir-muted);
+    }
+
+    /* Grid das 3 Direções Visuais */
+    .directions-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-bottom: 40px;
+    }
+
+    @media (max-width: 1024px) {
+      .directions-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .direction-card {
+      background: var(--dir-surface);
+      border: 1px solid var(--dir-line);
+      border-radius: var(--dir-radius-card);
+      padding: 24px;
+      box-shadow: var(--dir-shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: relative;
+    }
+
+    .direction-card.active-target {
+      border: 2px solid var(--dir-primary);
+    }
+
+    .direction-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: var(--dir-primary-soft);
+      color: var(--dir-on-primary-soft);
+      align-self: flex-start;
+    }
+
+    .direction-card h2 {
+      font-family: var(--dir-font-title);
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .direction-card .concept-quote {
+      font-size: 14px;
+      font-style: italic;
+      color: var(--dir-muted);
+      border-left: 3px solid var(--dir-primary);
+      padding-left: 10px;
+    }
+
+    .color-swatches {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .color-chip {
+      height: 48px;
+      border-radius: var(--dir-radius-ctrl);
+      border: 1px solid rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    /* MOCKUP INTERATIVO DA TELA PRINCIPAL (CONTROL PLANE DASHBOARD) */
+    .dashboard-mockup {
+      background: var(--dir-surface);
+      border: 1px solid var(--dir-line);
+      border-radius: var(--dir-radius-card);
+      box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+      overflow: hidden;
+      margin-bottom: 48px;
+    }
+
+    .app-header {
+      background: var(--dir-bg);
+      border-bottom: 1px solid var(--dir-line);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .app-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--dir-font-title);
+      font-weight: 800;
+      font-size: 18px;
+    }
+
+    .app-status-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--dir-muted);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--color-success);
+      display: inline-block;
+      margin-right: 6px;
+    }
+
+    .app-body {
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 2fr 1.2fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 900px) {
+      .app-body {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Card do Run Ativo */
+    .run-card {
+      border: 1px solid var(--dir-line);
+      border-radius: var(--dir-radius-card);
+      padding: 20px;
+      background: var(--dir-surface);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .run-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .run-id {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--dir-primary);
+    }
+
+    .run-title {
+      font-family: var(--dir-font-title);
+      font-size: 18px;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+
+    /* Grafo DAG de Tarefas */
+    .dag-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: var(--dir-bg);
+      padding: 14px;
+      border-radius: var(--dir-radius-ctrl);
+      border: 1px solid var(--dir-line);
+    }
+
+    .dag-node {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border-radius: var(--dir-radius-ctrl);
+      background: var(--dir-surface);
+      border: 1px solid var(--dir-line);
+      font-size: 13px;
+    }
+
+    .dag-node-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .node-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .node-icon.pass {
+      background: var(--color-success-soft);
+      color: var(--color-success);
+    }
+    .node-icon.running {
+      background: var(--dir-primary-soft);
+      color: var(--dir-primary);
+    }
+    .node-icon.heal {
+      background: var(--color-warning-soft);
+      color: var(--color-warning);
+    }
+
+    .dag-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    /* Painel de Diff e HITL */
+    .hitl-panel {
+      border: 1px solid var(--dir-line);
+      border-radius: var(--dir-radius-card);
+      padding: 20px;
+      background: var(--dir-surface);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .hitl-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .hitl-title {
+      font-family: var(--dir-font-title);
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .diff-box {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      line-height: 1.6;
+      background: var(--dir-bg);
+      border: 1px solid var(--dir-line);
+      border-radius: var(--dir-radius-ctrl);
+      padding: 12px;
+      overflow-x: auto;
+    }
+
+    .diff-line.add {
+      background: var(--color-success-soft);
+      color: var(--color-success);
+    }
+
+    .diff-line.del {
+      background: var(--color-danger-soft);
+      color: var(--color-danger);
+    }
+
+    .action-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .btn-action {
+      flex: 1;
+      padding: 10px 16px;
+      border-radius: var(--dir-radius-ctrl);
+      font-family: var(--dir-font-body);
+      font-size: 13px;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: opacity 0.15s;
+    }
+
+    .btn-action.primary {
+      background: var(--dir-primary);
+      color: #ffffff;
+    }
+
+    .btn-action.secondary {
+      background: var(--dir-bg);
+      border: 1px solid var(--dir-line);
+      color: var(--dir-text);
+    }
+
+    .btn-action:hover {
+      opacity: 0.9;
+    }
+
+    /* Tabela de Contraste */
+    .table-contrast {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 12px;
+    }
+
+    .table-contrast th, .table-contrast td {
+      border: 1px solid var(--dir-line);
+      padding: 8px 12px;
+      text-align: left;
+    }
+
+    .table-contrast th {
+      background: var(--dir-bg);
+      font-family: var(--dir-font-title);
+      font-weight: 700;
+    }
+
+    .badge-pass {
+      color: var(--color-success);
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+    }
+  </style>
+</head>
+<body class="mode-dir-b">
+
+  <div class="container">
+
+    <!-- BARRA INTERATIVA DE CONTROLE -->
+    <div class="control-panel">
+      <div class="switcher-group">
+        <span class="switcher-label">Direção Visual:</span>
+        <button class="btn-switch" onclick="setDirection('a')">A: Steel Slate (Familiar)</button>
+        <button class="btn-switch active" onclick="setDirection('b')">B: Abyssal Bio-Emerald (Própria)</button>
+        <button class="btn-switch" onclick="setDirection('c')">C: Monolith Amber (Inesperada)</button>
+      </div>
+      <div class="switcher-group">
+        <span class="switcher-label">Tema:</span>
+        <button class="btn-switch active" id="btn-light" onclick="setTheme('light')">☀️ Claro</button>
+        <button class="btn-switch" id="btn-dark" onclick="setTheme('dark')">🌙 Escuro</button>
+      </div>
+    </div>
+
+    <!-- CABEÇALHO DA PRANCHA -->
+    <header>
+      <span class="header-tag">SPEC NORMATIVA · kit-frontend · WCAG 2.2 AA</span>
+      <h1>Hydra (hydra-orch) — Identidade Visual</h1>
+      <p class="header-sub">
+        Direções conceituais de design system, logotipo em curvas vetoriais puras, paletas OKLCH de alto contraste e mockups do Control Plane.
+      </p>
+    </header>
+
+    <!-- SEÇÃO 1: LOGOTIPOS EM VETOR -->
+    <h2 class="section-title">1. Logotipos e Símbolos Oficiais (SVG Puro)</h2>
+    <div class="logo-grid">
+      <!-- Conceito 1 -->
+      <div class="logo-card">
+        <div class="logo-info">
+          <h3>Conceito 1 (Recomendado): O Nó Trifurcado da Hidra</h3>
+          <p>Três cabeças autônomas convergindo para um tronco coordenador. Simboliza Swarm, DAG e Healer.</p>
+        </div>
+        <div class="logo-preview-box">
+          <img src="marca/logo_hydra_conceito_1_positivo.svg" alt="Logo Hydra Conceito 1 Positivo" style="max-height: 48px; width: auto;">
+        </div>
+        <div class="logo-preview-box dark">
+          <img src="marca/logo_hydra_conceito_1_negativo.svg" alt="Logo Hydra Conceito 1 Negativo" style="max-height: 48px; width: auto;">
+        </div>
+      </div>
+
+      <!-- Conceito 2 -->
+      <div class="logo-card">
+        <div class="logo-info">
+          <h3>Conceito 2: Cristas Ascendentes de Alta Resiliência</h3>
+          <p>Lâminas dinâmicas com simetria mecânica, remetendo a múltiplos executores concorrentes.</p>
+        </div>
+        <div class="logo-preview-box">
+          <img src="marca/logo_hydra_conceito_2_positivo.svg" alt="Logo Hydra Conceito 2 Positivo" style="max-height: 48px; width: auto;">
+        </div>
+        <div class="logo-preview-box dark" style="background:#0d151c;">
+          <img src="marca/logo_hydra_conceito_2_positivo.svg" alt="Logo Hydra Conceito 2" style="max-height: 48px; width: auto; filter: invert(0.9) hue-rotate(180deg);">
+        </div>
+      </div>
+
+      <!-- Conceito 3 -->
+      <div class="logo-card">
+        <div class="logo-info">
+          <h3>Conceito 3: Hexágono de Malha & Tridente Monolítico</h3>
+          <p>Inspirado em instrumentos de hardware de precisão e barramentos de engenharia pesada.</p>
+        </div>
+        <div class="logo-preview-box">
+          <img src="marca/logo_hydra_conceito_3_positivo.svg" alt="Logo Hydra Conceito 3 Positivo" style="max-height: 48px; width: auto;">
+        </div>
+        <div class="logo-preview-box dark" style="background:#161412;">
+          <img src="marca/logo_hydra_conceito_3_positivo.svg" alt="Logo Hydra Conceito 3" style="max-height: 48px; width: auto; filter: invert(0.9) hue-rotate(30deg);">
+        </div>
+      </div>
+    </div>
+
+    <!-- SEÇÃO 2: AS TRÊS DIREÇÕES VISUAIS COMPARADAS -->
+    <h2 class="section-title">2. As Três Direções Visuais (Paletas & Tipografia)</h2>
+    <div class="directions-grid">
+      <!-- Direção A -->
+      <div class="direction-card" id="card-dir-a">
+        <span class="direction-badge">Direção A · Familiar</span>
+        <h2>Steel Slate Precision</h2>
+        <p class="concept-quote">"Console cirúrgico de missão crítica com a clareza de instrumentos aeroespaciais."</p>
+        <p style="font-size:13px; color:var(--dir-muted);">
+          <strong>Tipografia:</strong> Instrument Sans + JetBrains Mono.<br>
+          <strong>Geometria:</strong> Raios de 6px, linhas finas de divisão, sombra ultra-suave.
+        </p>
+        <div class="color-swatches">
+          <div class="color-chip" style="background:#184e77; color:#fff;">#184e77 Primária</div>
+          <div class="color-chip" style="background:#f4f7fb; color:#131c23;">#f4f7fb Fundo</div>
+          <div class="color-chip" style="background:#131c23; color:#fff;">#131c23 Texto</div>
+          <div class="color-chip" style="background:#e2f1fe; color:#184e77;">#e2f1fe Soft</div>
+        </div>
+      </div>
+
+      <!-- Direção B -->
+      <div class="direction-card active-target" id="card-dir-b">
+        <span class="direction-badge">Direção B · Própria (Recomendada)</span>
+        <h2>Bioluminescent Abyssal Hydra</h2>
+        <p class="concept-quote">"A força da Hidra abissal: verde petróleo e esmeralda bioelétrico com regeneração contínua."</p>
+        <p style="font-size:13px; color:var(--dir-muted);">
+          <strong>Tipografia:</strong> Hanken Grotesk + Instrument Sans + JetBrains Mono.<br>
+          <strong>Geometria:</strong> Raios de 8px e 12px, camadas tonais orgânicas.
+        </p>
+        <div class="color-swatches">
+          <div class="color-chip" style="background:#0e5f4b; color:#fff;">#0e5f4b Primária</div>
+          <div class="color-chip" style="background:#f3f8f6; color:#111e19;">#f3f8f6 Fundo</div>
+          <div class="color-chip" style="background:#111e19; color:#fff;">#111e19 Texto</div>
+          <div class="color-chip" style="background:#d5f8eb; color:#0e5f4b;">#d5f8eb Soft</div>
+        </div>
+      </div>
+
+      <!-- Direção C -->
+      <div class="direction-card" id="card-dir-c">
+        <span class="direction-badge">Direção C · Inesperada</span>
+        <h2>Monolith Titanium & Amber</h2>
+        <p class="concept-quote">"Neobrutalismo de hardware industrial, painéis de medição analógica e racks de servidores."</p>
+        <p style="font-size:13px; color:var(--dir-muted);">
+          <strong>Tipografia:</strong> Barlow Condensed + Public Sans + JetBrains Mono.<br>
+          <strong>Geometria:</strong> Raios de 2px a 4px, bordas sólidas, 0 sombras.
+        </p>
+        <div class="color-swatches">
+          <div class="color-chip" style="background:#854d0e; color:#fff;">#854d0e Primária</div>
+          <div class="color-chip" style="background:#faf6f3; color:#211911;">#faf6f3 Fundo</div>
+          <div class="color-chip" style="background:#211911; color:#fff;">#211911 Texto</div>
+          <div class="color-chip" style="background:#ffead9; color:#854d0e;">#ffead9 Soft</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SEÇÃO 3: MOCKUP INTERATIVO DA TELA MODELO -->
+    <h2 class="section-title">3. Tela-Modelo: Hydra Control Plane (Run & DAG Ativo)</h2>
+    <p style="font-size:14px; color:var(--dir-muted); margin-bottom:16px;">
+      Alterne as opções de direção e tema no topo para ver esta tela reagir em tempo real:
+    </p>
+
+    <div class="dashboard-mockup">
+      <!-- Barra Superior de Controle do Aplicativo -->
+      <div class="app-header">
+        <div class="app-brand">
+          <svg width="24" height="24" viewBox="0 0 32 32" fill="none">
+            <path d="M5 10 C5 19, 12 20, 16 24 C20 20, 27 19, 27 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+            <path d="M16 4 L16 28" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+            <path d="M10 28 L22 28" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="5" cy="10" r="3.5" fill="currentColor"/>
+            <circle cx="16" cy="4" r="3.5" fill="currentColor"/>
+            <circle cx="27" cy="10" r="3.5" fill="currentColor"/>
+          </svg>
+          HYDRA
+        </div>
+        <div class="app-status-bar">
+          <span><span class="status-dot"></span>Modo: <strong>Swarm DAG</strong></span>
+          <span>Workspace: <strong>main (limpo)</strong></span>
+          <span>Orçamento: <strong>42.8k / 200k tok</strong></span>
+          <span>Esforço: <strong>HIGH</strong></span>
+        </div>
+      </div>
+
+      <!-- Corpo da Tela -->
+      <div class="app-body">
+        <!-- Coluna Esquerda: Run e Grafo de Agentes -->
+        <div class="run-card">
+          <div class="run-header">
+            <div>
+              <span class="run-id">RUN #142 · ATIVO</span>
+              <h2 class="run-title">refactor(core): migração de persistência para wal checkpoint</h2>
+            </div>
+            <span class="dag-badge" style="background:var(--color-success-soft); color:var(--color-success);">2/3 CONCLUÍDOS</span>
+          </div>
+
+          <!-- Grafo DAG -->
+          <div class="dag-container">
+            <div class="dag-node">
+              <div class="dag-node-info">
+                <div class="node-icon pass">✓</div>
+                <div>
+                  <strong>T01: AST Parser & Token Redactor</strong>
+                  <div style="font-size:11px; color:var(--dir-muted);">Worktree: wt/swarm-t01 · 18 testes aprovados</div>
+                </div>
+              </div>
+              <span class="dag-badge" style="color:var(--color-success);">0.42s</span>
+            </div>
+
+            <div class="dag-node">
+              <div class="dag-node-info">
+                <div class="node-icon running">▶</div>
+                <div>
+                  <strong>T02: SQLAlchemy WAL Checkpointer</strong>
+                  <div style="font-size:11px; color:var(--dir-muted);">Worktree: wt/swarm-t02 · Gravando índices...</div>
+                </div>
+              </div>
+              <span class="dag-badge" style="background:var(--dir-primary-soft); color:var(--dir-on-primary-soft);">EM EXECUÇÃO</span>
+            </div>
+
+            <div class="dag-node">
+              <div class="dag-node-info">
+                <div class="node-icon heal">⚡</div>
+                <div>
+                  <strong>T03: Healer Engine (Auto-Cura de Patch)</strong>
+                  <div style="font-size:11px; color:var(--dir-muted);">Aguardando liberação de barreira Kahn T02</div>
+                </div>
+              </div>
+              <span class="dag-badge" style="color:var(--color-warning);">AGUARDANDO</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Coluna Direita: Human-in-the-Loop (HITL) e Diff -->
+        <div class="hitl-panel">
+          <div class="hitl-header">
+            <span class="hitl-title">Aprovação de Segurança (HITL)</span>
+            <span class="dag-badge" style="background:var(--color-warning-soft); color:var(--color-warning);">MUTATION DETECTED</span>
+          </div>
+          <p style="font-size:12px; color:var(--dir-muted);">
+            O agente solicita aplicação do diff verificado no branch principal:
+          </p>
+          <div class="diff-box">
+            <div style="color:var(--dir-muted); margin-bottom:4px;">--- a/src/hydra_orch/core/checkpointer.py</div>
+            <div style="color:var(--dir-muted); margin-bottom:6px;">+++ b/src/hydra_orch/core/checkpointer.py</div>
+            <div class="diff-line del">- wal_mode = False</div>
+            <div class="diff-line add">+ wal_mode = True</div>
+            <div class="diff-line add">+ await conn.execute("PRAGMA journal_mode=WAL;")</div>
+          </div>
+          <div class="action-row">
+            <button class="btn-action primary">Aprovar e Mesclar Diff</button>
+            <button class="btn-action secondary">Rejeitar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SEÇÃO 4: CONTRATO WCAG 2.2 AA -->
+    <h2 class="section-title">4. Matriz de Contraste Calculada (OKLCH)</h2>
+    <table class="table-contrast">
+      <thead>
+        <tr>
+          <th>Elemento / Par</th>
+          <th>Direção A (Steel Slate)</th>
+          <th>Direção B (Abyssal Bio-Emerald)</th>
+          <th>Direção C (Monolith Amber)</th>
+          <th>Piso WCAG</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Texto Principal sobre Superfície</td>
+          <td><span class="badge-pass">passa 17.24:1</span></td>
+          <td><span class="badge-pass">passa 17.16:1</span></td>
+          <td><span class="badge-pass">passa 17.33:1</span></td>
+          <td>4.5:1</td>
+        </tr>
+        <tr>
+          <td>Ação Primária (Texto sobre Botão)</td>
+          <td><span class="badge-pass">passa 8.77:1</span></td>
+          <td><span class="badge-pass">passa 7.62:1</span></td>
+          <td><span class="badge-pass">passa 6.85:1</span></td>
+          <td>4.5:1</td>
+        </tr>
+        <tr>
+          <td>Texto Suave (Muted sobre Fundo)</td>
+          <td><span class="badge-pass">passa 5.13:1</span></td>
+          <td><span class="badge-pass">passa 5.07:1</span></td>
+          <td><span class="badge-pass">passa 5.16:1</span></td>
+          <td>4.5:1</td>
+        </tr>
+        <tr>
+          <td>Borda de Controle sobre Fundo</td>
+          <td><span class="badge-pass">passa 3.11:1</span></td>
+          <td><span class="badge-pass">passa 3.11:1</span></td>
+          <td><span class="badge-pass">passa 3.15:1</span></td>
+          <td>3.0:1</td>
+        </tr>
+      </tbody>
+    </table>
+
+  </div>
+
+  <script>
+    function setDirection(dir) {
+      document.body.classList.remove('mode-dir-a', 'mode-dir-b', 'mode-dir-c');
+      document.body.classList.add('mode-dir-' + dir);
+
+      document.querySelectorAll('.control-panel .btn-switch').forEach((btn, idx) => {
+        if (idx < 3) btn.classList.remove('active');
+      });
+      if (dir === 'a') document.querySelectorAll('.control-panel .btn-switch')[0].classList.add('active');
+      if (dir === 'b') document.querySelectorAll('.control-panel .btn-switch')[1].classList.add('active');
+      if (dir === 'c') document.querySelectorAll('.control-panel .btn-switch')[2].classList.add('active');
+
+      document.querySelectorAll('.direction-card').forEach(c => c.classList.remove('active-target'));
+      const activeCard = document.getElementById('card-dir-' + dir);
+      if (activeCard) activeCard.classList.add('active-target');
+    }
+
+    function setTheme(theme) {
+      if (theme === 'dark') {
+        document.body.classList.add('theme-dark');
+        document.getElementById('btn-dark').classList.add('active');
+        document.getElementById('btn-light').classList.remove('active');
+      } else {
+        document.body.classList.remove('theme-dark');
+        document.getElementById('btn-light').classList.add('active');
+        document.getElementById('btn-dark').classList.remove('active');
+      }
+    }
+  </script>
+</body>
+</html>

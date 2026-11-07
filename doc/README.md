@@ -37,6 +37,8 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 | `arquitetura_hydra_omniroute_ui.md` | `v01_00_0000` | Fronteiras: Hydra CP, OmniRoute, Executores, UI |
 | `taxonomia_file_system.md` | `v01_00_0000` | Singularidade, prefixos, runtime `.orchestrator/` |
 | `prd_hydra_orch.md` | `v05_00_0000` | Visão histórica unificada (referência) |
+| `marca.md` | `v01_00_0000` | Brief de marca, personas, tom de voz, regras de interface |
+| `design_system.md` | `v01_00_0000` | Tokens OKLCH, 3 direções visuais, tipografia, contraste WCAG AA |
 
 ### Casos de Uso (`c_activity/`)
 | Arquivo | Fluxo | Requisitos |
