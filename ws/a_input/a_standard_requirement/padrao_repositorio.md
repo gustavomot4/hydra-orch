@@ -12,7 +12,7 @@
 | Sigla | Nome | Descrição |
 |---|---|---|
 | AG | Agente de Desenvolvimento Assistido por IA | Ferramentas, agentes, skills e orquestração |
-| AP | Aplicativo | Aplicação principal (ex: ConectaRocinha) |
+| AP | Aplicativo | Aplicação principal (ex: ap_portal, ap_core) |
 | MS | Microserviço Oficial | Serviço com dono responsável, Docker próprio, frontend + backend dedicados, schema próprio no banco do AP |
 | TP | Microserviço Temporário | Desenvolvido pelo dono do AP, ainda não é o MS oficial, Docker próprio, frontend + backend dedicados, schema próprio |
 | MD | Módulo Interno | Pertence ao AP, não tem Docker independente, roda no Docker do AP, tem frontend + backend dedicados, schema próprio |
@@ -22,10 +22,10 @@
 
 ## 2. Nomenclatura de Pastas Raiz (Estrutura do Repositório)
 
-- `ag_<nome>` → Agentes (ex: `ag_agent_dsv`, `ag_ap_conecta_rocinha`)
-- `ap_<nome>` → Aplicativos (ex: `ap_conecta_rocinha`)
+- `ag_<nome>` → Agentes (ex: `ag_agent_dsv`, `ag_ap_portal`)
+- `ap_<nome>` → Aplicativos (ex: `ap_portal`)
 - `ms_<nome>` → Microserviços Oficiais (ex: `ms_access`)
-- `tp_<nome>` → Microserviços Temporários (ex: `tp_cnr_access`, `tp_epayment`)
+- `tp_<nome>` → Microserviços Temporários (ex: `tp_access`, `tp_payment`)
 - `md_<nome>` → Módulos (ex: `md_admin`)
 - `mk_<nome>` → Mocks (ex: `mk_smtp`)
 
@@ -86,7 +86,7 @@ ws/
 └── b_output/                 # Saídas (planos, relatórios, entregas)
     ├── <timestamp>_<nome>.md   # Planos de execução versionados
     ├── relatorios/
-    └── conecta_rocinha.doc/    # Entregas empacotadas (ZIP + checksum)
+    └── <app>.doc/              # Entregas empacotadas (ZIP + checksum)
 ```
 
 ---
@@ -151,9 +151,9 @@ e_doc/
 
 | Objeto | Padrão |
 |---|---|
-| Database | `DB_<APP>` (ex: `DB_CNR`) |
-| Schema | `<APP>_SC_<COMPONENTE>_<ShortDs>` (ex: `CNR_SC_CNR_Candidato`) |
-| Tabela | `<APP>_<COMPONENTE>_TB_<ShortDs>` (ex: `CNR_CNR_TB_Candidato`) |
+| Database | `DB_<APP>` (ex: `DB_APP`) |
+| Schema | `<APP>_SC_<COMPONENTE>_<ShortDs>` (ex: `APP_SC_AUTH_Usuario`) |
+| Tabela | `<APP>_<COMPONENTE>_TB_<ShortDs>` (ex: `APP_AUTH_TB_Usuario`) |
 | Sequence | `<APP>_<COMPONENTE>_SQ_<ShortDs>` |
 | Queue | `<APP>_<COMPONENTE>_QU_<ShortDs>` |
 | Queue Temporária | `TMP_<COMPONENTE>_QU_<ShortDs>` |
@@ -220,7 +220,7 @@ Máscara: `XXX_YYYZZZ_99999`
 | `ZZZ` | `ALL` (comum), `TCN` (técnico), `FNC` (funcional) |
 | `99999` | 5 dígitos (00000–99999) |
 
-*Exemplo:* `CNR_SUCALL_00001`
+*Exemplo:* `APP_SUCALL_00001`
 
 ---
 
@@ -368,21 +368,20 @@ e_doc/a_spc/example/
 
 ---
 
-## 20. Unidades do ConectaRocinha (Exemplo de Aplicação)
+## 20. Topologia Típica de Unidades (Exemplo Arquitetural)
 
-| Unidade | Tipo | Caminho | Status |
+| Unidade | Tipo | Caminho Típico | Descrição / Papel |
 |---|---|---|---|
-| ConectaRocinha | AP | `ap/ap_conecta_rocinha` | Implementado |
-| WWW | Frontend do AP | `ms/ap_cnr_www` | Implementado |
-| Access Externo | MS (gitlink) | `ms/ms_access` | Externo protegido |
-| Access Local | TP | `tp/tp_access` | Implementado |
-| CNR Access | TP | `tp/tp_cnr_access` | Implementado |
-| EPayment | TP | `tp/tp_epayment` | Implementado |
-| Observe | TP | `tp/tp_observe` | Implementado |
-| WAP | TP | `tp/tp_wap` | Implementado |
-| Entity | TP | `tp/tp_entity` | Reserva (sem impl.) |
-| Notify | TP | `tp/tp_notify` | Reserva (sem impl.) |
-| SMTP Mock | MK | `mk/mk_smtp` | Implementado |
+| Core / Portal | AP | `ap/ap_core` | Aplicação principal |
+| Web Portal | Frontend do AP | `ms/ap_web` | Frontend dedicado da aplicação |
+| Auth Externo | MS (gitlink) | `ms/ms_access` | Serviço de autenticação externo |
+| Auth Local | TP | `tp/tp_access` | Adaptador/serviço local de autenticação |
+| Payment Gateway | TP | `tp/tp_payment` | Microsserviço temporário de pagamentos |
+| Observe / Telemetria | TP | `tp/tp_observe` | Observabilidade e métricas |
+| Webhooks / Async | TP | `tp/tp_worker` | Processamento assíncrono e eventos |
+| Entity Service | TP | `tp/tp_entity` | Gestão de entidades de domínio (reserva) |
+| Notification | TP | `tp/tp_notify` | Serviço de notificações (reserva) |
+| SMTP Mock | MK | `mk/mk_smtp` | Mock local para testes de envio de email |
 
 ---
 
@@ -402,18 +401,17 @@ e_doc/a_spc/example/
 raiz/
 ├── ag/
 │   ├── ag_agent_dsv/
-│   └── ag_ap_conecta_rocinha/
+│   └── ag_ap_<nome>/
 ├── ap/
-│   └── ap_conecta_rocinha/
+│   └── ap_<nome>/
 ├── ms/
 │   ├── ms_access/              (gitlink externo)
-│   └── ap_cnr_www/
+│   └── ap_web/
 ├── tp/
 │   ├── tp_access/
-│   ├── tp_cnr_access/
-│   ├── tp_epayment/
+│   ├── tp_payment/
 │   ├── tp_observe/
-│   ├── tp_wap/
+│   ├── tp_worker/
 │   ├── tp_entity/
 │   └── tp_notify/
 ├── mk/
@@ -438,9 +436,9 @@ raiz/
 |---|---|
 | Padrões completos (standard.json) | `ag/ag_agent_dsv/ag_agent_dsv/a_common/d_brain/b_graph/catalog/standard.json` |
 | Regras (rule.json) | `ag/ag_agent_dsv/ag_agent_dsv/a_common/d_brain/b_graph/catalog/rule.json` |
-| Catálogo de unidades | `ag/ag_ap_conecta_rocinha/ag_ap_conecta_rocinha/a_common/d_brain/b_graph/catalog/unit.json` |
-| Regras locais | `ag/ag_ap_conecta_rocinha/ag_ap_conecta_rocinha/a_common/d_brain/b_graph/catalog/local_rule.json` |
-| PRD Funcional AP | `ap/ap_conecta_rocinha/e_doc/b_SPC/ap_conecta_rocinha_SPC_functional.md` |
-| PRD Técnico AP | `ap/ap_conecta_rocinha/e_doc/b_SPC/ap_conecta_rocinha_SPC_technical.md` |
+| Catálogo de unidades | `ag/ag_ap_<nome>/ag_ap_<nome>/a_common/d_brain/b_graph/catalog/unit.json` |
+| Regras locais | `ag/ag_ap_<nome>/ag_ap_<nome>/a_common/d_brain/b_graph/catalog/local_rule.json` |
+| PRD Funcional AP | `ap/ap_<nome>/e_doc/b_SPC/ap_<nome>_SPC_functional.md` |
+| PRD Técnico AP | `ap/ap_<nome>/e_doc/b_SPC/ap_<nome>_SPC_technical.md` |
 
 > **Nota final:** As regras são evolutivas; consulte os arquivos JSON de catálogo para a versão mais recente.
