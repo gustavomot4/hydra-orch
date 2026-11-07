@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hydra — Direção C: Monolith Titanium & Amber</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    /* DIREÇÃO C: MONOLITH TITANIUM & AMBER (NEOBRUTALISMO DE HARDWARE) */
+    :root {
+      --primary: #854d0e;
+      --primary-hover: #703e01;
+      --primary-soft: #ffead9;
+      --on-primary-soft: #854d0e;
+      --bg: #faf6f3;
+      --surface: #ffffff;
+      --text: #211911;
+      --muted: #72675d;
+      --line: #e4dcd6;
+      --border-control: #958a80;
+
+      --success: #007835;
+      --success-soft: #e1f5e4;
+      --warning: #8a5601;
+      --warning-soft: #fcecd9;
+      --danger: #a43b35;
+      --danger-soft: #fee9e6;
+
+      --radius-ctrl: 2px;
+      --radius-card: 4px;
+      --border-heavy: 1.5px solid #d4c5bd;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+      line-height: 1.45;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* TOPBAR RACK */
+    .topbar {
+      background: var(--surface);
+      border-bottom: 2px solid var(--primary);
+      padding: 0 24px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 26px;
+      font-weight: 900;
+      letter-spacing: 1.5px;
+      color: var(--primary);
+      text-transform: uppercase;
+    }
+
+    .badge-concept {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      font-weight: 800;
+      background: var(--primary-soft);
+      color: var(--primary);
+      padding: 2px 8px;
+      border-radius: var(--radius-ctrl);
+      border: 1px solid var(--primary);
+      text-transform: uppercase;
+    }
+
+    .top-telemetry {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .telemetry-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .telemetry-item strong {
+      color: var(--text);
+    }
+
+    .status-box {
+      width: 8px;
+      height: 8px;
+      background: var(--success);
+      display: inline-block;
+    }
+
+    /* LAYOUT CONTAINER */
+    .container {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 24px;
+      flex: 1;
+      width: 100%;
+    }
+
+    /* BANNER DE IDENTIDADE */
+    .identity-banner {
+      background: var(--surface);
+      border: var(--border-heavy);
+      border-left: 6px solid var(--primary);
+      border-radius: var(--radius-card);
+      padding: 16px 20px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .identity-banner h2 {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 22px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text);
+    }
+
+    .identity-banner p {
+      font-size: 13.5px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .btn-nav-prancha {
+      padding: 8px 14px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 14px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--primary);
+      background: var(--primary-soft);
+      border: 1.5px solid var(--primary);
+      border-radius: var(--radius-ctrl);
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+    .btn-nav-prancha:hover {
+      background: var(--primary);
+      color: #ffffff;
+    }
+
+    /* STATS STRIP */
+    .stats-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: var(--border-heavy);
+      border-radius: var(--radius-card);
+      padding: 14px 18px;
+    }
+
+    .stat-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 14px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--text);
+      margin-top: 2px;
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* MAIN CONTENT GRID */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1.8fr 1.2fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    @media (max-width: 990px) {
+      .main-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--surface);
+      border: var(--border-heavy);
+      border-radius: var(--radius-card);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 14px 18px;
+      border-bottom: var(--border-heavy);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f7f3ef;
+    }
+
+    .panel-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 19px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text);
+    }
+
+    .panel-body {
+      padding: 20px;
+    }
+
+    /* RUN CARD & DAG */
+    .run-lead {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+
+    .run-id {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      font-weight: 800;
+      color: var(--primary);
+    }
+
+    .run-headline {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 24px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text);
+      margin-top: 2px;
+    }
+
+    .dag-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 22px;
+    }
+
+    .dag-item {
+      background: var(--surface);
+      border: 1.5px solid var(--line);
+      border-radius: var(--radius-ctrl);
+      padding: 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .dag-item.active {
+      border: 2px solid var(--primary);
+      background: #fdfbf9;
+    }
+
+    .dag-item-main {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .dag-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 6px;
+      border-radius: var(--radius-ctrl);
+    }
+
+    .dag-tag.pass { background: var(--success-soft); color: var(--success); border: 1px solid var(--success); }
+    .dag-tag.running { background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary); }
+    .dag-tag.wait { background: var(--warning-soft); color: var(--warning); border: 1px solid var(--warning); }
+
+    .dag-item-name {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .dag-item-meta {
+      font-size: 11.5px;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .dag-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 2px;
+      text-transform: uppercase;
+    }
+
+    /* HISTÓRICO RECIPROCO */
+    .history-header {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 15px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+    }
+
+    .history-table td {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .history-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* PAINEL HITL */
+    .hitl-callout {
+      background: var(--warning-soft);
+      border: 1px solid #ebd3ba;
+      border-radius: var(--radius-ctrl);
+      padding: 12px 14px;
+      margin-bottom: 14px;
+      font-size: 13px;
+      color: var(--warning);
+      font-weight: 700;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .diff-container {
+      background: #faf6f3;
+      border: 1.5px solid var(--line);
+      border-radius: var(--radius-ctrl);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      line-height: 1.6;
+      padding: 12px;
+      margin-bottom: 16px;
+      overflow-x: auto;
+    }
+
+    .diff-header {
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .diff-line.del {
+      background: var(--danger-soft);
+      color: var(--danger);
+      padding: 1px 4px;
+      display: block;
+    }
+
+    .diff-line.add {
+      background: var(--success-soft);
+      color: var(--success);
+      padding: 1px 4px;
+      display: block;
+    }
+
+    .actions-grid {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn {
+      padding: 12px 16px;
+      border-radius: var(--radius-ctrl);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 15px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #ffffff;
+      flex: 2;
+    }
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-secondary {
+      background: var(--surface);
+      border: 1.5px solid var(--border-control);
+      color: var(--text);
+      flex: 1;
+    }
+    .btn-secondary:hover {
+      background: var(--bg);
+    }
+
+    /* LOG AUDITORIA LIVE */
+    .log-box {
+      margin-top: 18px;
+      background: #211911;
+      color: #ffead9;
+      border-radius: var(--radius-ctrl);
+      padding: 12px 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .log-time { color: #958a80; }
+    .log-pass { color: #76c788; }
+    .log-action { color: #ffead9; }
+  </style>
+</head>
+<body>
+
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div class="brand-section">
+      <!-- Símbolo Vetorial: Hexágono de Hardware Industrial -->
+      <svg width="26" height="26" viewBox="0 0 48 48" fill="none">
+        <polygon points="24,2 44,14 44,38 24,50 4,38 4,14" stroke="#854d0e" stroke-width="4" fill="#ffead9"/>
+        <path d="M24 10 L24 38 M14 20 L24 28 L34 20" stroke="#854d0e" stroke-width="4" stroke-linecap="square"/>
+      </svg>
+      <span class="brand-title">HYDRA</span>
+      <span class="badge-concept">DIREÇÃO C · MONOLITH AMBER</span>
+    </div>
+
+    <div class="top-telemetry">
+      <div class="telemetry-item">
+        <span class="status-box"></span>
+        <span>DAEMON: <strong>8000 [OK]</strong></span>
+      </div>
+      <div class="telemetry-item">
+        <span>MODE: <strong>SWARM-DAG</strong></span>
+      </div>
+      <div class="telemetry-item">
+        <span>BRANCH: <strong>MAIN [CLEAN]</strong></span>
+      </div>
+      <div class="telemetry-item">
+        <span>TOKENS: <strong>42.8K / 200K</strong></span>
+      </div>
+      <div class="telemetry-item">
+        <span>EFFORT: <strong>MAX</strong></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTAINER -->
+  <main class="container">
+
+    <!-- BANNER DE IDENTIDADE -->
+    <div class="identity-banner">
+      <div>
+        <h2>Direção C: Monolith Titanium & Amber (Inesperada)</h2>
+        <p>Neobrutalismo de hardware analógico e módulos de rack industrial. Âmbar Técnico <code>#854d0e</code>, Titânio <code>#faf6f3</code> e Barlow Condensed.</p>
+      </div>
+      <a href="prancha_visual.html" class="btn-nav-prancha">← Voltar para Prancha Comparativa</a>
+    </div>
+
+    <!-- STATS STRIP -->
+    <div class="stats-strip">
+      <div class="stat-card">
+        <div class="stat-label">RUNS EM ANDAMENTO</div>
+        <div class="stat-value">01</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">RACK CHANNELS (WORKERS)</div>
+        <div class="stat-value">03</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">SUÍTE HERMÉTICA DE TESTES</div>
+        <div class="stat-value" style="color:var(--success);">54/54 [PASS]</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">WORKTREES ALOCADAS</div>
+        <div class="stat-value">03 / 08 MAX</div>
+      </div>
+    </div>
+
+    <!-- GRID PRINCIPAL -->
+    <div class="main-grid">
+
+      <!-- COLUNA ESQUERDA: RUN & DAG -->
+      <section class="panel">
+        <div class="panel-header">
+          <span class="panel-title">TELEMETRIA DE EXECUÇÃO SWARM</span>
+          <span class="dag-badge" style="background:var(--success-soft); color:var(--success); border:1px solid var(--success);">STATUS: RUNNING</span>
+        </div>
+        <div class="panel-body">
+          <div class="run-lead">
+            <div>
+              <span class="run-id">RUN_ID: 142 · HASH: #86B599E</span>
+              <h1 class="run-headline">REFACTOR(CORE): MIGRAÇÃO DE PERSISTÊNCIA WAL CHECKPOINT</h1>
+            </div>
+            <span class="dag-badge" style="background:var(--primary-soft); color:var(--primary); border:1px solid var(--primary);">2/3 TASKS</span>
+          </div>
+
+          <!-- DAG LIST -->
+          <div class="dag-list">
+            <div class="dag-item">
+              <div class="dag-item-main">
+                <span class="dag-tag pass">[PASS]</span>
+                <div>
+                  <div class="dag-item-name">T01: AST Parser & Token Redactor</div>
+                  <div class="dag-item-meta">WT: wt/swarm-t01 · 18 testes unitários aprovados</div>
+                </div>
+              </div>
+              <span class="dag-badge" style="color:var(--success);">420MS (OK)</span>
+            </div>
+
+            <div class="dag-item active">
+              <div class="dag-item-main">
+                <span class="dag-tag running">[EXEC]</span>
+                <div>
+                  <div class="dag-item-name">T02: SQLAlchemy WAL Checkpointer</div>
+                  <div class="dag-item-meta">WT: wt/swarm-t02 · Gravando índices SQLite com WAL...</div>
+                </div>
+              </div>
+              <span class="dag-badge" style="background:var(--primary-soft); color:var(--primary);">INDEXING (1100MS)</span>
+            </div>
+
+            <div class="dag-item" style="opacity:0.85;">
+              <div class="dag-item-main">
+                <span class="dag-tag wait">[WAIT]</span>
+                <div>
+                  <div class="dag-item-name">T03: Healer Engine (Auto-Cura AST)</div>
+                  <div class="dag-item-meta">WT: wt/swarm-t03 · Bloqueado por barreira Kahn T02</div>
+                </div>
+              </div>
+              <span class="dag-badge" style="color:var(--warning);">BARRIER T02</span>
+            </div>
+          </div>
+
+          <!-- HISTÓRICO DE RUNS -->
+          <div class="history-header">LOG DE EXECUÇÕES HERMÉTICAS</div>
+          <table class="history-table">
+            <tbody>
+              <tr>
+                <td style="font-family:'JetBrains Mono', monospace; font-weight:800; color:var(--primary);">#141</td>
+                <td>feat(adapter): adiciona suporte ao deepseek r1 reasoning</td>
+                <td style="font-family:'JetBrains Mono', monospace; color:var(--muted);">2M AGO</td>
+                <td style="text-align:right;"><span style="color:var(--success); font-weight:700;">12 TESTS [PASS]</span></td>
+              </tr>
+              <tr>
+                <td style="font-family:'JetBrains Mono', monospace; font-weight:800; color:var(--primary);">#140</td>
+                <td>docs(spec): atualiza prd técnico com requisitos rf31-38</td>
+                <td style="font-family:'JetBrains Mono', monospace; color:var(--muted);">18M AGO</td>
+                <td style="text-align:right;"><span style="color:var(--success); font-weight:700;">GIT [CLEAN]</span></td>
+              </tr>
+            </tbody>
+          </table>
+
+        </div>
+      </section>
+
+      <!-- COLUNA DIREITA: HITL & LIVE STREAM -->
+      <section class="panel">
+        <div class="panel-header">
+          <span class="panel-title">GATE DE SEGURANÇA HITL</span>
+          <span class="dag-badge" style="background:var(--warning-soft); color:var(--warning); border:1px solid var(--warning);">INTERCEPT ACTIVE</span>
+        </div>
+        <div class="panel-body">
+
+          <div class="hitl-callout">
+            [GATE-ALERT] MUTAÇÃO DETECTADA FORA DO WORKSPACE TEMPORÁRIO PELO SUBAGENTE T02.
+          </div>
+
+          <!-- DIFF INSPECTION -->
+          <div class="diff-container">
+            <div class="diff-header">--- a/src/hydra_orch/core/checkpointer.py</div>
+            <div class="diff-header" style="margin-bottom:4px;">+++ b/src/hydra_orch/core/checkpointer.py</div>
+            <span class="diff-line del">- wal_mode = False</span>
+            <span class="diff-line add">+ wal_mode = True</span>
+            <span class="diff-line add">+ await conn.execute("PRAGMA journal_mode=WAL;")</span>
+            <span class="diff-line add">+ await conn.execute("PRAGMA synchronous=NORMAL;")</span>
+          </div>
+
+          <!-- BOTÕES DE AÇÃO -->
+          <div class="actions-grid">
+            <button class="btn btn-primary" onclick="alert('Diff aprovado! Mesclando worktree wt/swarm-t02 na branch principal.')">
+              APROVAR E MESCLAR DIFF
+            </button>
+            <button class="btn btn-secondary" onclick="alert('Diff rejeitado. Notificando subagente.')">
+              REJEITAR
+            </button>
+          </div>
+
+          <!-- LIVE LOG STREAM -->
+          <div class="log-box">
+            <div><span class="log-time">[14:32:01]</span> <span class="log-action">SYS_RUN</span> run_id="142" workers=3 kahn_levels=2</div>
+            <div><span class="log-time">[14:32:02]</span> <span class="log-pass">T01_OK</span> duration=420ms regressions=0</div>
+            <div><span class="log-time">[14:32:03]</span> <span class="log-action">HITL_GATE</span> action="sqlite_wal_mutation" barrier=true</div>
+          </div>
+
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+
+</body>
+</html>
