@@ -2,12 +2,12 @@
 
 **Identificador Formal:** `prd_funcional.md`
 **Caminho Canônico:** `doc/b_spc/prd_funcional.md`
-**Versão:** `v01_01_0000`
+**Versão:** `v01_02_0000`
 **Status:** `PROPOSTO / EM DESENVOLVIMENTO`
 **Autoridade:** Arquitetura do hydra-orch alinhada a `taxonomia_file_system.md` e [`plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md).
-**Escopo:** Requisitos funcionais (RF01 a RF30), casos de uso detalhados (UC01 a UC05), regras de negócio, critérios de aceite e rastreabilidade DBC-9.
+**Escopo:** Requisitos funcionais (RF01 a RF38), casos de uso detalhados (UC01 a UC10), regras de negócio (RB01 a RB28), critérios de aceite e rastreabilidade DBC-9.
 
-**Estado das capacidades:** RF01–RF15 formam o núcleo verificável (V0); RF16–RF25 formalizam a expansão control plane (V1–V4); RF26–RF30 detalham modos de orquestração, interação humano-no-loop, resolução de conflitos, governança de orçamento e empacotamento de entrega. Todas as capacidades permanecem `PROPOSTO / NÃO IMPLEMENTADO` até seus gates técnicos e certificações.
+**Estado das capacidades:** RF01–RF15 formam o núcleo verificável (V0); RF16–RF25 formalizam a expansão control plane (V1–V4); RF26–RF30 detalham modos de orquestração, interação humano-no-loop, resolução de conflitos, governança de orçamento e empacotamento de entrega. RF31–RF38 incorporam a expansão de comandos de sessão, geração multimodal, MCP control plane avançado, RAG corporativo, integrações com Jira/Kanbanize, voz bidirecional, Computer Use e Hub/Foundry de LLMs locais (V5–V6). Todas as capacidades permanecem `PROPOSTO / NÃO IMPLEMENTADO` até seus gates técnicos e certificações.
 
 ---
 
@@ -59,6 +59,18 @@ Valor esperado: reduzir coordenação manual mantendo rastreabilidade de mudanç
 - Acessibilidade verificável: teclado, foco visível, roles semânticos, contraste, redução de movimento
 - Transportes certificados (SSH, IDE, CDP, remoto) com healthcheck e verificação de identidade
 
+**V5 (Multimodal & Interação):**
+- Comandos canônicos de sessão via CLI/API: `/compact` (resumo estruturado), `/plan` (modo planejamento sem efeitos), `/build` (execução do plano), e controle de esforço de raciocínio (`reasoning_effort: low|medium|high|max`)
+- Geração e gestão de artefatos multimodais: Imagem (FLUX, Stable Diffusion), Áudio (MusicGen, AudioCraft), Vídeo (CogVideo, Sora) com rastreamento por SHA-256 e parâmetros de geração
+- Conversações por voz bidirecionais (STT Whisper local/API, TTS Kokoro/ElevenLabs, streaming WebSocket duplex e interrupção barge-in)
+- Computer Use & Automação de Desktop/Navegador (mouse, teclado, screenshots de tela, Playwright/CDP) com governança estrita via Safety Governor e confirmação HITL obrigatória
+
+**V6 (Knowledge, Hub & Foundry):**
+- RAG Corporativo e Pessoal: Multi-coleção (empresa/estudo), ingestão de PDF, Markdown e Code, busca híbrida (vetorial densa + BM25) com isolamento físico em base SQLite dedicada e teto de tokens de contexto
+- MCP Control Plane Avançado: Catálogo e gestão de servidores MCP (stdio, SSE, HTTP), inspeção dinâmica `tools/list`, ativação/desativação granular por ferramenta e injeção de segredos via `SecretRef`
+- Conectores de Issue & Task Trackers: Sincronização bidirecional com Jira, Kanbanize, GitHub Issues/Projects, GitLab e Linear com espelhamento de status e vínculos a PRs
+- Hub e Foundry de LLMs Locais: Catálogo e status de instâncias locais (Ollama, LM Studio, vLLM, llama.cpp), busca/download do Hugging Face, pipeline de quantização GGUF e construtor interativo de Modelfiles e adaptadores LoRA
+
 Fora do escopo (não endereçado no primeiro marco): multiusuário, publicação automática irrestrita, garantia universal de compatibilidade com provedores, DAG livre por LLM sem validação humana, healing automático sem teto de tentativas.
 
 ### 3.2 Requisitos Funcionais (RF01 a RF30)
@@ -95,10 +107,18 @@ Fora do escopo (não endereçado no primeiro marco): multiusuário, publicação
 | **RF28** | Resolução de conflitos de merge assistida | Quando integração detecta conflito, sistema apresenta relatório visual 3-way (base, branch tarefa, branch integração) e oferece: (a) solicitar ao agente que rebaseie e resolva na worktree; (b) descartar a tarefa; (c) abrir para resolução manual pelo desenvolvedor. Opção (a) cria nova tentativa de reparo de merge com orçamento próprio. | Conflito → status `conflicted` + relatório 3-way; opção (a) dispara `TaskAttempt` de `merge_repair`; opção (b) → `rejected`; opção (c) → worktree preservada para edição manual; merge só prossegue após resolução e checks. | V0 / S05 |
 | **RF29** | Governança de orçamento e tetos de consumo (Budgeting / Hard Caps) | Permitir configurar teto de custo USD por run, teto de tokens (input/output), teto de tempo parede. Gatilhos: alerta em 80%, congelamento preventivo em 100% com solicitação de extensão ao operador (aprovação estende orçamento; recusa finaliza run com `budget_exhausted`). Custo desconhecido permanece `unknown`; não bloqueia por estimativa. | Teto configurável; alerta 80% emitido; 100% → pausa + solicitação extensão; aprovação estende; recusa → `budget_exhausted`; `unknown` não vira zero nem bloqueia. | V1 / S08 |
 | **RF30** | Empacotamento de entrega e auditoria de Pull Request | Criação automática de branch de Pull Request no remote (quando autorizado via configuração/política do run) com descrição estruturada: objetivo, lista de commits, saída dos checks, diff sumarizado, métricas de execução, decisões de revisão. Dossiê exportável para auditoria offline. | PR criado com descrição padrão; diff, checks, métricas incluídos; exportação redigida; autorização de publicação separada da execução. | V1 / S05/S13 |
+| **RF31** | Controlar sessão com comandos canônicos e esforço de raciocínio | Suporte a comandos de controle operacional: `/compact` (sumarização de contexto com preservação de instruções e objetivos ativos), `/plan` (entrada em modo de planejamento sem efeito colateral no filesystem), `/build` (disparo e verificação de checks e testes do plano aprovado), e parâmetro `reasoning_effort` (`low`, `medium`, `high`, `max`) repassado via options para adaptadores suportados. | Comandos executados via dispatcher autenticado; texto livre não aciona comando sem prefixo e flag de terminal; `/plan` gera DAG e não altera arquivos de código; `/compact` reduz janela sem descartar premissas; `reasoning_effort` validado contra capabilities do provedor. | V5 / S21 |
+| **RF32** | Gerar e gerenciar artefatos multimodais | Orquestrar jobs de geração de Imagem (FLUX, Stable Diffusion), Áudio (MusicGen, AudioCraft) e Vídeo (CogVideo, Sora API) desacoplados do stream de texto de chat. Todo binário gerado é salvo como artefato rastreado por hash SHA-256 com metadados estruturados (prompt, seed, dimensões, modelo, parâmetros). | Job de geração emite evento com URL de preview assinada; hash SHA-256 verificado após gravação; falha de moderação de conteúdo do provedor retorna erro tipado sem retentativa cega; custo registrado ou mantido como `unknown`. | V5 / S22 |
+| **RF33** | Operar catálogo e controle avançado de MCPs | Ciclo de vida completo de servidores MCP (stdio, SSE, HTTP): descoberta, registro, inspeção em tempo real (`tools/list`), ativação seletiva de ferramentas individuais por perfil/tarefa, e injeção segura de segredos via `SecretRef`. | Servidor MCP inicializa com capabilities inspecionadas; ferramenta desabilitada é rejeitada antes da chamada; alteração no schema da ferramenta transiciona para `untrusted`; segredos mascarados em logs e eventos. | V6 / S23 |
+| **RF34** | Manter e consultar RAG corporativo e pessoal | Base de conhecimento multi-coleção (empresarial e pessoal de estudos) com pipeline de ingestão de documentos (PDF, Markdown, Notion, Code). Indexação vetorial híbrida (embeddings densos + BM25 esparso). Injeção de contexto nas tarefas governada por pontuação de relevância mínima e teto rígido de tokens (`rag_token_budget`). | Ingestão isolada em `.orchestrator/knowledge/` sem misturar com checkpoints técnicos; queries com isolamento estrito de tenant/coleção; injeção respeita orçamento de tokens da tarefa; conteúdo do RAG marcado como dado não confiável. | V6 / S24 |
+| **RF35** | Integrar com rastreadores de tarefas (Jira, Kanbanize, GitHub) | Conectores bidirecionais com sistemas de gestão de tickets (Jira, Kanbanize, GitHub Issues/Projects, GitLab, Linear). Sincronização de status guiada por eventos de execução (início → "In Progress", conclusão com checks → "In Review", falha → notificação com evidência). | Conversão de card/issue em `RunSpec`; atualizações externas acionadas por eventos de transição; falha de API externa não bloqueia execução local; links de PRs e commits anexados ao card de origem. | V6 / S25 |
+| **RF36** | Operar conversação por voz duplex e interrupção | Suportar diálogo por áudio bidirecional: transcrição de fala (STT Whisper local ou API), síntese de voz (TTS Kokoro/ElevenLabs) e canal WebSocket full-duplex com detecção de atividade de voz (VAD) para corte imediato de áudio do assistente quando o operador fala (barge-in). | Áudio transmitido em chunks PCM/Opus; latência TTFT < 500ms em voz; interrupção do operador cancela reprodução e geração em curso imediatamente; canal de voz não autoriza ações destrutivas (RB23). | V5 / S26 |
+| **RF37** | Executar ações de Computer Use com governança HITL | Automação de desktop (mouse, teclado, screenshots) e navegador web (Playwright/CDP) para interação com ferramentas externas e validação de interfaces. Safety Governor intercepta ações destrutivas ou de navegação fora da allowlist, exigindo aprovação visual prévia do operador via HITL (`needs_approval`). | Ação fora de sandbox exige aprovação explícita do operador; screenshot capturado antes e depois de cada ação; log visual completo exportável; perda de foco ou fechamento inesperado de janela falha observavelmente. | V5 / S27 |
+| **RF38** | Gerenciar, quantizar e customizar LLMs locais | Catálogo de instâncias locais (Ollama, LM Studio, vLLM, llama.cpp), busca e download de modelos (Hugging Face / Ollama), conversão e quantização para GGUF (Q4_K_M, Q8_0) com validação de recursos de hardware, e construtor de Modelfiles/prompts de sistema. | Modelos locais listados com status de saúde e consumo de VRAM/RAM; download com barra de progresso e verificação de checksum SHA-256; quantização roda em subprocesso isolado com limites de disco; Modelfile versionado exportável. | V6 / S28 |
 
 ---
 
-### 3.3 Casos de Uso Detalhados (UC01 a UC05)
+### 3.3 Casos de Uso Detalhados (UC01 a UC10)
 
 #### UC01 — Submissão e Revisão de Tarefa Simples (Caminho Feliz)
 
@@ -166,7 +186,72 @@ Fora do escopo (não endereçado no primeiro marco): multiusuário, publicação
 
 ---
 
-### 3.4 Regras de Negócio (RB01 a RB20)
+#### UC06 — Planejamento Interativo e Execução Direta (/plan e /build)
+
+| Elemento | Descrição |
+|----------|-----------|
+| **Ator Primário** | Operador |
+| **Pré-condições** | Sessão ativa criada (RF18); projeto cadastrado (RF01) |
+| **Fluxo Principal** | 1. Operador envia `/plan` via terminal ou UI (RF31)<br>2. Sessão transiciona para estado `mode=plan`; comandos não geram efeitos em arquivos de código<br>3. Operador submete meta e requisitos arquiteturais; agente sintetiza DAG de tarefas com dependências e checks<br>4. Hydra valida DAG (aciclicidade, ownership) e gera visualização de plano<br>5. Operador revisa e aprova o plano com `/build`<br>6. Hydra converte o plano diretamente em `RunSpec` (RF03) e despacha tarefas via `RunService` (RF04/RF09)<br>7. Execução prossegue com acompanhamento de eventos normais |
+| **Fluxos Alternativos** | **A1:** Operador cancela modo de planejamento antes de `/build` → sessão restaura modo normal sem criar run<br>**A2:** Operador solicita ajustes no plano → novas iterações do DAG sem spawn de executores |
+| **Fluxos de Exceção** | **E1:** Tentativa do agente de modificar arquivos durante `/plan` → bloqueio imediato com `plan_violation`<br>**E2:** DAG gerado contém ciclos → recusa na submissão de `/build` com relatório de dependências inválidas |
+| **Pós-condições** | Plano formalizado e auditável; run disparado somente com autorização explícita; zero mutação espúria durante a fase de planejamento |
+
+---
+
+#### UC07 — Ingestão e Consulta a Contexto Empresarial (RAG Híbrido)
+
+| Elemento | Descrição |
+|----------|-----------|
+| **Ator Primário** | Operador |
+| **Pré-condições** | Módulo de RAG habilitado; coleção de conhecimento configurada (RF34) |
+| **Fluxo Principal** | 1. Operador submete pasta de documentos corporativos ou link de repositório para ingestão<br>2. Pipeline de ingestão sanitiza documentos via `Redactor` (expurga PII e tokens) e fragmenta em chunks semânticos<br>3. Gera embeddings vetoriais e indexa no SQLite dedicado (`.orchestrator/knowledge/`) com FTS5 para BM25<br>4. Tarefa de engenharia iniciada com consulta RAG habilitada no perfil<br>5. `KnowledgeRetriever` executa busca híbrida (cosseno vetorial + BM25) ponderada por RRF<br>6. Chunks mais relevantes são empacotados dentro do orçamento de tokens (`rag_token_budget`) e injetados no contexto da tarefa como dados delimitados e não confiáveis |
+| **Fluxos Alternativos** | **A1:** Consulta sem correspondência com limiar mínimo de relevância → contexto omitido sem falha da tarefa |
+| **Fluxos de Exceção** | **E1:** Documento com formato corrompido ou payload hostil ("ignore previous instructions") → ignorado ou isolado como dado opaco sem execução de instruções<br>**E2:** Tentativa de cruzar tenants/workspaces em consulta → bloqueio estrito com erro 403 |
+| **Pós-condições** | Base de conhecimento atualizada; contexto relevante enriquecido sem extrapolar janela de tokens; segredos corporativos protegidos |
+
+---
+
+#### UC08 — Automação de Desktop e Navegador com Governança HITL (Computer Use)
+
+| Elemento | Descrição |
+|----------|-----------|
+| **Ator Primário** | Operador |
+| **Pré-condições** | Perfil com capability de Computer Use ativa; permissão de SO configurada (RF37) |
+| **Fluxo Principal** | 1. Tarefa requer interação com interface gráfica externa ou validação em navegador real<br>2. Executor captura screenshot atual da tela e planeja ação (ex.: clique em botão, digitação em campo)<br>3. `ComputerUseGovernor` classifica a ação: ações de leitura (screenshot, mover mouse) prosseguem; ações de efeito (clique, digitação, navegação de URL) acionam interceptação<br>4. Emite evento SSE `task.needs_approval` com screenshot anotado com coordenadas e descrição da ação<br>5. Operador inspeciona a prévia na UI e aprova a ação específica<br>6. Driver executa o input no SO ou navegador Playwright, aguarda renderização e captura screenshot pós-ação para validação |
+| **Fluxos Alternativos** | **A1:** Operador rejeita a ação → executor recebe recusa e busca alternativa ou finaliza tarefa com evidência |
+| **Fluxos de Exceção** | **E1:** Janela alvo perde foco ou fecha inesperadamente → ação abortada com erro observável `window_lost`<br>**E2:** Tentativa de acessar domínio fora da allowlist de navegação → recusa automática sem envio ao operador |
+| **Pós-condições** | Ação executada com histórico visual completo; zero comando destrutivo sem consentimento; auditoria de screenshots arquivada em artefatos |
+
+---
+
+#### UC09 — Descoberta, Inspeção Dinâmica e Ativação de Ferramenta MCP
+
+| Elemento | Descrição |
+|----------|-----------|
+| **Ator Primário** | Operador |
+| **Pré-condições** | Servidor MCP declarado na configuração ou descoberto localmente (RF33) |
+| **Fluxo Principal** | 1. Operador solicita inspeção de servidor MCP via painel de MCPs<br>2. `McpClient` conecta via stdio/SSE, consulta `tools/list` e obtém schemas JSON de ferramentas e descrições<br>3. Exibe catálogo de ferramentas com status de aprovação individual<br>4. Operador ativa conjunto restrito de ferramentas necessárias para o projeto e vincula segredos (`SecretRef`)<br>5. Perfil de execução atualizado inclui apenas as ferramentas aprovadas<br>6. Em execução, o executor invoca ferramenta MCP; chamadas passam por validação de parâmetros e sanitização de logs |
+| **Fluxos Alternativos** | **A1:** Operador revoga ferramenta individual → chamadas subsequentes na sessão são bloqueadas imediatamente |
+| **Fluxos de Exceção** | **E1:** Servidor MCP altera schema de ferramenta ativa em runtime → transição automática para `untrusted` e bloqueio de chamadas |
+| **Pós-condições** | Ferramentas MCP catalogadas, inspecionadas e ativadas com princípio do menor privilégio; segredos injetados dinamicamente sem persistência em disco |
+
+---
+
+#### UC10 — Download, Quantização e Customização de LLM Local
+
+| Elemento | Descrição |
+|----------|-----------|
+| **Ator Primário** | Operador |
+| **Pré-condições** | Instância local (Ollama / llama.cpp / LM Studio) acessível; espaço em disco suficiente (RF38) |
+| **Fluxo Principal** | 1. Operador navega no catálogo de modelos locais da UI e busca modelo no Hugging Face / Ollama Library<br>2. Dispara download com verificação de integridade SHA-256 e monitoramento de progresso<br>3. Operador seleciona opção "Quantizar Modelo" e define formato alvo (ex.: GGUF Q4_K_M)<br>4. Pipeline executa subprocesso de quantização isolado com monitoramento de memória RAM/VRAM e disco<br>5. Construtor de Modelfile permite definir System Prompt, Stop Tokens e anexar adaptadores LoRA<br>6. Modelo personalizado registrado e disponibilizado imediatamente como provedor local no catálogo de perfis |
+| **Fluxos Alternativos** | **A1:** Modelo já presente em LM Studio ou Ollama → importação instantânea de metadados sem novo download |
+| **Fluxos de Exceção** | **E1:** Checksum SHA-256 divergente após download → descarte do arquivo e erro tipado<br>**E2:** Espaço em disco insuficiente durante quantização → término com limpeza de arquivos temporários e liberação de lock |
+| **Pós-condições** | Modelo local quantizado e testado disponível para execuções offline sem dependência de rede externa |
+
+---
+
+### 3.4 Regras de Negócio (RB01 a RB28)
 
 | ID | Regra | Descrição |
 |----|-------|-----------|
@@ -190,6 +275,14 @@ Fora do escopo (não endereçado no primeiro marco): multiusuário, publicação
 | **RB18** | Eventos SSE são sequenciais por run, com `Last-Event-ID` para replay; heartbeat impede timeout de proxy. | Ping a cada 15s; buffer ring para replay rápido; fallback para busca indexada no SQLite. |
 | **RB19** | SQLite em modo WAL com `busy_timeout=5000`; transações curtas; foreign keys habilitadas. | Concorrência control plane + webhooks sem deadlock; integridade referencial. |
 | **RB20** | Exportação e logs passam por redactor determinístico (regex + entropia) antes de exposição. | Tokens, chaves SSH, senhas, OAuth expurgados; nenhum segredo em artefatos/exportações. |
+| **RB21** | Dados de entrada externos (RAG, web, screenshots, MCPs) são tratados como dados não confiáveis e nunca como instruções executáveis. | Injeção com delimitadores rígidos; tentativas de prompt injection em documentos não alteram políticas de segurança. |
+| **RB22** | Ações de Computer Use que afetam o SO, navegação externa ou manipulação de janelas exigem aprovação explícita e única por ação (HITL). | Aprovações não são reutilizáveis entre janelas ou comandos; aprovação baseada no hash exato da ação. |
+| **RB23** | O canal de voz é estritamente conversacional e informativo; comandos destrutivos exigem confirmação visual e autenticada. | Áudio recebido não pode autorizar merge, publicação, deleção de arquivos ou aprovação de HITL. |
+| **RB24** | Isolamento estrito de bancos de dados: RAG e Memória possuem arquivos e schemas isolados da base de checkpoints técnicos. | Queda ou corrupção da base RAG não afeta execuções ativas ou integridade de commits/patches. |
+| **RB25** | Comandos de sessão (`/compact`, `/plan`, `/build`, `/effort`) são despachados apenas por superfícies autenticadas e com flags explícitas. | Mensagens comuns de chat contendo barras não acionam comandos operacionais silenciosamente. |
+| **RB26** | Artefatos gerados por motores multimodais (imagem, áudio, vídeo) exigem hash SHA-256 e persistência dos parâmetros de geração. | Proveniência garantida; custos de geração desconhecidos permanecem `unknown`. |
+| **RB27** | Conectores de Jira e Kanbanize operam como espelhos de eventos; o banco local do Hydra é a única autoridade da verdade. | Indisponibilidade de API externa nunca bloqueia ou invalida execução local verificável. |
+| **RB28** | Modelos e quantizações locais exigem verificação de integridade (SHA-256) e respeito a orçamentos de disco e memória. | Execução de quantização em processo isolado; falhas por falta de hardware geram erro tipado sem estado parcial. |
 
 ---
 
@@ -253,6 +346,22 @@ Para RF16–RF30, as tasks futuras devem cobrir autorização, proveniência, co
 **Memória e discovery (RF21, RF22):** Dada uma preferência do usuário, quando o Hydra solicita consentimento explícito e o usuário aprova, então a memória registra escopo, versão, origem, retenção e revogação. Um item descoberto fora da raiz autorizada, com hash conflitante ou sem capability conhecida, não é ativado.
 
 **Sessões e extensões (RF18, RF24):** Dada uma execução com threads, quando a conexão cai, o Hydra reconcilia eventos por cursor e deduplica sem declarar conclusão prematura. Uma extensão sem manifesto compatível, permissão ou confiança não inicia nem produz efeitos.
+
+**Comandos e esforço de raciocínio (RF31):** Dado operador no terminal, quando envia `/effort max`, o perfil ativo atualiza o parâmetro para provedores compatíveis (ex.: Anthropic Thinking); quando envia `/plan`, o sistema transiciona a sessão para planejamento sem mutação de arquivos; quando aprova com `/build`, o plano gera uma execução real verificável; quando envia `/compact`, o histórico é resumido preservando decisões ativas.
+
+**Multimodal (RF32):** Dado pedido de geração de imagem ou áudio, quando o job conclui, o binário é salvo em `.orchestrator/artifacts/` com hash SHA-256 e metadata tipada, acessível na UI via URL assinada segura; violações de moderação do provedor retornam erro tipado sem retentativa cega.
+
+**MCP Control Plane (RF33):** Dado servidor MCP configurado via stdio, quando o operador solicita inspeção, o sistema lista as ferramentas declaradas via `tools/list`; quando o operador desativa uma ferramenta específica, chamadas subsequentes a essa ferramenta são bloqueadas antes da execução; segredos são injetados exclusivamente via `SecretRef`.
+
+**RAG Corporativo (RF34):** Dada uma base de conhecimento da empresa com 50 PDFs e markdown, quando o operador faz ingestão, os documentos são redigidos de segredos, vetorizados e indexados no SQLite dedicado; em novas tarefas, o retriever injeta apenas os chunks mais relevantes respeitando o teto de tokens da tarefa, sem misturar com bases de checkpoints.
+
+**Integração com Jira/Kanbanize (RF35):** Dado card no Jira vinculado à tarefa, quando a execução inicia, o conector move o card para "In Progress"; quando os checks de teste passam e o resultado é aceito, o conector atualiza o card para "In Review" e anexa o link da branch e do PR, sem que falhas de rede do Jira interfiram na execução local.
+
+**Conversação por Voz (RF36):** Dado operador interagindo por voz via WebSocket, quando fala, o Whisper transcreve o áudio; quando o assistente responde em fala (TTS Kokoro), se o operador voltar a falar, a detecção de voz (VAD) interrompe imediatamente o áudio do assistente (barge-in); nenhuma ordem de voz pode autorizar ações destrutivas sem confirmação visual.
+
+**Computer Use e Automação (RF37):** Dado objetivo que requer validar uma aplicação web externa, quando o agente prepara clique em botão via Playwright, o Safety Governor intercepta, captura screenshot da tela, emite `task.needs_approval`; ao receber aprovação autenticada do operador, a ação é executada e um novo screenshot pós-ação é registrado para auditoria.
+
+**Hub e Foundry de LLMs Locais (RF38):** Dado operador buscando modelo local, a UI lista instâncias Ollama/LM Studio e permite baixar modelo do Hugging Face com validação de checksum SHA-256; a ferramenta de quantização converte o modelo para GGUF em subprocesso isolado, e o construtor de Modelfiles gera o manifesto personalizado pronto para execução.
 
 ---
 

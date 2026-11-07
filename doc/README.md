@@ -13,13 +13,13 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 
 | Prefixo | Diretório | Domínio Documental | Finalidade Principal | Status |
 |---------|-----------|-------------------|----------------------|--------|
-| `a_` | [`a_context/`](a_context/) | Contexto & Planejamento | Investigação Alethe, diagnóstico, plano mestre S00–S20 | ✅ Completo |
-| `b_` | [`b_spc/`](b_spc/) | Especificações & PRDs | PRD Funcional (RF01–30), PRD Técnico (RT01–30, RNF01–10), Contratos, Arquitetura, Taxonomia | ✅ Completo |
-| `c_` | [`c_activity/`](c_activity/) | Atividades & Processos | Casos de uso UC01–UC05 com Mermaid TB/LR, DBC-9, Meta-JSON | ✅ Completo |
+| `a_` | [`a_context/`](a_context/) | Contexto & Planejamento | Investigação Alethe, diagnóstico, plano mestre S00–S28 | ✅ Completo |
+| `b_` | [`b_spc/`](b_spc/) | Especificações & PRDs | PRD Funcional (RF01–38), PRD Técnico (RT01–38, RNF01–15), Contratos, Arquitetura, Taxonomia | ✅ Completo |
+| `c_` | [`c_activity/`](c_activity/) | Atividades & Processos | Casos de uso UC01–UC10 com Mermaid TB/LR, DBC-9, Meta-JSON | ✅ Completo |
 | `d_` | [`d_mer/`](d_mer/) | Dados & MER | Modelo Entidade-Relacionamento (núcleo + expansão), DDL SQLite, índices | ✅ Completo |
 | `e_` | [`e_class/`](e_class/) | Classes & Tipagem | Diagramas de classes (núcleo + control plane), interfaces, serviços | ✅ Completo |
 | `f_` | [`f_api/`](f_api/) | Interfaces & OpenAPI | OpenAPI 3.0 completo `/v1/control-plane/*` + `/v1/chat/completions` | ✅ Completo |
-| `g_` | [`g_code/`](g_code/) | Código & Arquitetura | Decomposição de pacotes, módulos internos, engines (placeholder) | 📋 Planejado |
+| `g_` | [`g_code/`](g_code/) | Código & Arquitetura | Stack tecnológica normativa (`stack.md`), decomposição de pacotes | ✅ Completo |
 | `h_` | [`h_test/`](h_test/) | Testes & Qualidade | Matriz RF/RT→Testes, estratégia hermética, cobertura, security/a11y | ✅ Completo |
 | `i_` | [`i_infra/`](i_infra/) | Infraestrutura & Deploy | SSH, OmniRoute, contêineres, sandboxing, certificação drivers | ✅ Completo |
 | `j_` | [`j_manual/`](j_manual/) | Manuais & Operação | Instalação, config, CLI, UI, runbooks, disaster recovery, auditoria, a11y | ✅ Completo |
@@ -31,8 +31,8 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 ### Especificações Normativas (`b_spc/`)
 | Arquivo | Versão | Escopo |
 |---------|--------|--------|
-| `prd_funcional.md` | `v01_01_0000` | RF01–RF30, UC01–UC05, RB01–RB20 |
-| `prd_tecnico.md` | `v01_02_0000` | RT01–RT30, RNF01–RNF10, T01–T28, S00–S20 |
+| `prd_funcional.md` | `v01_02_0000` | RF01–RF38, UC01–UC10, RB01–RB28 |
+| `prd_tecnico.md` | `v01_02_0000` | RT01–RT38, RNF01–RNF15, T01–T44, S00–S28 |
 | `contrato_execucao.md` | `v01_00_0000` | RunSpec, TaskSpec, TaskAttempt, TaskResult, RunEvent, HandoffCheckpoint |
 | `arquitetura_hydra_omniroute_ui.md` | `v01_00_0000` | Fronteiras: Hydra CP, OmniRoute, Executores, UI |
 | `taxonomia_file_system.md` | `v01_00_0000` | Singularidade, prefixos, runtime `.orchestrator/` |

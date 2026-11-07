@@ -5,7 +5,7 @@
 **Versão:** `v01_02_0000`
 **Status:** `PROPOSTO / EM DESENVOLVIMENTO`
 **Autoridade:** Arquitetura do hydra-orch, complementando `prd_funcional.md`, `contrato_execucao.md` e [`plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md).
-**Escopo:** Requisitos técnicos (RT01 a RT30), requisitos não-funcionais (RNF01 a RNF10), contratos de serviço, máquinas de estado, API REST, algoritmos centrais, critérios negativos e tasks T01 a T28.
+**Escopo:** Requisitos técnicos (RT01 a RT38), requisitos não-funcionais (RNF01 a RNF15), contratos de serviço, máquinas de estado, API REST, algoritmos centrais, critérios negativos e tasks T01 a T44.
 
 ---
 
@@ -64,6 +64,14 @@ A arquitetura proposta separa claramente os serviços de control plane (áreas, 
 | **RT28** | Resolução assistida de conflitos de merge: relatório 3-way, opções (reparo automático por agente, descarte, resolução manual), worktree preservada | Conflito → `conflicted` + relatório; opção reparo cria `TaskAttempt` `merge_repair` com orçamento próprio; merge só após checks |
 | **RT29** | Governança de orçamento: teto USD/tokens/tempo por run; alerta 80%, congelamento 100% com solicitação de extensão ao operador | `unknown` não vira zero nem bloqueia; aprovação estende orçamento; recusa → `budget_exhausted`; métricas com proveniência |
 | **RT30** | Empacotamento de entrega: criação automática de branch PR no remote (quando autorizado) com descrição estruturada (objetivo, commits, checks, diff, métricas, decisões) | Descrição padrão gerada; exportação redigida; autorização de publicação separada da execução; dossier auditável |
+| **RT31** | Comandos de sessão canônicos e controle de esforço: `/compact`, `/plan`, `/build` e parâmetro `reasoning_effort` via options | Dispatcher autenticado; `/plan` gera DAG e bloqueia mutações no filesystem; `/compact` resume histórico em snapshot enxuto; `reasoning_effort` repassado a adaptadores suportados |
+| **RT32** | Motor e adaptadores de geração multimodal (imagem, áudio, vídeo) com protocolo assíncrono e armazenamento por hash SHA-256 | Protocolo `MultimodalAdapter`; persistência em `.orchestrator/artifacts/` com SHA-256; metadados estruturados (prompt, seed, modelo, params); recusa de moderação tratada |
+| **RT33** | MCP Control Plane avançado: cliente stdio/SSE/HTTP, inspetor dinâmico `tools/list`, ativação seletiva de ferramentas e injeção de `SecretRef` | Ferramenta inativa recusada antes da chamada; alteração no schema transiciona para `untrusted`; segredos injetados por referência em runtime |
+| **RT34** | Base de conhecimento e motor RAG híbrido (cosseno vetorial + BM25 FTS5) com isolamento físico em base SQLite dedicada | Base `.orchestrator/knowledge/` isolada de checkpoints e memória; busca híbrida ponderada por RRF; injeção com limiar e teto de tokens rígido |
+| **RT35** | Conectores bidirecionais de issue trackers (Jira, Kanbanize, GitHub Issues/Projects, GitLab, Linear) com interface `TicketProvider` | Mapeamento de card em `RunSpec`; transição de status guiada por eventos de execução; falhas de rede externas não invalidam execução local |
+| **RT36** | Processamento de áudio e sessão de voz duplex via WebSocket com STT Whisper, TTS Kokoro/ElevenLabs e cancelamento por barge-in | Streaming de chunks PCM/Opus; VAD interrompe fala do assistente ao detectar voz do operador; latência TTFT < 500ms; comandos destrutivos exigem confirmação visual |
+| **RT37** | Automação de desktop OS e navegador Playwright/CDP com captura de screenshots e Safety Governor com gate HITL obrigatório | Captura periódica de screenshots; ações destrutivas (cliques, inputs, navegação externa) exigem autorização HITL explícita com hash único da ação |
+| **RT38** | Hub e Foundry de LLMs locais: catálogo unificado, busca Hugging Face/Ollama, subprocesso de quantização GGUF via llama.cpp e construtor de Modelfiles | Listagem de instâncias e modelos com VRAM/RAM; download com verificação de integridade; quantização isolada com semáforo de concorrência 1; Modelfile versionado |
 
 ---
 
@@ -84,7 +92,7 @@ A arquitetura proposta separa claramente os serviços de control plane (áreas, 
 - `core/workspace_registry.py` — hierarquia Area/Workspace/Project/Repository + Authorization
 - `core/agent_registry.py` — catálogo AgentDefinition, CapabilityDeclaration, certificação driver/SO
 - `core/profile_service.py` — Profile, ProfileResolver (validação pré-exec), ProfileSnapshot (hash imutável)
-- `core/session_service.py` — Session, Thread, eventos monotônicos, SSE replay/dedup
+- `core/session_service.py` — Session, Thread, eventos monotônicos, SSE replay/dedup, comandos `/compact`, `/plan`, `/build`
 - `core/metrics.py` — MetricSample (observed/stale/unknown), agregações parciais
 - `core/route_selector.py` — RouteSelector (DirectSelector, OmniRouteSelector), RouteDecision auditável
 - `core/memory_store.py` — MemoryEntry (consentido, escopado, versionado, revogável)
@@ -96,8 +104,21 @@ A arquitetura proposta separa claramente os serviços de control plane (áreas, 
 - `core/budget.py` — BudgetGovernor (tetos, alertas, congelamento, extensão)
 - `core/conflict_resolver.py` — ConflictResolver (relatório 3-way, merge_repair, opções)
 - `core/packaging.py` — PRPackager (branch PR, descrição estruturada, exportação)
+- `core/mcp_service.py` — Gestão de servidores MCP, live tools inspector, autorizações
+- `core/computer_use_governor.py` — Safety Governor para ações de desktop/browser e gate HITL
+- `core/voice_session.py` — Gerenciador de sessão de voz duplex (WebSocket e VAD)
+- `core/knowledge/` — Módulo RAG isolado:
+  - `store.py` — Armazenamento SQLite com vetores e FTS5
+  - `ingest.py` — Ingestão e sanitização de PDF, MD, Code
+  - `retriever.py` — Busca híbrida (cosseno + BM25) e injeção de contexto
+- `engine/multimodal.py` — Orquestrador de jobs assíncronos de mídia
+- `bridge/connector/` — Conectores de tarefas (`base.py`, `jira.py`, `kanbanize.py`, `github.py`)
+- `bridge/voice/` — Drivers de áudio (`stt.py` Whisper, `tts.py` Kokoro/ElevenLabs)
+- `bridge/computer_use/` — Drivers de SO (`desktop.py`, `browser.py` Playwright)
+- `bridge/local_llm/` — Hub local (`catalog.py`, `quantize.py`, `modelfile.py`)
 - `bridge/transport_registry.py` — TransportDefinition, TransportHealth, certificação
 - `bridge/omniroute_client.py` — cliente OmniRoute (quota, fallback, circuit breaker)
+- `adapter/multimodal.py` — Adaptadores de geração (FLUX, SD, MusicGen, Sora)
 
 **Migração:** Migrar consumidores antes de remover `core/swarm.py` (legado), `core/ssh_tunnel.py` (duplicado), `engine/checkpointer.py` (duplicado). Preservar imports temporariamente com wrappers e teste de compatibilidade. Não ligar engine atual diretamente à API sem corrigir gates.
 
@@ -210,13 +231,13 @@ ConflictReport:
 **SQLite:** Foreign keys habilitadas (`PRAGMA foreign_keys=ON`); modo WAL obrigatório (`PRAGMA journal_mode=WAL`); `PRAGMA busy_timeout = 5000` para concorrência control plane + webhooks; migração versionada; transações curtas; concorrência otimista via coluna `revision` (inteiro). Artefatos no filesystem: gravar arquivo temporário, `fsync`, rename atômico, só então registrar referência. Após crash, reconciliar órfãos (arquivos sem ref / refs sem arquivo) sem apagar automaticamente.
 
 **Novas tabelas da expansão** (migrações versionadas independentes):
-`areas`, `workspaces`, `projects`, `repositories`, `authorizations`, `agent_definitions`, `capability_declarations`, `profiles`, `profile_snapshots`, `sessions`, `threads`, `metric_samples`, `route_decisions`, `memory_entries`, `consent_records`, `discovered_resources`, `skill_definitions`, `mcp_definitions`, `secret_refs`, `extension_manifests`, `extension_installs`, `preferences`, `preference_snapshots`, `transport_definitions`, `transport_health`, `access_tokens`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`.
+`areas`, `workspaces`, `projects`, `repositories`, `authorizations`, `agent_definitions`, `capability_declarations`, `profiles`, `profile_snapshots`, `sessions`, `threads`, `metric_samples`, `route_decisions`, `memory_entries`, `consent_records`, `discovered_resources`, `skill_definitions`, `mcp_definitions`, `secret_refs`, `extension_manifests`, `extension_installs`, `preferences`, `preference_snapshots`, `transport_definitions`, `transport_health`, `access_tokens`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`, `media_jobs`, `knowledge_collections`, `knowledge_documents`, `knowledge_chunks`, `mcp_servers`, `mcp_tools`, `ticket_links`, `voice_sessions`, `computer_use_actions`, `local_models`, `quantize_jobs`.
 
-Tabela `checkpoints` restrita à recuperação técnica de execuções; `memory_entries` tem ciclo de vida, expiração e auditoria próprias.
+Tabela `checkpoints` restrita à recuperação técnica de execuções; `memory_entries` tem ciclo de vida, expiração e auditoria próprias; `knowledge_*` mantida em base SQLite isolada (`.orchestrator/knowledge/knowledge.db`).
 
 **Estados de Run:** `queued -> running -> waiting/reviewing -> running/succeeded/failed/cancelled`; cancelamento também parte de `queued/running`. `waiting` exige causa (`rate_limit_window`, `hitl`, `budget_frozen`) e limite (`window_reset_at`, `hitl_deadline`). Task usa estados do contrato + `cancelled`. Nova tentativa pode devolver `failed/blocked/rejected` a `running` por comando registrado; resultado anterior imutável. Acceptance e integração são decisões distintas. Run só sucede com todas as tarefas obrigatórias `accepted` e, quando solicitada, integração aprovada.
 
-**Persistência:** `.orchestrator/checkpoints.sqlite`; artefatos em `.orchestrator/run/<run_id>/task/<task_id>/attempt/<attempt_id>/`; worktrees em `.orchestrator/worktree/`; expansão: `.orchestrator/memory/`, `.orchestrator/discovery/`, `.orchestrator/extensions/`. IDs gerados pelo serviço (UUIDv7), nunca caminhos do cliente. Migração `.hydra/` → `.orchestrator/` explícita, com backup e preservação dos schemas legados.
+**Persistência:** `.orchestrator/checkpoints.sqlite`; artefatos em `.orchestrator/run/<run_id>/task/<task_id>/attempt/<attempt_id>/`; worktrees em `.orchestrator/worktree/`; expansão: `.orchestrator/memory/`, `.orchestrator/discovery/`, `.orchestrator/extensions/`, `.orchestrator/knowledge/`, `.orchestrator/media/`, `.orchestrator/models/`. IDs gerados pelo serviço (UUIDv7), nunca caminhos do cliente. Migração `.hydra/` → `.orchestrator/` explícita, com backup e preservação dos schemas legados.
 
 ---
 
@@ -836,8 +857,24 @@ Paths Python relativos a `src/hydra_orch/`, exceto `tests/`, config, docs. T01�
 | **T26** HITL (Humano-no-Loop) | T07, T14 | RF27 / RT27 | `core/hitl.py`, `core/run_service.py`, `tests/test_hitl.py` | Pausa needs_context/needs_approval; timeout; retomada com resposta; evidência |
 | **T27** Resolução conflitos merge | T06, T08 | RF28 / RT28 | `core/conflict_resolver.py`, `core/git_workspace.py`, `tests/test_conflict.py` | Relatório 3-way; merge_repair com orçamento; opções manual/discard |
 | **T28** Budgeting e PR Packaging | T07, T15 | RF29, RF30 / RT29, RT30 | `core/budget.py`, `core/packaging.py`, `tests/test_budget_packaging.py` | Tetos USD/tokens/tempo; alerta 80%/congelamento 100%; PR package auto |
+| **T29** Comandos sessão e esforço | T14 | RF31 / RT31 | `core/session_service.py`, `model.py`, `cli.py`, `tests/test_session_commands.py` | Dispatcher para `/compact`, `/plan`, `/build`; parâmetro `reasoning_effort` repassado |
+| **T30** Motor e adaptador multimodal | T04, T10 | RF32 / RT32 | `adapter/multimodal.py`, `engine/multimodal.py`, `tests/test_multimodal.py` | Protocolo `MultimodalAdapter`; persistência com SHA-256; metadados de geração |
+| **T31** MCP Control Plane e Inspetor | T19 | RF33 / RT33 | `bridge/mcp_client.py`, `core/mcp_service.py`, `tests/test_mcp_control.py` | Cliente stdio/SSE/HTTP; inspeção dinâmica `tools/list`; ativação seletiva; SecretRef |
+| **T32** Ingestão RAG de documentos | T09, T10 | RF34 / RT34 | `core/knowledge/ingest.py`, `tests/test_rag_ingest.py` | Extratores PDF, MD, Code; sanitização com Redactor; chunks semânticos |
+| **T33** Armazenamento RAG híbrido | T32 | RF34 / RT34 | `core/knowledge/store.py`, `tests/test_rag_store.py` | Base isolada `.orchestrator/knowledge/`; embeddings + FTS5 BM25 |
+| **T34** Retriever e injeção RAG | T33, T14 | RF34 / RT34 | `core/knowledge/retriever.py`, `tests/test_rag_retriever.py` | Busca híbrida cosseno+BM25; RRF; injeção com limiar e teto de tokens |
+| **T35** Conector GitHub/GitLab | T07, T28 | RF35 / RT35 | `bridge/connector/base.py`, `github.py`, `tests/test_github_connector.py` | Contrato `TicketProvider`; conversão card→RunSpec; atualização de status |
+| **T36** Conectores Jira e Kanbanize | T35 | RF35 / RT35 | `bridge/connector/jira.py`, `kanbanize.py`, `tests/test_jira_kanbanize.py` | REST API Jira e Kanbanize; mapeamento de colunas/transições de cards |
+| **T37** Drivers de áudio STT/TTS | T04 | RF36 / RT36 | `bridge/voice/stt.py`, `tts.py`, `tests/test_voice_drivers.py` | STT Whisper e TTS Kokoro/ElevenLabs; áudio em chunks PCM/Opus |
+| **T38** Sessão de voz duplex WebSocket | T37, T14 | RF36 / RT36 | `core/voice_session.py`, `server.py`, `tests/test_voice_session.py` | WebSocket streaming; VAD para barge-in; TTFT < 500ms; bloqueio de aprovações destrutivas |
+| **T39** Automação browser Playwright | T04, T22 | RF37 / RT37 | `bridge/computer_use/browser.py`, `tests/test_browser_automation.py` | Sessão Playwright isolada por workspace; navegação persistente e cookies |
+| **T40** Automação desktop OS | T04 | RF37 / RT37 | `bridge/computer_use/desktop.py`, `tests/test_desktop_automation.py` | Captura de screenshots periódicos; envio de teclas e coordenadas de mouse |
+| **T41** Safety Governor Computer Use | T26, T39, T40 | RF37 / RT37 | `core/computer_use_governor.py`, `tests/test_computer_use_governor.py` | Interceptação de ações de efeito; emissão de HITL `needs_approval`; logs com screenshots |
+| **T42** Catálogo e busca LLMs locais | T10 | RF38 / RT38 | `bridge/local_llm/catalog.py`, `tests/test_local_catalog.py` | Consulta Ollama, LM Studio, vLLM; busca no Hugging Face com verificação SHA-256 |
+| **T43** Pipeline quantização GGUF | T42, T04 | RF38 / RT38 | `bridge/local_llm/quantize.py`, `tests/test_quantize.py` | Wrapper llama.cpp (`quantize`) com limites de RAM e concorrência 1 |
+| **T44** Customização Modelfile | T42 | RF38 / RT38 | `bridge/local_llm/modelfile.py`, `tests/test_modelfile.py` | Construtor de Modelfiles; templates de system prompts; montagem de LoRA |
 
-### 8.3 Faseamento e etapas propostas (S00 a S20)
+### 8.3 Faseamento e etapas propostas (S00 a S28)
 
 ```text
 V0 (Núcleo verificável):      S00 -> S01 -> S02 -> S03 -> S04 -> S05 -> M1 (T01-T08)
@@ -852,6 +889,10 @@ V4 (Memória, Discovery, Extensões, Conflitos, Budget, PR):
                               -> S18 (acessibilidade_transportes.md: T21, T22)
                               -> S19 (budget_packaging.md: T28)
                               -> S20 (cli_ci_manual.md: T23, T24)
+V5 (Multimodal & Interação):  S21 (session_commands: T29) -> S22 (multimodal_engine: T30)
+                              -> S26 (voice_duplex: T37, T38) -> S27 (computer_use: T39, T40, T41)
+V6 (Knowledge, Hub & Foundry): S23 (mcp_control: T31) -> S24 (rag_knowledge: T32, T33, T34)
+                              -> S25 (issue_trackers: T35, T36) -> S28 (local_foundry: T42, T43, T44)
 ```
 
 Nenhuma etapa da expansão pode anteceder a conclusão do marco M1 de execução verificável local.
@@ -878,6 +919,14 @@ Nenhuma etapa da expansão pode anteceder a conclusão do marco M1 de execução
 | RF28 | RT28 | T27 | S05/S17 | Conflito 3-way + merge_repair + opções | Worktree preservada; não toca branch user |
 | RF29 | RT29 | T28 | S19 | Budget 80% alert / 100% freeze / extend | Recusa → budget_exhausted |
 | RF30 | RT30 | T28 | S19/S13 | PR package auto com descrição completa | Sem autorização → não publica |
+| RF31 | RT31 | T29 | S21 | Comandos `/compact`, `/plan`, `/build` e `reasoning_effort` | Mutação em `/plan` gera violação; texto não vira comando |
+| RF32 | RT32 | T30 | S22 | Binário multimodal persistido com hash SHA-256 e params | Recusa moderação tratada; custo unknown |
+| RF33 | RT33 | T31 | S23 | Inspeciona `tools/list`; desativa ferramenta; injeta SecretRef | Schema alterado → untrusted; segredo mascarado |
+| RF34 | RT34 | T32–T34 | S24 | Ingestão e busca híbrida cosseno+BM25 em base isolada | Tenant cruzado recusado 403; injeção respeita budget |
+| RF35 | RT35 | T35, T36 | S25 | Conectores Jira/Kanbanize/GitHub atualizam status | Queda API externa não bloqueia execução local |
+| RF36 | RT36 | T37, T38 | S26 | WebSocket streaming de voz duplex com VAD e barge-in | Comando destrutivo por voz recusado sem confirmação |
+| RF37 | RT37 | T39–T41 | S27 | Automação desktop/browser com Safety Governor e HITL | Ação de efeito sem aprovação gera bloqueio |
+| RF38 | RT38 | T42–T44 | S28 | Hub LLM local, download com SHA-256, quantização GGUF | Quantização sem hardware gera erro tipado |
 | Transversal | RT25 | T09 | S16 | Auth local + CORS estrita + redaction | CORS wildcard + creds → 403 |
 
 ---
@@ -886,11 +935,11 @@ Nenhuma etapa da expansão pode anteceder a conclusão do marco M1 de execução
 
 A formalização completa da arquitetura da expansão exigirá o alinhamento dos seguintes documentos em etapas documentais dedicadas, antes da codificação das tarefas correspondentes:
 
-- `doc/b_spc/contrato_execucao.md`: formalização dos schemas JSON de `ProfileSnapshot`, `Session`, `Thread`, `ConsentRecord`, `MemoryEntry`, `HandoffCheckpoint`, `BudgetPolicy`, `ConflictReport`, `PRPackage` e eventos de control plane.
-- `doc/b_spc/arquitetura_hydra_omniroute_ui.md`: atualização dos diagramas de blocos para incluir `AgentRegistry`, `DiscoveryService`, `ExtensionHost`, `BudgetGovernor`, `ConflictResolver`, `PRPackager`.
-- `doc/d_mer/mer.md` e `mer.mmd`: modelagem relacional formal das tabelas de expansão (`areas`, `workspaces`, `repositories`, `profiles`, `sessions`, `memories`, `metric_samples`, `route_decisions`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`, etc.).
-- `doc/e_class/diagrama_classe.md` e `diagrama_classe.mmd`: diagramas de classe para interfaces e serviços de control plane (incluindo `BudgetGovernor`, `ConflictResolver`, `PRPackager`, `HitlManager`).
-- `doc/b_spc/README.md`: sincronização dos contadores normativos para `RF01–RF30`, `RT01–RT30`, `RNF01–RNF10` e `T01–T28`.
+- `doc/b_spc/contrato_execucao.md`: formalização dos schemas JSON de `ProfileSnapshot`, `Session`, `Thread`, `ConsentRecord`, `MemoryEntry`, `HandoffCheckpoint`, `BudgetPolicy`, `ConflictReport`, `PRPackage`, `MediaJob`, `KnowledgeDocument`, `ComputerUseAction`, `LocalModelSpec` e eventos de control plane.
+- `doc/b_spc/arquitetura_hydra_omniroute_ui.md`: atualização dos diagramas de blocos para incluir `AgentRegistry`, `DiscoveryService`, `ExtensionHost`, `BudgetGovernor`, `ConflictResolver`, `PRPackager`, `McpService`, `ComputerUseGovernor`, `KnowledgeRetriever`.
+- `doc/d_mer/mer.md` e `mer.mmd`: modelagem relacional formal das tabelas de expansão (`areas`, `workspaces`, `repositories`, `profiles`, `sessions`, `memories`, `metric_samples`, `route_decisions`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`, `media_jobs`, `knowledge_*`, `computer_use_actions`, `local_models`).
+- `doc/e_class/diagrama_classe.md` e `diagrama_classe.mmd`: diagramas de classe para interfaces e serviços de control plane (incluindo `BudgetGovernor`, `ConflictResolver`, `PRPackager`, `HitlManager`, `KnowledgeRetriever`, `ComputerUseGovernor`).
+- `doc/b_spc/README.md`: sincronização dos contadores normativos para `RF01–RF38`, `RT01–RT38`, `RNF01–RNF15` e `T01–T44`.
 - `doc/f_api/openapi.yaml`: especificação OpenAPI 3.0 completa para `/v1/control-plane/*` e `/v1/chat/completions`.
 - `doc/h_test/README.md`: matriz de rastreabilidade RF/RT → testes, estratégia hermética, critérios de cobertura, testes de segurança/a11y.
 - `doc/i_infra/README.md`: infraestrutura de sandboxing, gestão de processos multiplataforma, certificação de drivers.
@@ -898,7 +947,7 @@ A formalização completa da arquitetura da expansão exigirá o alinhamento dos
 
 ---
 
-## 9. Requisitos Não-Funcionais (RNF01 a RNF10)
+## 9. Requisitos Não-Funcionais (RNF01 a RNF15)
 
 | ID | Categoria | Requisito | Métrica / Critério de Aceite |
 |----|-----------|-----------|------------------------------|
@@ -912,6 +961,11 @@ A formalização completa da arquitetura da expansão exigirá o alinhamento dos
 | **RNF08** | Observabilidade | 100% de operações críticas (run, task, attempt, check, review, integrate, cancel) emitem evento SSE com payload redigido | Cobertura de eventos verificada em `tests/test_events_coverage.py` |
 | **RNF09** | Manutenibilidade | Cobertura de testes ≥ 80% em `core/`, `bridge/`, `engine/`; 100% em `model.py` (schemas) | `pytest --cov=src/hydra_orch --cov-fail-under=80` |
 | **RNF10** | Portabilidade | Zero dependências de runtime não-vendored; Python stdlib + dependências declaradas em `pyproject.toml` | `pip-audit` + `cyclonedx-bom` em CI; sem `sys.path` hacks |
+| **RNF11** | Latência de Voz Duplex | Latência fim-a-fim da conversação por áudio (detecção de fala, transcrição STT e início de stream TTS) < 500ms TTFT | Medido em `tests/test_voice_session.py`; benchmark de latência de buffer PCM |
+| **RNF12** | Sandbox e Segurança de Computer Use | 100% das ações de efeito no SO ou browser interceptadas por Safety Governor com token de aprovação assinado e expiração de 60s | Teste negativo garantindo recusa automática em ausência de assinatura válida |
+| **RNF13** | Integridade de Mídia Multimodal | Verificação de integridade criptográfica SHA-256 e validação de MIME type em 100% dos binários gerados antes da exposição na UI | Teste de corrupção simulada de byte em upload/geração gerando recusa de preview |
+| **RNF14** | Isolamento e Redação de Dados RAG | Zero vazamento de segredos, PII ou dados entre tenants distintos na base de conhecimento | Testes de isolamento multi-tenant garantindo zero vazamento de chunks entre coleções |
+| **RNF15** | Governança de Recursos de Quantização Local | Subprocessos de conversão/quantização de modelos limitados a 1 job concorrente e monitoramento contínuo de RAM | Teste de semáforo de quantização impedindo concorrência descontrolada |
 
 ---
 

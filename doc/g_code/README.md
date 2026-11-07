@@ -57,30 +57,42 @@ src/hydra_orch/
 │   ├── checkpointer.py     # SQLAlchemy + Alembic + WAL
 │   ├── git_workspace.py    # Git worktree wrapper
 │   ├── run_service.py      # Orquestração central
+│   ├── session_service.py  # Comandos /compact, /plan, /build
 │   ├── scheduler.py        # DAG (Kahn) + semaphore
 │   ├── auth.py             # JWT + RBAC
 │   ├── redaction.py        # Redactor centralizado
 │   ├── budget.py           # BudgetGovernor
 │   ├── conflict_resolver.py
 │   ├── packaging.py        # PRPackager
-│   └── hitl.py             # Human-in-the-Loop manager
+│   ├── hitl.py             # Human-in-the-Loop manager
+│   ├── mcp_service.py      # Gestão de servidores MCP e live tools
+│   ├── computer_use_governor.py # Safety Governor para desktop/browser
+│   ├── voice_session.py    # Gerenciador de voz duplex WebSocket
+│   └── knowledge/          # Módulo RAG isolado (store, ingest, retriever)
 │
 ├── engine/             # Estratégias de execução
 │   ├── swarm.py            # SwarmEngine (paralelo + DAG)
 │   ├── relay.py            # RelayEngine + HandoffCheckpoint
 │   ├── persist.py          # PersistEngine + timer
-│   └── healer.py           # HealerEngine + tree-sitter
+│   ├── healer.py           # HealerEngine + tree-sitter
+│   └── multimodal.py       # Orquestrador de jobs multimídia (imagem/áudio/vídeo)
 │
 ├── bridge/             # Transporte, subprocess, SSH
 │   ├── worker_runner.py    # AgentExecutor interface + drivers
 │   ├── process.py          # ProcessManager (tree kill, sandbox)
 │   ├── ssh_tunnel.py       # SSH tunnel manager
+│   ├── mcp_client.py       # Cliente MCP stdio/SSE/HTTP
+│   ├── connector/          # Conectores de tarefas (Jira, Kanbanize, GitHub)
+│   ├── voice/              # Drivers STT Whisper e TTS Kokoro
+│   ├── computer_use/       # Drivers de desktop OS e browser Playwright
+│   ├── local_llm/          # Catálogo Ollama/LM Studio e quantização GGUF
 │   ├── omniroute_client.py
 │   └── transport_registry.py
 │
 └── adapter/            # Provedores de inferência
     ├── base.py             # InferenceProvider interface
-    └── providers/          # Implementações por provedor
+    ├── remote_local.py     # Provedores locais (Ollama, vLLM)
+    └── multimodal.py       # Adaptadores de geração multimídia
 ```
 
 ## Responsabilidades por Camada
