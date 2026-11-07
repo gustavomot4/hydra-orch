@@ -27,6 +27,8 @@ Para implementação e testes, seguir a sequência:
 10. [`../i_infra/README.md`](../i_infra/README.md) — Infraestrutura: SSH, OmniRoute, contêineres, sandboxing, certificação drivers
 11. [`../j_manual/README.md`](../j_manual/README.md) — Manuais operacionais: instalação, configuração, CLI, UI, runbooks, recuperação, auditoria, acessibilidade
 12. [`../a_context/plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md) — Plano mestre de entregas, fases S00–S28, gates, marcos M1–M4, V5–V6
+13. [`../a_context/roadmap.md`](../a_context/roadmap.md) — Roadmap estratégico com horizontes V0–V6, marcos M1–M4 e matriz de riscos
+14. [`../a_context/backlog.md`](../a_context/backlog.md) — Backlog operacional com as 44 tasks normativas (T01–T44), 309 SP e 16 ondas de execução
 
 ## Catálogo de Especificações
 

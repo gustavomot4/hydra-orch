@@ -909,7 +909,7 @@ Cobrir: disco cheio, lock do banco, subprocesso órfão, arquivo fora do escopo,
 
 ## 8. Tasks iniciais rastreáveis
 
-Todas pendentes. Cada linha é uma unidade de implementação com testes no mesmo commit; não autoriza execução de provedores pagos. Specs S01–S13 detalham posteriormente cada módulo.
+Todas pendentes. Cada linha é uma unidade de implementação com testes no mesmo commit; não autoriza execução de provedores pagos. Para o acompanhamento operacional por ondas de execução, estimativas em Story Points e políticas de agentes, consulte [`../a_context/backlog.md`](../a_context/backlog.md) e o planejamento estratégico em [`../a_context/roadmap.md`](../a_context/roadmap.md). Specs S01–S13 detalham posteriormente cada módulo.
 
 ### 8.1 Núcleo (T01 a T08)
 

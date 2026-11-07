@@ -1,6 +1,6 @@
 # Documentação Técnica do hydra-orch
 
-**Versão:** `v01_01_0000`
+**Versão:** `v01_02_0000`
 **Status:** `PROPOSTO / EM DESENVOLVIMENTO`
 
 Esta pasta reúne a documentação canônica do projeto **hydra-orch**, estruturada rigorosamente conforme as diretrizes de taxonomia oficial da equipe (`doc/a_context/taxonomia_file_system.md`), ordenação sequencial por prefixos cognitivos (`a_...`, `b_...`) e regra da singularidade absoluta.
@@ -13,7 +13,7 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 
 | Prefixo | Diretório | Domínio Documental | Finalidade Principal | Status |
 |---------|-----------|-------------------|----------------------|--------|
-| `a_` | [`a_context/`](a_context/) | Contexto & Planejamento | Investigação Alethe, diagnóstico, plano mestre S00–S28, taxonomia e visão | ✅ Completo |
+| `a_` | [`a_context/`](a_context/) | Contexto & Planejamento | Investigação Alethe, diagnóstico, plano mestre S00–S28, roadmap estratégico, backlog de tasks, taxonomia e visão | ✅ Completo |
 | `b_` | [`b_spc/`](b_spc/) | Especificações & PRDs | PRD Funcional (RF01–38) e PRD Técnico (RT01–38, RNF01–15, Contratos, DDL) | ✅ Completo |
 | `c_` | [`c_activity/`](c_activity/) | Atividades & Processos | Casos de uso UC01–UC10 com Mermaid TB/LR, DBC-9, Meta-JSON | ✅ Completo |
 | `d_` | [`d_mer/`](d_mer/) | Dados & MER | Modelo Entidade-Relacionamento (núcleo + expansão), DDL SQLite, índices | ✅ Completo |
@@ -27,6 +27,16 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 ---
 
 ## Resumo dos Artefatos Principais
+
+### Contexto e Planejamento (`a_context/`)
+| Arquivo | Versão | Escopo |
+|---------|--------|--------|
+| [`roadmap.md`](a_context/roadmap.md) | `v01_00_0000` | Horizontes V0–V6, marcos M1–M4, subgates M4a/b/c, critérios DoR/DoD de marco e matriz de riscos |
+| [`backlog.md`](a_context/backlog.md) | `v01_00_0000` | Catálogo unificado das 44 tasks (T01–T44), 309 SP (Fibonacci), 16 ondas e matriz anti-colisão |
+| [`plano_desenvolvimento.md`](a_context/plano_desenvolvimento.md) | `v01_00_0000` | Diagnóstico de código, catálogo de gaps A01–A18 e sequência de specs S00–S28 |
+| [`taxonomia_file_system.md`](a_context/taxonomia_file_system.md) | `v01_00_0000` | Norma arquitetural de singularidade estrita, prefixos e isolamento `.orchestrator/` |
+| [`visao_produto.md`](a_context/visao_produto.md) | `v01_00_0000` | Visão estratégica original do produto (V5.0), modos Swarm/Relay/Persistente |
+| [`CONTEXTO-ORQUESTRACAO.md`](a_context/CONTEXTO-ORQUESTRACAO.md) | `v01_00_0000` | Registro histórico de investigação do Alethe e arquitetura de comunicação entre agentes |
 
 ### Especificações Normativas (`b_spc/`)
 | Arquivo | Versão | Escopo |
@@ -69,14 +79,16 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 
 | Categoria | Range | Status |
 |-----------|-------|--------|
-| **RF** (Requisitos Funcionais) | RF01 – RF30 | Proposto |
-| **RT** (Requisitos Técnicos) | RT01 – RT30 | Proposto |
-| **RNF** (Requisitos Não-Funcionais) | RNF01 – RNF10 | Proposto |
-| **UC** (Casos de Uso) | UC01 – UC05 | Documentado |
-| **RB** (Regras de Negócio) | RB01 – RB20 | Definido |
-| **T** (Tasks de Implementação) | T01 – T28 | Proposto |
-| **S** (Etapas de Faseamento) | S00 – S20 | Planejado |
-| **M** (Marcos) | M1 – M4 | Planejado |
+| **RF** (Requisitos Funcionais) | RF01 – RF38 | Proposto |
+| **RT** (Requisitos Técnicos) | RT01 – RT38 | Proposto |
+| **RNF** (Requisitos Não-Funcionais) | RNF01 – RNF15 | Proposto |
+| **UC** (Casos de Uso) | UC01 – UC10 | Documentado |
+| **RB** (Regras de Negócio) | RB01 – RB28 | Definido |
+| **T** (Tasks de Implementação) | T01 – T44 | Proposto |
+| **S** (Etapas de Faseamento) | S00 – S28 | Planejado |
+| **M** (Marcos / Slices) | M1 – M4 (V0 a V6) | Planejado |
+| **SP** (Story Points Totais) | 309 SP (Fibonacci) | Estimado |
+| **O** (Ondas de Execução) | Onda 1 a Onda 16 | Estruturado |
 
 ---
 
@@ -86,12 +98,16 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 V0 (Núcleo Verificável):      S00 → S01 → S02 → S03 → S04 → S05 → M1 (T01–T08)
 V1 (Control Plane + HITL):    M1  → S10 (API) → S11 (UI) → T09, T26
 V2 (Workspaces e Perfis):     S14 (T10, T11, T12, T13)
-V3 (Coordenação, Rotas, Modos): S06 → S07 → S08 → S15 (T14, T15, T16, T25)
+V3 (Coordenação, Rotas, Swarm): S06 → S07 → S08 → S15 (T14, T15, T16, T25)
 Gate Segurança V4:            S16 (auth, secrets, consent, allowlists)
 V4 (Memória, Discovery, Ext):  S16 → S17 (T17, T18, T19, T20, T27)
                               → S18 (T21, T22)
                               → S19 (T28: budget + packaging)
                               → S20 (T23, T24: CLI, CI, manuals)
+V5 (Multimodal & Interação):  S21 (session commands: T29) → S22 (multimodal: T30)
+                              → S26 (voice duplex: T37, T38) → S27 (computer use: T39, T40, T41)
+V6 (Knowledge, Hub & Foundry): S23 (mcp control: T31) → S24 (rag knowledge: T32, T33, T34)
+                              → S25 (issue trackers: T35, T36) → S28 (local foundry: T42, T43, T44)
 ```
 
 **Regra:** Nenhuma etapa da expansão antecede conclusão do marco M1 (execução verificável local).
@@ -144,14 +160,17 @@ RF → UC → RT → RNF → Task (T##) → Etapa (S##) → Evidência (Teste) �
 
 ## Próximos Passos para Implementação
 
-1. **Validar specs** — Revisar `prd_funcional.md` e `prd_tecnico.md` (com contratos incorporados em §3.4)
-2. **Alinhar `model.py`** — Implementar schemas Pydantic para todas as entidades (RF01–RF38)
-3. **Criar `config.yaml`** — Baseado na especificação em `j_manual/README.md` §2.2
-4. **Iniciar T01** — Config canônica (`config.py`, `config.yaml`, testes)
-5. **Seguir faseamento** — T01→T08 para M1; expansão conforme gates
+1. **Consultar o Backlog Operacional** — Ler [`a_context/backlog.md`](a_context/backlog.md) para critérios DoR/DoD de cada task e matriz anti-colisão.
+2. **Iniciar pela Onda 1 (Fundações V0)**:
+   - **T01:** Config canônica tipada (`config.py`, `config.yaml`, testes).
+   - **T02:** Contratos canônicos e máquinas de estado (`model.py`, testes).
+   - **T03:** Store relacional transacional SQLite WAL e migração (`core/checkpointer.py`, testes).
+3. **Seguir o Faseamento por Ondas** — Avançar de O1 a O16 conforme os gates de saída definidos em [`a_context/roadmap.md`](a_context/roadmap.md).
 
 ---
 
+**Roadmap Estratégico:** [`a_context/roadmap.md`](a_context/roadmap.md)<br>
+**Backlog Operacional:** [`a_context/backlog.md`](a_context/backlog.md)<br>
 **Norma de Taxonomia:** [`a_context/taxonomia_file_system.md`](a_context/taxonomia_file_system.md)<br>
 **Plano Mestre:** [`a_context/plano_desenvolvimento.md`](a_context/plano_desenvolvimento.md)<br>
 **Contexto Histórico:** [`a_context/CONTEXTO-ORQUESTRACAO.md`](a_context/CONTEXTO-ORQUESTRACAO.md)
