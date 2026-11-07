@@ -1,4 +1,4 @@
-# SAE — hydra-orch — UC01: Submissão e Revisão de Tarefa Simples
+# hydra-orch — UC01: Submissão e Revisão de Tarefa Simples
 
 **Versão:** v01_01_0000
 **Data:** 2026-11-06

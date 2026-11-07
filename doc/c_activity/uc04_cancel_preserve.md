@@ -1,4 +1,4 @@
-# SAE — hydra-orch — UC04: Cancelamento Forçado com Preservação de Trabalho Parcial
+# hydra-orch — UC04: Cancelamento Forçado com Preservação de Trabalho Parcial
 
 **Versão:** v01_01_0000
 **Data:** 2026-11-06

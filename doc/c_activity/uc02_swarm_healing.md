@@ -1,4 +1,4 @@
-# SAE — hydra-orch — UC02: Execução em Swarm com Auto-Healing
+# hydra-orch — UC02: Execução em Swarm com Auto-Healing
 
 **Versão:** v01_01_0000
 **Data:** 2026-11-06

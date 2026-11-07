@@ -1,4 +1,4 @@
-# SAE — hydra-orch — UC03: Interrupção por Rate Limit e Continuidade (Relay / Persistente)
+# hydra-orch — UC03: Interrupção por Rate Limit e Continuidade (Relay / Persistente)
 
 **Versão:** v01_01_0000
 **Data:** 2026-11-06

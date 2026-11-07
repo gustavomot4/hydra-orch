@@ -1,4 +1,4 @@
-# SAE — hydra-orch — UC05: Descoberta e Ativação Controlada de Ferramenta Local (MCP / Skill)
+# hydra-orch — UC05: Descoberta e Ativação Controlada de Ferramenta Local (MCP / Skill)
 
 **Versão:** v01_01_0000
 **Data:** 2026-11-06
