@@ -964,299 +964,60 @@
     <!-- SEÇÃO 3: MOCKUPS DAS TRÊS IDEIAS LADO A LADO -->
     <h2 class="section-title">3. Mockups das Três Ideias (Comparação Visual Direta)</h2>
     <p style="font-size:14px; color:var(--dir-muted); margin-bottom:24px;">
-      Os três mockups completos da tela principal do Hydra abaixo apresentam a mesma tarefa real (Run #142 com DAG de 3 workers e painel de aprovação HITL), expressos sob cada uma das três identidades para sua avaliação direta:
+      Os três mockups completos da tela principal do Hydra abaixo apresentam três composições, paradigmas e linguagens de design completamente distintas para a sua avaliação. Clique nos botões para abrir cada tela em janela inteira ou inspecione-as diretamente nos painéis embutidos:
     </p>
 
     <div class="mockups-trio">
 
-      <!-- MOCKUP 1: IDEIA A (STEEL SLATE PRECISION) -->
+      <!-- MOCKUP 1: IDEIA A -->
       <div class="mockup-item-box">
         <div class="mockup-item-header">
           <div class="mockup-item-title">
             <span class="direction-badge">Ideia A · Familiar</span>
-            <span>Steel Slate Precision (Telemetria Aeroespacial)</span>
+            <span>Steel Slate Precision (Estúdio IDE com Split Diff & Timeline)</span>
           </div>
-          <span style="font-size:12px; font-family:'JetBrains Mono', monospace; color:var(--dir-muted);">Azul Aço #184e77 · Fundo #f4f7fb · Instrument Sans</span>
+          <a href="direcao_a.html" target="_blank" class="btn-switch" style="text-decoration:none; display:flex; align-items:center; gap:6px;">
+            <span>↗ Abrir direcao_a.html em Tela Cheia</span>
+          </a>
         </div>
-
-        <div class="m-scope-a">
-          <!-- Topbar A -->
-          <div class="m-topbar">
-            <div class="m-logo">
-              <svg width="22" height="22" viewBox="0 0 48 48" fill="none">
-                <path d="M24 4 L30 14 L24 40 L18 14 Z" fill="#184e77"/>
-                <path d="M12 12 L17 20 L15 36 L8 22 Z" fill="#2a6f97"/>
-                <path d="M36 12 L40 22 L33 36 L31 20 Z" fill="#2a6f97"/>
-                <circle cx="24" cy="40" r="3.5" fill="#184e77"/>
-              </svg>
-              <span>HYDRA</span>
-            </div>
-            <div style="font-family:'JetBrains Mono', monospace; font-size:11.5px; color:#606a74; display:flex; gap:16px;">
-              <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#007835; margin-right:5px;"></span>Modo: <strong>Swarm DAG</strong></span>
-              <span>Workspace: <strong>main (limpo)</strong></span>
-              <span>Tokens: <strong>42.8k / 200k</strong></span>
-              <span>Esforço: <strong>HIGH</strong></span>
-            </div>
-          </div>
-
-          <!-- Body A -->
-          <div class="m-content">
-            <!-- Run Card A -->
-            <div class="m-card">
-              <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-                <div>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11px; font-weight:700; color:#184e77;">RUN #142 · EM ANDAMENTO</span>
-                  <div style="font-size:17px; font-weight:700; color:#131c23; margin-top:2px;">refactor(core): migração de persistência para wal checkpoint</div>
-                </div>
-                <span class="m-badge-p">2/3 TAREFAS</span>
-              </div>
-
-              <!-- DAG List A -->
-              <div style="display:flex; flex-direction:column; gap:8px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1px solid #d8dfe6; border-radius:6px; padding:10px 14px;">
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <span style="background:#e1f5e4; color:#007835; font-size:11px; font-weight:700; padding:2px 6px; border-radius:4px;">✓</span>
-                    <span style="font-size:13px; font-weight:600; color:#131c23;">T01: AST Parser & Token Redactor</span>
-                  </div>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11px; color:#007835; font-weight:600;">18 testes pass (0.42s)</span>
-                </div>
-
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1px solid #184e77; border-radius:6px; padding:10px 14px;">
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <span style="background:#e2f1fe; color:#184e77; font-size:11px; font-weight:700; padding:2px 6px; border-radius:4px;">▶</span>
-                    <span style="font-size:13px; font-weight:600; color:#131c23;">T02: SQLAlchemy WAL Checkpointer</span>
-                  </div>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11px; color:#184e77; font-weight:600;">gravando índices (1.1s)</span>
-                </div>
-
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1px solid #d8dfe6; border-radius:6px; padding:10px 14px; opacity:0.8;">
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <span style="background:#fcecd9; color:#8a5601; font-size:11px; font-weight:700; padding:2px 6px; border-radius:4px;">⚡</span>
-                    <span style="font-size:13px; font-weight:600; color:#131c23;">T03: Healer Engine (Auto-Cura AST)</span>
-                  </div>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11px; color:#8a5601; font-weight:600;">aguardando barreira</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- HITL Diff Panel A -->
-            <div style="background:#f4f7fb; border:1px solid #d8dfe6; border-radius:6px; padding:16px; display:flex; flex-direction:column; gap:12px;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size:14px; font-weight:700; color:#131c23;">Aprovação de Segurança (HITL)</span>
-                <span style="font-family:'JetBrains Mono', monospace; font-size:11px; background:#fcecd9; color:#8a5601; padding:2px 6px; border-radius:4px; font-weight:600;">MUTATION DETECTED</span>
-              </div>
-              <div style="font-family:'JetBrains Mono', monospace; font-size:11px; background:#ffffff; border:1px solid #d8dfe6; border-radius:4px; padding:10px; line-height:1.5;">
-                <div style="color:#606a74;">--- a/src/hydra_orch/core/checkpointer.py</div>
-                <div style="color:#606a74; margin-bottom:4px;">+++ b/src/hydra_orch/core/checkpointer.py</div>
-                <div style="background:#fee9e6; color:#a43b35;">- wal_mode = False</div>
-                <div style="background:#e1f5e4; color:#007835;">+ wal_mode = True</div>
-                <div style="background:#e1f5e4; color:#007835;">+ await conn.execute("PRAGMA journal_mode=WAL;")</div>
-              </div>
-              <div style="display:flex; gap:10px; margin-top:4px;">
-                <button class="m-btn-prim" style="flex:1;">Aprovar e Mesclar Diff</button>
-                <button style="flex:1; background:#ffffff; border:1px solid #d8dfe6; color:#131c23; border-radius:6px; font-weight:600; font-size:13px; cursor:pointer;">Rejeitar</button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <p style="font-size:13px; color:var(--dir-muted); margin-bottom:12px;">
+          <strong>Paradigma:</strong> Navegação lateral recolhível (Workspaces e Runs), esteira horizontal de pipeline sequencial e visualizador de diff em tela dividida (Split Diff) estilo Monaco com árvore de arquivos e barra de aprovação ancorada no rodapé.
+        </p>
+        <iframe src="direcao_a.html" style="width:100%; height:560px; border:1px solid #d8dfe6; border-radius:8px; background:#f4f7fb;"></iframe>
       </div>
 
-      <!-- MOCKUP 2: IDEIA B (BIOLUMINESCENT ABYSSAL HYDRA - RECOMENDADA) -->
+      <!-- MOCKUP 2: IDEIA B (RECOMENDADA) -->
       <div class="mockup-item-box" style="border: 2px solid #0e5f4b;">
         <div class="mockup-item-header">
           <div class="mockup-item-title">
             <span class="direction-badge" style="background:#d5f8eb; color:#0e5f4b;">Ideia B · Própria (Recomendada)</span>
-            <span>Bioluminescent Abyssal Hydra (O Mito Tecnológico & Auto-Cura)</span>
+            <span>Bioluminescent Abyssal Hydra (Arena de Cabeças Concorrentes & Healer)</span>
           </div>
-          <span style="font-size:12px; font-family:'JetBrains Mono', monospace; color:var(--dir-muted);">Verde Abissal #0e5f4b · Fundo Menta #f3f8f6 · Hanken Grotesk</span>
+          <a href="direcao_b.html" target="_blank" class="btn-switch active" style="text-decoration:none; display:flex; align-items:center; gap:6px;">
+            <span>↗ Abrir direcao_b.html em Tela Cheia</span>
+          </a>
         </div>
-
-        <div class="m-scope-b">
-          <!-- Topbar B -->
-          <div class="m-topbar">
-            <div class="m-logo">
-              <!-- Símbolo da Hidra com 3 Nós Conectados -->
-              <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
-                <path d="M5 10 C5 19, 12 20, 16 24 C20 20, 27 19, 27 10" stroke="#0e5f4b" stroke-width="3" stroke-linecap="round"/>
-                <path d="M16 4 L16 28" stroke="#0e5f4b" stroke-width="3" stroke-linecap="round"/>
-                <path d="M10 28 L22 28" stroke="#0e5f4b" stroke-width="3" stroke-linecap="round"/>
-                <circle cx="5" cy="10" r="3.5" fill="#0e5f4b"/>
-                <circle cx="16" cy="4" r="3.5" fill="#0e5f4b"/>
-                <circle cx="27" cy="10" r="3.5" fill="#0e5f4b"/>
-                <circle cx="16" cy="19" r="2.5" fill="#ffffff" stroke="#0e5f4b" stroke-width="2"/>
-              </svg>
-              <span>HYDRA</span>
-            </div>
-            <div style="font-family:'JetBrains Mono', monospace; font-size:11.5px; color:#5e6d67; display:flex; gap:16px;">
-              <span><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#007835; margin-right:6px;"></span>Modo: <strong>Swarm DAG</strong></span>
-              <span>Workspace: <strong>main (limpo)</strong></span>
-              <span>Tokens: <strong>42.8k / 200k</strong></span>
-              <span>Esforço: <strong>HIGH</strong></span>
-            </div>
-          </div>
-
-          <!-- Body B -->
-          <div class="m-content">
-            <!-- Run Card B -->
-            <div class="m-card">
-              <div style="display:flex; justify-content:space-between; margin-bottom:14px;">
-                <div>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11px; font-weight:700; color:#0e5f4b;">RUN #142 · CONCORRENTE</span>
-                  <div style="font-family:'Hanken Grotesk', sans-serif; font-size:18px; font-weight:800; color:#111e19; margin-top:2px;">refactor(core): migração de persistência para wal checkpoint</div>
-                </div>
-                <span class="m-badge-p">2/3 NÓS ATIVOS</span>
-              </div>
-
-              <!-- DAG List B com Trifurcated Badges -->
-              <div style="display:flex; flex-direction:column; gap:10px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1px solid #d7e1dd; border-radius:8px; padding:12px 16px;">
-                  <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="background:#e1f5e4; color:#007835; font-size:12px; font-weight:800; padding:3px 8px; border-radius:6px;">✓</span>
-                    <div>
-                      <div style="font-size:13.5px; font-weight:700; color:#111e19;">T01: AST Parser & Token Redactor</div>
-                      <div style="font-size:11px; color:#5e6d67;">wt/swarm-t01 · AST treesitter sem anomalias</div>
-                    </div>
-                  </div>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11.5px; color:#007835; font-weight:700;">18 testes pass (0.42s)</span>
-                </div>
-
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1.5px solid #0e5f4b; border-radius:8px; padding:12px 16px; box-shadow:0 2px 8px rgba(14,95,75,0.08);">
-                  <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="background:#d5f8eb; color:#0e5f4b; font-size:12px; font-weight:800; padding:3px 8px; border-radius:6px;">▶</span>
-                    <div>
-                      <div style="font-size:13.5px; font-weight:700; color:#111e19;">T02: SQLAlchemy WAL Checkpointer</div>
-                      <div style="font-size:11px; color:#5e6d67;">wt/swarm-t02 · gravando checkpoints e snapshots</div>
-                    </div>
-                  </div>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11.5px; color:#0e5f4b; font-weight:700;">gravando índices (1.1s)</span>
-                </div>
-
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1px solid #d7e1dd; border-radius:8px; padding:12px 16px;">
-                  <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="background:#fcecd9; color:#8a5601; font-size:12px; font-weight:800; padding:3px 8px; border-radius:6px;">⚡</span>
-                    <div>
-                      <div style="font-size:13.5px; font-weight:700; color:#111e19;">T03: Healer Engine (Auto-Cura AST)</div>
-                      <div style="font-size:11px; color:#5e6d67;">aguarda barreira topológica de T02</div>
-                    </div>
-                  </div>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11.5px; color:#8a5601; font-weight:700;">pronto para agir</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- HITL Diff Panel B -->
-            <div style="background:#f3f8f6; border:1px solid #d7e1dd; border-radius:10px; padding:18px; display:flex; flex-direction:column; gap:12px;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-family:'Hanken Grotesk', sans-serif; font-size:15px; font-weight:800; color:#111e19;">Aprovação de Segurança (HITL)</span>
-                <span style="font-family:'JetBrains Mono', monospace; font-size:11px; background:#fcecd9; color:#8a5601; padding:3px 8px; border-radius:6px; font-weight:700;">MUTATION VERIFIED</span>
-              </div>
-              <div style="font-family:'JetBrains Mono', monospace; font-size:11.5px; background:#ffffff; border:1px solid #d7e1dd; border-radius:6px; padding:12px; line-height:1.6;">
-                <div style="color:#5e6d67;">--- a/src/hydra_orch/core/checkpointer.py</div>
-                <div style="color:#5e6d67; margin-bottom:4px;">+++ b/src/hydra_orch/core/checkpointer.py</div>
-                <div style="background:#fee9e6; color:#a43b35; padding:2px 4px; border-radius:2px;">- wal_mode = False</div>
-                <div style="background:#e1f5e4; color:#007835; padding:2px 4px; border-radius:2px;">+ wal_mode = True</div>
-                <div style="background:#e1f5e4; color:#007835; padding:2px 4px; border-radius:2px;">+ await conn.execute("PRAGMA journal_mode=WAL;")</div>
-              </div>
-              <div style="display:flex; gap:10px; margin-top:4px;">
-                <button class="m-btn-prim" style="flex:1;">Aprovar e Mesclar Diff</button>
-                <button style="flex:1; background:#ffffff; border:1px solid #d7e1dd; color:#111e19; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer;">Rejeitar</button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <p style="font-size:13px; color:var(--dir-muted); margin-bottom:12px;">
+          <strong>Paradigma:</strong> A unidade de trabalho são as próprias "Cabeças da Hidra" (Worktrees concorrentes em arena de 3 colunas heróicas). Cada coluna é um agente vivo com terminal embutido, indicador de vitalidade bioelétrica e árvore de auto-cura do Healer.
+        </p>
+        <iframe src="direcao_b.html" style="width:100%; height:580px; border:2px solid #0e5f4b; border-radius:12px; background:#f3f8f6;"></iframe>
       </div>
 
-      <!-- MOCKUP 3: IDEIA C (MONOLITH TITANIUM & AMBER) -->
-      <div class="mockup-item-box">
+      <!-- MOCKUP 3: IDEIA C -->
+      <div class="mockup-item-box" style="border: 2px solid #854d0e;">
         <div class="mockup-item-header">
           <div class="mockup-item-title">
             <span class="direction-badge" style="background:#ffead9; color:#854d0e;">Ideia C · Inesperada</span>
-            <span>Monolith Titanium & Amber (Hardware Neobrutalista)</span>
+            <span>Monolith Titanium & Amber (Console de Rack Industrial Neobrutalista)</span>
           </div>
-          <span style="font-size:12px; font-family:'JetBrains Mono', monospace; color:var(--dir-muted);">Âmbar #854d0e · Fundo Titânio #faf6f3 · Barlow Condensed</span>
+          <a href="direcao_c.html" target="_blank" class="btn-switch" style="text-decoration:none; display:flex; align-items:center; gap:6px;">
+            <span>↗ Abrir direcao_c.html em Tela Cheia</span>
+          </a>
         </div>
-
-        <div class="m-scope-c">
-          <!-- Topbar C -->
-          <div class="m-topbar">
-            <div class="m-logo">
-              <!-- Hexágono de Hardware -->
-              <svg width="24" height="24" viewBox="0 0 48 48" fill="none">
-                <polygon points="24,2 44,14 44,38 24,50 4,38 4,14" stroke="#854d0e" stroke-width="4" fill="#ffead9"/>
-                <path d="M24 10 L24 38 M14 20 L24 28 L34 20" stroke="#854d0e" stroke-width="4" stroke-linecap="square"/>
-              </svg>
-              <span>HYDRA</span>
-            </div>
-            <div style="font-family:'JetBrains Mono', monospace; font-size:11px; color:#72675d; display:flex; gap:14px; text-transform:uppercase;">
-              <span>MODO: <strong>SWARM-DAG</strong></span>
-              <span>WORKSPACE: <strong>MAIN [CLEAN]</strong></span>
-              <span>TOKENS: <strong>42.8K / 200K</strong></span>
-              <span>EFFORT: <strong>MAX</strong></span>
-            </div>
-          </div>
-
-          <!-- Body C -->
-          <div class="m-content">
-            <!-- Run Card C -->
-            <div class="m-card">
-              <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-                <div>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11px; font-weight:700; color:#854d0e;">RUN_ID: 142 · STATUS: RUNNING</span>
-                  <div style="font-family:'Barlow Condensed', sans-serif; font-size:22px; font-weight:900; color:#211911; letter-spacing:0.5px; text-transform:uppercase; margin-top:2px;">
-                    REFACTOR(CORE): MIGRAÇÃO DE PERSISTÊNCIA WAL
-                  </div>
-                </div>
-                <span class="m-badge-p">TASKS: 2/3</span>
-              </div>
-
-              <!-- DAG List C -->
-              <div style="display:flex; flex-direction:column; gap:6px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1.5px solid #e4dcd6; border-radius:2px; padding:10px 14px;">
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <span style="background:#e1f5e4; color:#007835; font-size:10px; font-weight:800; padding:2px 6px; border-radius:2px;">[PASS]</span>
-                    <span style="font-size:13px; font-weight:700; color:#211911;">T01: AST Parser & Token Redactor</span>
-                  </div>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11px; color:#007835; font-weight:700;">18 TESTS (420MS)</span>
-                </div>
-
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1.5px solid #854d0e; border-radius:2px; padding:10px 14px;">
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <span style="background:#ffead9; color:#854d0e; font-size:10px; font-weight:800; padding:2px 6px; border-radius:2px;">[EXEC]</span>
-                    <span style="font-size:13px; font-weight:700; color:#211911;">T02: SQLAlchemy WAL Checkpointer</span>
-                  </div>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11px; color:#854d0e; font-weight:700;">INDEXING (1100MS)</span>
-                </div>
-
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1.5px solid #e4dcd6; border-radius:2px; padding:10px 14px; opacity:0.85;">
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <span style="background:#fcecd9; color:#8a5601; font-size:10px; font-weight:800; padding:2px 6px; border-radius:2px;">[WAIT]</span>
-                    <span style="font-size:13px; font-weight:700; color:#211911;">T03: Healer Engine (Auto-Cura AST)</span>
-                  </div>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11px; color:#8a5601; font-weight:700;">BARRIER T02</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- HITL Diff Panel C -->
-            <div style="background:#faf6f3; border:1.5px solid #e4dcd6; border-radius:2px; padding:16px; display:flex; flex-direction:column; gap:10px;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-family:'Barlow Condensed', sans-serif; font-size:17px; font-weight:800; text-transform:uppercase; color:#211911;">GATE HITL: APROVAÇÃO OBRIGATÓRIA</span>
-                <span style="font-family:'JetBrains Mono', monospace; font-size:10px; background:#ffead9; color:#854d0e; padding:2px 6px; border-radius:2px; font-weight:700;">MUTATION</span>
-              </div>
-              <div style="font-family:'JetBrains Mono', monospace; font-size:11px; background:#ffffff; border:1.5px solid #e4dcd6; border-radius:2px; padding:10px; line-height:1.5;">
-                <div style="color:#72675d;">--- a/src/hydra_orch/core/checkpointer.py</div>
-                <div style="color:#72675d; margin-bottom:4px;">+++ b/src/hydra_orch/core/checkpointer.py</div>
-                <div style="background:#fee9e6; color:#a43b35;">- wal_mode = False</div>
-                <div style="background:#e1f5e4; color:#007835;">+ wal_mode = True</div>
-                <div style="background:#e1f5e4; color:#007835;">+ await conn.execute("PRAGMA journal_mode=WAL;")</div>
-              </div>
-              <div style="display:flex; gap:10px; margin-top:4px;">
-                <button class="m-btn-prim" style="flex:1;">APROVAR E MESCLAR DIFF</button>
-                <button style="flex:1; background:#ffffff; border:1.5px solid #e4dcd6; color:#211911; border-radius:2px; font-family:'Barlow Condensed', sans-serif; font-weight:800; font-size:14px; text-transform:uppercase; cursor:pointer;">REJEITAR</button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <p style="font-size:13px; color:var(--dir-muted); margin-bottom:12px;">
+          <strong>Paradigma:</strong> Chassis de rack metálico de 19 polegadas com parafusos nos 4 cantos, unidade de controle mestre com chaves mecânicas de alternância, canais com VU-meters em barras de LED verticais e patch bay em maiúsculas industriais sem sombras.
+        </p>
+        <iframe src="direcao_c.html" style="width:100%; height:560px; border:2px solid #854d0e; border-radius:4px; background:#191410;"></iframe>
       </div>
 
     </div>
