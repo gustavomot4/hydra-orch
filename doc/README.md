@@ -26,6 +26,11 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 
 ---
 
+## Design da interface
+
+- [Figma: design editável, protótipo navegável e orientação para implementação](b_spc/a_ui/d_figma.md).
+- [Referências e especificação da UI](b_spc/a_ui/README.md).
+
 ## Resumo dos Artefatos Principais
 
 ### Contexto e Planejamento (`a_context/`)

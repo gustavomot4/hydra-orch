@@ -1,12 +1,12 @@
 # Processo de construção
 
-Este roteiro é uma proposta incremental. Os itens abaixo permanecem pendentes; a entrega atual não executou nenhuma destas fases.
+Este roteiro é uma proposta incremental. O [protótipo visual no Figma](d_figma.md) foi criado; os gates de implementação e integração abaixo permanecem pendentes. O protótipo não comprova execução real de agentes ou terminais.
 
 | Etapa | Trabalho e dependência | Entrega / gate de saída |
 | --- | --- | --- |
 | 1. Reconciliação | Ler PRDs, stack, OpenAPI e código real; mapear UI01–UI11 para RF/RT/tasks existentes, em especial sessões RT16, acessibilidade RF23, HITL RF27, voz RF36 e Computer Use RF37 | Matriz existente/proposto/ausente revisada; lacunas de PTY, anexos, emulação e agendas registradas no backlog sem renumerar contratos |
 | 2. Contratos | Definir capacidades por host, identidade de sessão, anexos e PTY; revisar auth, erros, cancelamento e replay | Schemas e testes de contrato com fixtures, incluindo falha e reconexão; atualizar OpenAPI apenas para decisões aprovadas |
-| 3. Fundação visual | Usar stack do projeto; criar tokens, shell, árvore, abas, splits e compositor | Telas com fixtures claramente marcadas; revisão contra as duas imagens em desktop e mobile; teclado e contraste aprovados |
+| 3. Fundação visual | Usar stack do projeto; criar tokens, shell, árvore, abas, splits e compositor | Telas com fixtures claramente marcadas; revisão contra o [design atual no Figma](d_figma.md) e as imagens de referência, em desktop e mobile; teclado e contraste aprovados |
 | 4. Chat real | Conectar histórico, SSE, envio, parada, HITL e cards de workers | Run de executor falso produz eventos verificáveis; replay sem duplicação; nenhum sucesso inferido de texto |
 | 5. Terminal real | Escolher biblioteca de renderização e bridge PTY; provar Windows e Unix separadamente | Unicode/ANSI, resize, interrupção, exit e reconexão demonstrados; ciclo de processo sem órfãos |
 | 6. Arquivos e navegação | Implementar anexos, explorer, busca global e previews | Arquivo local/remoto no agente correto; rejeição de caminho indevido; PDF/imagem/Markdown e erro de upload exercitados |
