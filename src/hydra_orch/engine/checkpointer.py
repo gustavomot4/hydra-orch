@@ -1,20 +1,19 @@
-"""Stream checkpointer and code stitcher with string overlap elimination."""
+"""Engine checkpointer and worktree/code handoff helpers."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 import aiosqlite
 
 logger = logging.getLogger(__name__)
 
 
 def stitch_code_blocks(part1: str, part2: str, max_check_lines: int = 15) -> str:
-    """Seamlessly concatenates two partial code blocks, eliminating overlapping lines."""
+    """Seamlessly concatenates two partial code blocks, eliminating exact overlapping lines
+    while strictly preserving indentation."""
     if not part1:
         return part2
     if not part2:
@@ -23,30 +22,25 @@ def stitch_code_blocks(part1: str, part2: str, max_check_lines: int = 15) -> str
     lines1 = part1.splitlines(keepends=True)
     lines2 = part2.splitlines(keepends=True)
 
-    # Check for identical overlapping lines at the boundary
     max_overlap = min(len(lines1), len(lines2), max_check_lines)
     best_overlap = 0
 
     for k in range(max_overlap, 0, -1):
-        suffix = lines1[-k:]
-        prefix = lines2[:k]
-        if [l.strip() for l in suffix] == [l.strip() for l in prefix]:
+        suffix = [l.rstrip("\r\n") for l in lines1[-k:]]
+        prefix = [l.rstrip("\r\n") for l in lines2[:k]]
+        if suffix == prefix:
             best_overlap = k
             break
 
     if best_overlap > 0:
-        # Discard the overlapping prefix from part2
-        stitched = "".join(lines1) + "".join(lines2[best_overlap:])
-    else:
-        stitched = "".join(lines1) + "\n" + "".join(lines2)
-
-    return stitched
+        return "".join(lines1) + "".join(lines2[best_overlap:])
+    return "".join(lines1) + ("\n" if not part1.endswith("\n") else "") + "".join(lines2)
 
 
 class EngineCheckpointer:
-    """Persists real-time token streaming checkpoints and manages seamless auto-resumes."""
+    """Persists real-time execution checkpoints and worktree handoff state in .orchestrator/checkpoints.sqlite."""
 
-    def __init__(self, db_path: str = ".hydra/state.db"):
+    def __init__(self, db_path: str = ".orchestrator/checkpoints.sqlite"):
         self.db_path = db_path
         self._initialized = False
 
@@ -58,6 +52,8 @@ class EngineCheckpointer:
         db_dir.mkdir(parents=True, exist_ok=True)
 
         async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA journal_mode=WAL;")
+            await db.execute("PRAGMA busy_timeout=5000;")
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS active_generations (
@@ -100,8 +96,7 @@ class EngineCheckpointer:
     ) -> None:
         await self.initialize()
         now = time.time()
-        
-        # Compute last 15 lines as anchor block
+
         lines = accumulated_content.splitlines()
         anchor = "\n".join(lines[-15:]) if lines else ""
 
@@ -131,12 +126,18 @@ class EngineCheckpointer:
                 return dict(row)
         return None
 
-    def build_resume_prompt(self, anchor_block: str, target_file: Optional[str] = None) -> str:
-        """Constructs anchor continuation prompt per PRD v5.0 specification."""
+    def build_resume_prompt(
+        self,
+        anchor_block: str,
+        target_file: Optional[str] = None,
+        git_diff: Optional[str] = None,
+    ) -> str:
+        """Constructs a continuation prompt combining worktree state and anchor context."""
         file_hint = f" for file `{target_file}`" if target_file else ""
+        diff_block = f"\nCurrent Worktree Diff:\n```diff\n{git_diff}\n```\n" if git_diff else ""
         return (
-            f"The previous generation{file_hint} was interrupted during streaming. "
-            f"Continue writing the code exactly starting from the last line of the anchor block below. "
-            f"DO NOT repeat the anchor block lines and DO NOT add conversational markdown explanations:\n\n"
+            f"The previous generation{file_hint} was interrupted during execution.{diff_block}\n"
+            f"Continue completing the implementation starting from the state below without repeating "
+            f"already applied lines:\n\n"
             f"```\n{anchor_block}\n```"
         )

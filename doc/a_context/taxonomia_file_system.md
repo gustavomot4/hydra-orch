@@ -227,8 +227,8 @@ hydra-orch/
 │   │   └── taxonomia_file_system.md # Este documento oficial de taxonomia e governança
 │   ├── b_spc/                 # Especificações formais e PRDs canônicos
 │   │   ├── README.md          # Catálogo e índice de especificações técnicas
-│   │   ├── prd_funcional.md   # PRD Funcional (RF01–RF38, UC01–UC10, RB01–RB28)
-│   │   └── prd_tecnico.md     # PRD Técnico (RT01–RT38, RNF01–RNF15, contratos, DDL, T01–T44)
+│   │   ├── prd_funcional.md   # PRD Funcional (RF01–RF30, UC01–UC05, RB01–RB20)
+│   │   └── prd_tecnico.md     # PRD Técnico (RT01–RT30, RNF01–RNF10, contratos, DDL, T01–T28)
 │   ├── c_activity/            # Diagramas de atividades e fluxos de processos
 │   ├── d_mer/                 # Modelo Entidade-Relacionamento e esquemas relacionais
 │   │   ├── README.md          # Catálogo de esquemas relacionais
@@ -314,13 +314,13 @@ Substitui a pasta plural `docs/`. Divide-se formalmente em 10 etapas canônicas 
 - `doc/a_context/`: Contexto conceitual, investigações históricas e planejamento mestre:
   - `README.md`: Índice de contexto e planejamento.
   - `CONTEXTO-ORQUESTRACAO.md`: Registro da arquitetura de orquestração e achados comparativos de agentes.
-  - `plano_desenvolvimento.md`: Plano mestre de especificação e desenvolvimento com gaps A01–A18 e tasks T01–T44.
+  - `plano_desenvolvimento.md`: Plano mestre de especificação e desenvolvimento com gaps A01–A18 e tasks T01–T28.
   - `visao_produto.md`: Visão estratégica original do produto (V5.0), proposta de valor e modos de execução.
   - `taxonomia_file_system.md`: A presente norma oficial de taxonomia e governança do repositório.
 - `doc/b_spc/`: Especificações formais normativas e PRDs canônicos:
   - `README.md`: Catálogo e índice de especificações técnicas.
-  - `prd_funcional.md`: Requisitos funcionais (RF01 a RF38), jornadas de usuário UC01–UC10 e regras de negócio RB01–RB28.
-  - `prd_tecnico.md`: Requisitos técnicos (RT01 a RT38), RNF01–RNF15, contratos de execução, DDL SQLite e decomposição de tasks T01–T44.
+  - `prd_funcional.md`: Requisitos funcionais (RF01 a RF30), jornadas de usuário UC01–UC05 e regras de negócio RB01–RB20.
+  - `prd_tecnico.md`: Requisitos técnicos (RT01 a RT30), RNF01–RNF10, contratos de execução, DDL SQLite e decomposição de tasks T01–T28.
 
 - `doc/c_activity/`: Diagramas de atividades e fluxos de processos (com `README.md` e `.gitkeep`).
 - `doc/d_mer/`: Modelo Entidade-Relacionamento e esquemas relacionais:

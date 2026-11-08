@@ -28,7 +28,7 @@ A stack completa está definida em [`stack.md`](stack.md). Resumo:
 - **Pydantic v2** para todos contratos (RunSpec, TaskSpec, eventos, API)
 - **Structlog** + **Prometheus** para observabilidade
 - **GitPython** + **psutil** para workspace e processos
-- **Tree-sitter** para code stitching (handoff/Relay)
+- **Handoff por Estado Git/Worktree** e validação sintática AST
 
 ### Frontend (Interface Visual)
 - **React 18** + **TypeScript 5.5** + **Vite 5**
@@ -54,38 +54,30 @@ src/hydra_orch/
 ├── model.py            # Schemas Pydantic (contratos centrais)
 │
 ├── core/               # Serviços de aplicação (control plane)
-│   ├── checkpointer.py     # SQLAlchemy + Alembic + WAL
-│   ├── git_workspace.py    # Git worktree wrapper
+│   ├── checkpointer.py     # SQLite WAL + HandoffCheckpoint
+│   ├── git_workspace.py    # Git worktree wrapper + proteção Wave 0/1
 │   ├── run_service.py      # Orquestração central
-│   ├── session_service.py  # Comandos /compact, /plan, /build
+│   ├── session_service.py  # Sessões, threads e SSE replay
 │   ├── scheduler.py        # DAG (Kahn) + semaphore
-│   ├── auth.py             # JWT + RBAC
+│   ├── auth.py             # Token local + RBAC
 │   ├── redaction.py        # Redactor centralizado
 │   ├── budget.py           # BudgetGovernor
 │   ├── conflict_resolver.py
 │   ├── packaging.py        # PRPackager
-│   ├── hitl.py             # Human-in-the-Loop manager
-│   ├── mcp_service.py      # Gestão de servidores MCP e live tools
-│   ├── computer_use_governor.py # Safety Governor para desktop/browser
-│   ├── voice_session.py    # Gerenciador de voz duplex WebSocket
-│   └── knowledge/          # Módulo RAG isolado (store, ingest, retriever)
+│   ├── skill_registry.py   # Catálogo de skills e SecretRef
+│   └── hitl.py             # Human-in-the-Loop manager
 │
 ├── engine/             # Estratégias de execução
-│   ├── swarm.py            # SwarmEngine (paralelo + DAG)
-│   ├── relay.py            # RelayEngine + HandoffCheckpoint
-│   ├── persist.py          # PersistEngine + timer
-│   ├── healer.py           # HealerEngine + tree-sitter
-│   └── multimodal.py       # Orquestrador de jobs multimídia (imagem/áudio/vídeo)
+│   ├── swarm.py            # SwarmEngine (Wave 0 Fundação + Wave 1 Paralela)
+│   ├── relay.py            # RelayEngine + Handoff por Estado Git/Worktree
+│   ├── persist.py          # PersistEngine + timer de janela de cota
+│   └── healer.py           # SelfHealer com teto de tentativas
 │
 ├── bridge/             # Transporte, subprocess, SSH
 │   ├── worker_runner.py    # AgentExecutor interface + drivers
 │   ├── process.py          # ProcessManager (tree kill, sandbox)
 │   ├── ssh_tunnel.py       # SSH tunnel manager
 │   ├── mcp_client.py       # Cliente MCP stdio/SSE/HTTP
-│   ├── connector/          # Conectores de tarefas (Jira, Kanbanize, GitHub)
-│   ├── voice/              # Drivers STT Whisper e TTS Kokoro
-│   ├── computer_use/       # Drivers de desktop OS e browser Playwright
-│   ├── local_llm/          # Catálogo Ollama/LM Studio e quantização GGUF
 │   ├── omniroute_client.py
 │   └── transport_registry.py
 │

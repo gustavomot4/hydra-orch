@@ -91,9 +91,9 @@ src/hydra_orch/
 | Camada | Responsabilidade Primária | O Que NÃO Faz |
 | :--- | :--- | :--- |
 | **`core/`** | Orquestração central, ciclo de vida de runs/tasks, persistência no banco relacional (SQLite WAL), segurança (auth, redaction), governança (orçamento, conflitos, empacotamento, HITL) e gestão de áreas/projetos/repositórios. | NUNCA executa subprocessos diretamente, não roda inferência de LLM nem manipula transporte de rede de baixo nível. |
-| **`engine/`** | Estratégias de resolução de tarefas: Swarm (DAG paralelo + semáforo), Relay (handoff estruturado entre modelos), Persistente (auto-resume pós-cota), Healer (auto-healing limitado) e Multimodal (jobs de mídia). | NUNCA toca no banco SQLite diretamente (usa serviços de `core/`), não toma decisões de auth nem altera branches Git fora do contrato. |
-| **`bridge/`** | Transporte de baixo nível, execução de subprocessos (`ProcessManager`), túneis SSH, drivers de desktop/browser (Playwright/CDP), drivers de áudio (STT/TTS), clientes MCP e conectores externos (Jira, GitHub). | NUNCA implementa lógica de negócio ou regras de aprovação de tarefas. |
-| **`adapter/`** | Protocolos de inferência de linguagem e adaptadores de geração multimodal (imagem, áudio, vídeo). Fornece interfaces assíncronas uniformes. | NUNCA realiza mutações no repositório Git nem executa ferramentas do sistema. |
+| **`engine/`** | Estratégias de resolução de tarefas: Swarm em Duas Ondas (Wave 0 Fundação Compilável + Wave 1 DAG paralelo + semáforo), Relay (handoff por estado Git/Worktree entre modelos), Persistente (auto-resume pós-cota) e Healer (auto-healing limitado). | NUNCA toca no banco SQLite diretamente (usa serviços de `core/`), não toma decisões de auth nem altera branches Git fora do contrato. |
+| **`bridge/`** | Transporte de baixo nível, execução de subprocessos (`WorkerRunner`), túneis SSH (`SshTunnelManager`), clientes MCP (`mcp_client`) e fallback CDP experimental. | NUNCA implementa lógica de negócio ou regras de aprovação de tarefas. |
+| **`adapter/`** | Protocolos de inferência de linguagem (API Gateway, Local/SSH, IDE Bridge, UI CDP). Fornece interfaces assíncronas uniformes. | NUNCA realiza mutações no repositório Git nem executa ferramentas do sistema. |
 
 ---
 
@@ -117,7 +117,7 @@ A interface visual opera estritamente contra endpoints REST e SSE versionados do
 1. **Marco M1 (Núcleo Verificável — S00 a S05):** Contratos de execução tipados (`RunSpec`, `TaskSpec`), persistência transacional local (SQLite WAL) e execução verificável em worktree com checks reais (Tasks T01 a T08).
 2. **Marco M2 (Control Plane e API REST — S10 e S11):** Camada de API `/v1/control-plane/*`, autenticação local, CORS restrito, redaction central e read models expostos para UI (Tasks T09 e T26).
 3. **Marco M3 (Workspaces, Perfis e Orquestração Swarm/Relay/Persist — S06 a S09, S14 e S15):** Hierarquia de áreas/repositórios, perfis imutáveis com snapshot por run, escalonador DAG de Swarm, handoff estruturado com code stitching e auto-healing limitado (Tasks T10 a T16, T25).
-4. **Marco M4 (Governança, Extensões e Capacidades Avançadas — S16 a S28):** Memória consentida, discovery local seguro, extensões isoladas, acessibilidade WCAG AA, budgeting com alerta/congelamento, empacotamento de PR e expansão multimodal/RAG/voz/computer use (Tasks T17 a T24, T27 a T44).
+4. **Marco M4 (Governança, Extensões e Entrega Automatizada — S16 a S20):** Memória consentida, discovery local seguro, extensões isoladas, acessibilidade WCAG AA, resolução assistida de conflitos (*Contract Amendment*), budgeting com alerta/congelamento e empacotamento de PR (Tasks T17 a T24, T27 e T28). Ideias futuras pós-M4 estão isoladas em [`../a_context/ideia_futura.md`](../a_context/ideia_futura.md).
 
 ---
 

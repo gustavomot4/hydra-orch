@@ -2,14 +2,14 @@
 
 **Identificador Formal:** `prd_tecnico.md`
 **Caminho Canônico:** `doc/b_spc/prd_tecnico.md`
-**Versão:** `v01_02_0000`
+**Versão:** `v02_00_0000`
 **Status:** `PROPOSTO / EM DESENVOLVIMENTO`
 **Autoridade:** Arquitetura do hydra-orch, complementando [`prd_funcional.md`](prd_funcional.md), [`../a_context/plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md) e [`../g_code/architecture.md`](../g_code/architecture.md).
-**Escopo:** Requisitos técnicos (RT01 a RT38), requisitos não-funcionais (RNF01 a RNF15), contratos formais de execução, fronteiras arquiteturais, máquinas de estado, esquemas DDL, API REST, algoritmos centrais, critérios negativos e tasks T01 a T44.
+**Escopo:** Requisitos técnicos (RT01 a RT30), requisitos não-funcionais (RNF01 a RNF10), contratos formais de execução, fronteiras arquiteturais, máquinas de estado, esquemas DDL, API REST, algoritmos centrais (Swarm Wave 0+1 e Handoff por Estado Git/Worktree), critérios negativos e tasks T01 a T28. Ideias pós-M4 residem em [`../a_context/ideia_futura.md`](../a_context/ideia_futura.md).
 
 ---
 
-Status: arquitetura técnica normativa proposta, sem alegação de implementação prévia. RT01–RT12 e T01–T08 cobrem o núcleo inicial verificável (M1); RT13–RT30 e T09–T28 cobrem a expansão de control plane (áreas, perfis, sessões, observabilidade, memória, discovery, extensões, acessibilidade, transportes, modos de orquestração, HITL, resolução de conflitos, budgeting, empacotamento PR); RT31–RT38 e T29–T44 incorporam comandos de sessão, geração multimodal, MCP avançado, RAG corporativo/pessoal, conectores Jira/Kanbanize, voz duplex, Computer Use e hub local de LLMs. Complementa o [PRD funcional](prd_funcional.md) e o [plano](../a_context/plano_desenvolvimento.md). Modelagem relacional em [MER](../d_mer/mer.md) e classes em [diagrama de classes](../e_class/diagrama_classe.md).
+Status: arquitetura técnica normativa proposta, sem alegação de implementação prévia. RT01–RT12 e T01–T08 cobrem o núcleo inicial verificável (M1); RT13–RT30 e T09–T28 cobrem a expansão de control plane (áreas, perfis, sessões, observabilidade, memória, discovery, extensões, acessibilidade, transportes, modos de orquestração Wave 0+1 e Handoff Git, HITL, resolução de conflitos + *Contract Amendment*, budgeting, empacotamento PR). Ideias periféricas (antigos V5/V6) estão isoladas em [`../a_context/ideia_futura.md`](../a_context/ideia_futura.md). Complementa o [PRD funcional](prd_funcional.md) e o [plano](../a_context/plano_desenvolvimento.md). Modelagem relacional em [MER](../d_mer/mer.md) e classes em [diagrama de classes](../e_class/diagrama_classe.md).
 
 ## 1. Propósito
 
@@ -35,8 +35,8 @@ A arquitetura proposta separa claramente os serviços de control plane (áreas, 
 | **RT04** | Executor usa argv específico, cwd resolvido, env filtrado, timeout e cancelamento de árvore | Fake subprocess só em dry-run; CLI ausente → erro `executor_unavailable`; tree kill verificado no SO |
 | **RT05** | Git opera em SHA fixo e worktrees reais; integração serializada por projeto | Falha de Git não cria diretório substituto; conflito preserva worktree; `git worktree add` real |
 | **RT06** | Check registra comando, cwd, SHA, tempo, exit code e saída como artefato | Check ausente/falho bloqueia aceite; combinação é testada novamente; artefato com hash SHA-256 |
-| **RT07** | Scheduler valida DAG, ownership e limite de concorrência (`max_parallel_worktrees`) | Ciclo recusado (Kahn/DFS); dependente não executa cedo; semáforo assíncrono controla paralelismo |
-| **RT08** | Handoff carrega instruções, SHA/diff e efeitos; repetição cria tentativa | Crash depois de efeito exige reconciliação; `HandoffCheckpoint` estruturado; sem exactly-once externo |
+| **RT07** | Scheduler valida DAG em Duas Ondas (Wave 0 Fundação Compilável -> Wave 1 Swarm Paralelo), ownership, trava de dependências (`pyproject.toml`/`package.json`) na Wave 1 e limite de concorrência (`max_parallel_worktrees`) | Ciclo recusado (Kahn/DFS); Wave 1 aguarda Wave 0 `accepted`; mutação de manifesto de pacotes na Wave 1 recusada; semáforo controla paralelismo |
+| **RT08** | Handoff por Estado Git/Worktree (`git status`, `git diff`, checks) para agentes CLI e Retry de Turno Atômico para chamadas de API com `tool_calls` | Crash depois de efeito exige reconciliação; `HandoffCheckpoint` estruturado no workspace; proibida costura cega de strings em `tool_calls` truncados |
 | **RT09** | Gateway distingue disabled/optional/required; quota `observed`/`stale`/`unknown` | HTTP simulado cobre offline, 429, erro auth; circuit breaker; fallback de rotas |
 | **RT10** | API autoriza comandos locais, restringe origens e caminhos; UI usa contrato comum | Token local obrigatório; CORS allowlist estrita; path traversal recusado; redaction em eventos |
 | **RT11** | Artefatos com hash, tamanho e caminho relativo; retenção explícita | Artefato ausente ou adulterado bloqueia integração; gravação atômica (temp → final → ref) |
@@ -59,19 +59,11 @@ A arquitetura proposta separa claramente os serviços de control plane (áreas, 
 | **RT23** | Acessibilidade verificável e preferências reversíveis com snapshot por run | UI: teclado, foco visível, roles semânticos, estados textuais, contraste WCAG AA, redução de movimento; reversão restaura prévio |
 | **RT24** | Transportes locais/remotos certificados com alvo, identidade, healthcheck e falhas tipadas | Alvo incorreto ou host key SSH divergente falha observavelmente; sessões concorrentes isoladas; mock não substitui certificação |
 | **RT25** | Segurança transversal: autenticação local obrigatória, CORS allowlist estrita, central de redaction | Origem não autorizada, CORS wildcard com credenciais, token inválido, path traversal → recusados; PBKDF2/Argon2 para tokens |
-| **RT26** | Orquestração por modo: Swarm (DAG + worktrees paralelas + merge serializado), Relay (handoff checkpoint entre provedores), Persistente (pausa/retomada automática por janela de cota) | Modo imutável por run (ProfileSnapshot); Swarm valida DAG + semáforo; Relay carrega HandoffCheckpoint; Persistente monitora `window_reset_at` |
+| **RT26** | Orquestração por modo: Swarm em 2 Ondas (Wave 0 Fundação + Wave 1 Worktrees Paralelas + merge serializado), Relay (handoff por estado Git/Worktree entre provedores), Persistente (pausa/retomada automática por janela de cota) | Modo imutável por run (ProfileSnapshot); Swarm valida Wave 0 -> Wave 1 + semáforo; Relay carrega HandoffCheckpoint; Persistente monitora `window_reset_at` |
 | **RT27** | HITL (Humano-no-Loop): pausa intermediária `needs_context` / `needs_approval` com timeout configurável, notificação SSE/UI, retomada com resposta do operador | Evento emitido; operador responde via API; timeout → `failed` + `hitl_timeout`; evidência preservada; resposta injetada no contexto |
-| **RT28** | Resolução assistida de conflitos de merge: relatório 3-way, opções (reparo automático por agente, descarte, resolução manual), worktree preservada | Conflito → `conflicted` + relatório; opção reparo cria `TaskAttempt` `merge_repair` com orçamento próprio; merge só após checks |
+| **RT28** | Resolução assistida de conflitos de merge e *Contract Amendment*: relatório 3-way, protocolo de emenda de contrato da Wave 0 e opções (reparo automático por agente, descarte, resolução manual) | Conflito → `conflicted` + relatório; emenda atualiza base e revalida dependentes; `merge_repair` com orçamento próprio; merge só após checks |
 | **RT29** | Governança de orçamento: teto USD/tokens/tempo por run; alerta 80%, congelamento 100% com solicitação de extensão ao operador | `unknown` não vira zero nem bloqueia; aprovação estende orçamento; recusa → `budget_exhausted`; métricas com proveniência |
 | **RT30** | Empacotamento de entrega: criação automática de branch PR no remote (quando autorizado) com descrição estruturada (objetivo, commits, checks, diff, métricas, decisões) | Descrição padrão gerada; exportação redigida; autorização de publicação separada da execução; dossier auditável |
-| **RT31** | Comandos de sessão canônicos e controle de esforço: `/compact`, `/plan`, `/build` e parâmetro `reasoning_effort` via options | Dispatcher autenticado; `/plan` gera DAG e bloqueia mutações no filesystem; `/compact` resume histórico em snapshot enxuto; `reasoning_effort` repassado a adaptadores suportados |
-| **RT32** | Motor e adaptadores de geração multimodal (imagem, áudio, vídeo) com protocolo assíncrono e armazenamento por hash SHA-256 | Protocolo `MultimodalAdapter`; persistência em `.orchestrator/artifacts/` com SHA-256; metadados estruturados (prompt, seed, modelo, params); recusa de moderação tratada |
-| **RT33** | MCP Control Plane avançado: cliente stdio/SSE/HTTP, inspetor dinâmico `tools/list`, ativação seletiva de ferramentas e injeção de `SecretRef` | Ferramenta inativa recusada antes da chamada; alteração no schema transiciona para `untrusted`; segredos injetados por referência em runtime |
-| **RT34** | Base de conhecimento e motor RAG híbrido (cosseno vetorial + BM25 FTS5) com isolamento físico em base SQLite dedicada | Base `.orchestrator/knowledge/` isolada de checkpoints e memória; busca híbrida ponderada por RRF; injeção com limiar e teto de tokens rígido |
-| **RT35** | Conectores bidirecionais de issue trackers (Jira, Kanbanize, GitHub Issues/Projects, GitLab, Linear) com interface `TicketProvider` | Mapeamento de card em `RunSpec`; transição de status guiada por eventos de execução; falhas de rede externas não invalidam execução local |
-| **RT36** | Processamento de áudio e sessão de voz duplex via WebSocket com STT Whisper, TTS Kokoro/ElevenLabs e cancelamento por barge-in | Streaming de chunks PCM/Opus; VAD interrompe fala do assistente ao detectar voz do operador; latência TTFT < 500ms; comandos destrutivos exigem confirmação visual |
-| **RT37** | Automação de desktop OS e navegador Playwright/CDP com captura de screenshots e Safety Governor com gate HITL obrigatório | Captura periódica de screenshots; ações destrutivas (cliques, inputs, navegação externa) exigem autorização HITL explícita com hash único da ação |
-| **RT38** | Hub e Foundry de LLMs locais: catálogo unificado, busca Hugging Face/Ollama, subprocesso de quantização GGUF via llama.cpp e construtor de Modelfiles | Listagem de instâncias e modelos com VRAM/RAM; download com verificação de integridade; quantização isolada com semáforo de concorrência 1; Modelfile versionado |
 
 ---
 
@@ -155,7 +147,9 @@ Para que o resultado de uma tarefa seja aceito e elegível para merge na branch 
 
 #### Handoff Estruturado entre Provedores
 
-A transferência de contexto entre modelos (modos Relay e Persistente) não se apoia em histórico de chat ou em texto parcial cru. O `HandoffCheckpoint` agrega o objetivo original, critérios de aceite, decisões já consolidadas, estado Git (`git_sha` e diffs parciais), resumo de ferramentas invocadas, último bloco sintático completo analisado via AST/tree-sitter (stitch anchor) e o próximo passo pendente.
+A transferência de contexto entre modelos (modos Relay e Persistente) não se apoia em histórico de chat nem em concatenação de strings parciais no meio de um stream SSE. O `HandoffCheckpoint` opera em dois níveis estritos:
+1. **Nível de Workspace / Agente CLI (`worktree_state`):** Agrega o objetivo original, critérios de aceite, estado físico da worktree (`git_sha`, `git status --porcelain`, `git diff`), resumo das ferramentas invocadas e relatório de checks já aprovados/pendentes, permitindo que o próximo executor assuma a própria worktree exatamente de onde parou.
+2. **Nível de Proxy HTTP (`/v1/chat/completions` — `atomic_turn_retry`):** Se uma requisição de inferência ou `tool_calls` cair por erro `429` ou corte de stream antes do fechamento do JSON (`finish_reason != 'stop'` e `!= 'tool_calls'`), o proxy descarta os chunks truncados daquele turno e reenvia a requisição completa do turno para o provedor de fallback.
 
 #### Catálogo Mínimo de Eventos para UI e Observabilidade
 
@@ -164,7 +158,7 @@ Os eventos emitidos via SSE possuem sequência monotônica (`id: <seq>`) e redac
 - **Ciclo de Tarefa:** `task.queued`, `task.started`, `task.needs_context`, `task.needs_approval`, `task.ready_for_review`, `task.accepted`, `task.rejected`, `task.completed`, `task.failed`, `task.cancelled`.
 - **Tentativas e Handoff:** `attempt.started`, `attempt.provider_selected`, `attempt.rate_limited`, `attempt.handoff_created`, `attempt.finished`.
 - **Artefatos e Integração:** `artifact.created`, `check.started`, `check.finished`, `merge.started`, `merge.completed`, `merge.conflicted`.
-- **Infraestrutura e Sessão:** `heartbeat`, `budget.alerted`, `budget.frozen`, `voice.transcription`, `computer_use.action_requested`.
+- **Infraestrutura e Sessão:** `heartbeat`, `budget.alerted`, `budget.frozen`.
 
 ---
 
@@ -185,7 +179,7 @@ Os eventos emitidos via SSE possuem sequência monotônica (`id: <seq>`) e redac
 - `core/workspace_registry.py` — hierarquia Area/Workspace/Project/Repository + Authorization
 - `core/agent_registry.py` — catálogo AgentDefinition, CapabilityDeclaration, certificação driver/SO
 - `core/profile_service.py` — Profile, ProfileResolver (validação pré-exec), ProfileSnapshot (hash imutável)
-- `core/session_service.py` — Session, Thread, eventos monotônicos, SSE replay/dedup, comandos `/compact`, `/plan`, `/build`
+- `core/session_service.py` — Session, Thread, eventos monotônicos, SSE replay/dedup
 - `core/metrics.py` — MetricSample (observed/stale/unknown), agregações parciais
 - `core/route_selector.py` — RouteSelector (DirectSelector, OmniRouteSelector), RouteDecision auditável
 - `core/memory_store.py` — MemoryEntry (consentido, escopado, versionado, revogável)
@@ -197,21 +191,8 @@ Os eventos emitidos via SSE possuem sequência monotônica (`id: <seq>`) e redac
 - `core/budget.py` — BudgetGovernor (tetos, alertas, congelamento, extensão)
 - `core/conflict_resolver.py` — ConflictResolver (relatório 3-way, merge_repair, opções)
 - `core/packaging.py` — PRPackager (branch PR, descrição estruturada, exportação)
-- `core/mcp_service.py` — Gestão de servidores MCP, live tools inspector, autorizações
-- `core/computer_use_governor.py` — Safety Governor para ações de desktop/browser e gate HITL
-- `core/voice_session.py` — Gerenciador de sessão de voz duplex (WebSocket e VAD)
-- `core/knowledge/` — Módulo RAG isolado:
-  - `store.py` — Armazenamento SQLite com vetores e FTS5
-  - `ingest.py` — Ingestão e sanitização de PDF, MD, Code
-  - `retriever.py` — Busca híbrida (cosseno + BM25) e injeção de contexto
-- `engine/multimodal.py` — Orquestrador de jobs assíncronos de mídia
-- `bridge/connector/` — Conectores de tarefas (`base.py`, `jira.py`, `kanbanize.py`, `github.py`)
-- `bridge/voice/` — Drivers de áudio (`stt.py` Whisper, `tts.py` Kokoro/ElevenLabs)
-- `bridge/computer_use/` — Drivers de SO (`desktop.py`, `browser.py` Playwright)
-- `bridge/local_llm/` — Hub local (`catalog.py`, `quantize.py`, `modelfile.py`)
-- `bridge/transport_registry.py` — TransportDefinition, TransportHealth, certificação
-- `bridge/omniroute_client.py` — cliente OmniRoute (quota, fallback, circuit breaker)
-- `adapter/multimodal.py` — Adaptadores de geração (FLUX, SD, MusicGen, Sora)
+- `core/skill_registry.py` — Registro e validação de skills e referências de segredos (`SecretRef`)
+- `bridge/mcp_client.py` — Cliente de integração com servidores MCP autorizados
 
 **Migração:** Migrar consumidores antes de remover `core/swarm.py` (legado), `core/ssh_tunnel.py` (duplicado), `engine/checkpointer.py` (duplicado). Preservar imports temporariamente com wrappers e teste de compatibilidade. Não ligar engine atual diretamente à API sem corrigir gates.
 
@@ -324,13 +305,13 @@ ConflictReport:
 **SQLite:** Foreign keys habilitadas (`PRAGMA foreign_keys=ON`); modo WAL obrigatório (`PRAGMA journal_mode=WAL`); `PRAGMA busy_timeout = 5000` para concorrência control plane + webhooks; migração versionada; transações curtas; concorrência otimista via coluna `revision` (inteiro). Artefatos no filesystem: gravar arquivo temporário, `fsync`, rename atômico, só então registrar referência. Após crash, reconciliar órfãos (arquivos sem ref / refs sem arquivo) sem apagar automaticamente.
 
 **Novas tabelas da expansão** (migrações versionadas independentes):
-`areas`, `workspaces`, `projects`, `repositories`, `authorizations`, `agent_definitions`, `capability_declarations`, `profiles`, `profile_snapshots`, `sessions`, `threads`, `metric_samples`, `route_decisions`, `memory_entries`, `consent_records`, `discovered_resources`, `skill_definitions`, `mcp_definitions`, `secret_refs`, `extension_manifests`, `extension_installs`, `preferences`, `preference_snapshots`, `transport_definitions`, `transport_health`, `access_tokens`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`, `media_jobs`, `knowledge_collections`, `knowledge_documents`, `knowledge_chunks`, `mcp_servers`, `mcp_tools`, `ticket_links`, `voice_sessions`, `computer_use_actions`, `local_models`, `quantize_jobs`.
+`areas`, `workspaces`, `projects`, `repositories`, `authorizations`, `agent_definitions`, `capability_declarations`, `profiles`, `profile_snapshots`, `sessions`, `threads`, `metric_samples`, `route_decisions`, `memory_entries`, `consent_records`, `discovered_resources`, `skill_definitions`, `mcp_definitions`, `secret_refs`, `extension_manifests`, `extension_installs`, `preferences`, `preference_snapshots`, `transport_definitions`, `transport_health`, `access_tokens`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`.
 
-Tabela `checkpoints` restrita à recuperação técnica de execuções; `memory_entries` tem ciclo de vida, expiração e auditoria próprias; `knowledge_*` mantida em base SQLite isolada (`.orchestrator/knowledge/knowledge.db`).
+Tabela `checkpoints` restrita à recuperação técnica de execuções; `memory_entries` tem ciclo de vida, expiração e auditoria próprias.
 
 **Estados de Run:** `queued -> running -> waiting/reviewing -> running/succeeded/failed/cancelled`; cancelamento também parte de `queued/running`. `waiting` exige causa (`rate_limit_window`, `hitl`, `budget_frozen`) e limite (`window_reset_at`, `hitl_deadline`). Task usa estados do contrato + `cancelled`. Nova tentativa pode devolver `failed/blocked/rejected` a `running` por comando registrado; resultado anterior imutável. Acceptance e integração são decisões distintas. Run só sucede com todas as tarefas obrigatórias `accepted` e, quando solicitada, integração aprovada.
 
-**Persistência:** `.orchestrator/checkpoints.sqlite`; artefatos em `.orchestrator/run/<run_id>/task/<task_id>/attempt/<attempt_id>/`; worktrees em `.orchestrator/worktree/`; expansão: `.orchestrator/memory/`, `.orchestrator/discovery/`, `.orchestrator/extensions/`, `.orchestrator/knowledge/`, `.orchestrator/media/`, `.orchestrator/models/`. IDs gerados pelo serviço (UUIDv7), nunca caminhos do cliente. Migração `.hydra/` → `.orchestrator/` explícita, com backup e preservação dos schemas legados.
+**Persistência:** `.orchestrator/checkpoints.sqlite`; artefatos em `.orchestrator/run/<run_id>/task/<task_id>/attempt/<attempt_id>/`; worktrees em `.orchestrator/worktree/`; expansão: `.orchestrator/memory/`, `.orchestrator/discovery/`, `.orchestrator/extension/`. IDs gerados pelo serviço (UUIDv7), nunca caminhos do cliente. Migração `.hydra/` → `.orchestrator/` explícita, com backup e preservação dos schemas legados.
 
 ---
 
@@ -354,31 +335,37 @@ data: <JSON payload>   # payload redigido (sem segredos)
 
 **Cursor expirado:** Se `Last-Event-ID` refere-se a sequência já purgada pela retenção (padrão: 7 dias ou 10k eventos/run), servidor retorna HTTP 410 Gone com payload `{ "code": "CURSOR_EXPIRED", "message": "Cursor expirado, solicite snapshot completo via GET /runs/{id}/events?from=0" }`.
 
-#### 3.6.2 Code Stitching e Handoff Técnico (RT08, RT26-Relay)
+#### 3.6.2 Handoff por Estado Git/Worktree e Retry de Turno Atômico (RT08, RT26-Relay/Persist)
 
-**Checkpoint incremental do stream:** `bridge/worker_runner.py` captura saída do executor em chunks. A cada chamada de ferramenta (tool call) ou a cada N linhas de stdout, persiste `HandoffCheckpoint` com:
-- `instructions_json`: objetivo original + critérios de aceite + decisões
-- `git_sha`: SHA base da worktree no momento
-- `diff_artifact_ids`: IDs dos artefatos de diff gerados até então
-- `tools_executed_json`: lista de `{tool, args, result_summary, exit_code, timestamp}`
-- `partial_output_json`: stdout/stderr relevantes (últimos 50 KB)
-- `next_step`: descrição textual do próximo passo planejado
+**Separação entre Execução em Workspace e Proxy de Inferência:**
+Agentes de engenharia modernos (Claude Code, OpenCode, Aider, Codex CLI) operam em loops de *tool-calling* e edições incrementais no disco. Cortar um stream de texto na linha 15 e tentar costurar strings brutas em outro modelo corrompe chamadas JSON de ferramentas. O Hydra adota portanto duas estratégias determinísticas:
 
-**Âncora de costura (stitch anchor):** Ao retomar (Relay ou Persistente), o sistema:
-1. Carrega `HandoffCheckpoint` mais recente da tentativa
-2. Usa `tree-sitter` (parser AST) para analisar arquivos modificados no diff parcial
-3. Identifica o último nó sintático completo (função, classe, bloco) antes do corte
-4. Injeta no prompt de continuação: contexto até a âncora + instrução "continue from here"
-5. Valida integridade sintática do arquivo mesclado antes de aplicar (parse completo sem erros)
+1. **Handoff de Agente em Worktree (`worktree_state`):**
+   - `bridge/worker_runner.py` monitora o processo do agente na worktree. Quando ocorre interrupção por rate-limit (`429` / fim da janela de 5h) ou timeout:
+   - O Hydra inspeciona o estado físico da worktree (`git status --porcelain`, `git diff HEAD`) e executa os checks rápidos de verificação.
+   - Grava um `HandoffCheckpoint` contendo:
+     - `instructions_json`: objetivo original + critérios de aceite + decisões da Wave 0
+     - `git_sha`: SHA base da worktree
+     - `diff_artifact_ids`: IDs dos artefatos contendo o `git diff` acumulado em disco até o corte
+     - `tools_executed_json`: histórico auditado de comandos/ferramentas concluídos
+     - `partial_output_json`: resumo dos checks que já passam e dos checks ainda pendentes
+     - `next_step`: instrução estruturada para o próximo agente assumir a mesma worktree e concluir apenas os critérios faltantes
+   - Antes de despachar o agente substituto (Modo Relay) ou retomar após o reset da cota (Modo Persistente), o Hydra valida a integridade sintática dos arquivos modificados na worktree (`ast.parse` em Python ou linter do projeto); se um arquivo ficou truncado no disco pelo kill do processo, faz `git checkout -- <arquivo_corrompido>` apenas daquele arquivo incompleto, preservando todos os demais arquivos salvos.
 
-**Verificação de integridade:** Antes de aplicar patch mesclado, roda `ast.parse()` (Python) ou equivalente tree-sitter para a linguagem. Falha → rejeita costura, exige reparo manual.
+2. **Retry de Turno Atômico no Proxy (`/v1/chat/completions` — `atomic_turn_retry`):**
+   - Quando o Hydra atua como proxy HTTP OpenAI-compatível e o provedor upstream interrompe o stream no meio de uma geração ou `tool_calls` (erro 429 ou desconexão abrupta), o roteador **não concatena fragmentos parciais de tool_calls**; descarta o buffer incompleto daquele turno e reenvia a requisição integral do turno para o próximo modelo da cadeia de fallback.
 
-#### 3.6.3 Scheduler de DAG e Controle de Concorrência (RT07, RT26-Swarm)
+#### 3.6.3 Execução Swarm em Duas Ondas (Wave 0 + Wave 1), Protocolo de Emenda e Scheduler DAG (RT07, RT26-Swarm)
+
+**Arquitetura em Duas Ondas (Prevenção de Conflitos de Contrato):**
+Em vez de gerar um contrato puramente textual/estático e disparar todas as frentes no escuro, todo run em modo Swarm é estruturado em duas ondas no DAG:
+- **Wave 0 (Fundação Compilável):** Tarefa raiz única (`wave=0`) executada na branch de integração `integrate/<run_id>`. Cria os schemas reais do banco, modelos tipados (ex.: Pydantic/Prisma/TypeScript), interfaces/stubs de rotas e declara todas as dependências novas em `pyproject.toml` / `package.json`. O aceite da Wave 0 exige que o linter/typecheck passe com exit code `0`.
+- **Wave 1 (Swarm Paralelo):** Tarefas paralelas (`wave=1`, ex.: `wt-backend`, `wt-frontend`, `wt-db-tests`, `wt-docs`) que dependem formalmente da conclusão e aceite da Wave 0. Cada worktree nasce a partir do SHA consolidado da Wave 0.
+- **Protocolo de *Contract Amendment* (Emenda de Contrato):** Se um worker da Wave 1 detectar que o contrato da Wave 0 precisa de um novo campo ou ajuste de assinatura, ele não edita arquivos fora de seu `allowed_paths`; emite o estado `needs_context` com um payload `ContractAmendmentRequest`. O coordenador aplica a emenda na branch de integração, roda o typecheck e atualiza (rebase) as worktrees ativas.
 
 **Validação topológica (Kahn):**
 ```python
 def validate_dag(tasks: List[TaskSpec]) -> ValidationResult:
-    # Build adjacency list and in-degree map
     adj = {t.id: [] for t in tasks}
     in_degree = {t.id: 0 for t in tasks}
     for t in tasks:
@@ -386,7 +373,6 @@ def validate_dag(tasks: List[TaskSpec]) -> ValidationResult:
             if dep not in adj: return Error("dependency_not_in_dag")
             adj[dep].append(t.id)
             in_degree[t.id] += 1
-    # Kahn's algorithm
     queue = [tid for tid, deg in in_degree.items() if deg == 0]
     topo = []
     while queue:
@@ -401,33 +387,20 @@ def validate_dag(tasks: List[TaskSpec]) -> ValidationResult:
     return Ok(topo)
 ```
 
-**Gerenciador de concorrência:** `asyncio.Semaphore(max_parallel_worktrees)`. Tarefas `ready` (dependências satisfeitas) adquirem semáforo antes de spawn. Liberam ao terminar (sucesso, falha, cancelamento). `max_parallel_worktrees` configurável no `BudgetPolicy` / `RunSpec` (padrão: 3).
+**Gerenciador de concorrência:** `asyncio.Semaphore(max_parallel_worktrees)`. Tarefas `ready` (dependências satisfeitas) adquirem semáforo antes de spawn e liberam ao terminar.
 
-**Máquina de estados do nó DAG:**
-```
-WAITING_DEPENDENCY  --(deps satisfied)-->  READY
-READY               --(semaphore acquire)-->  RUNNING
-RUNNING             --(success + checks)-->  COMPLETED_CHECKS
-RUNNING             --(failure)-->  FAILED
-RUNNING             --(cancelled)-->  CANCELLED
-COMPLETED_CHECKS    --(review accepted)-->  READY_FOR_REVIEW
-COMPLETED_CHECKS    --(review rejected)-->  FAILED
-COMPLETED_CHECKS    --(auto-repair triggered)-->  RUNNING (nova tentativa)
-```
-
-#### 3.6.4 Gerenciamento Físico de Worktrees (RT05, RT26-Swarm)
+#### 3.6.4 Gerenciamento Físico de Worktrees e Proteção de Dependências (RT05, RT26-Swarm)
 
 **Nomenclatura e isolamento:** `.orchestrator/worktree/<run_id>_<task_id>_<attempt_ordinal>/`. Cada tentativa tem worktree própria. Worktree de integração separada: `.orchestrator/worktree/integrate_<run_id>/`.
 
-**Prevenção/limpeza de locks abandonados:**
-- Antes de `git worktree add`, verifica e remove `.git/worktrees/<name>/lock` órfãos (processo não existe)
-- `git worktree prune --expire=0` em startup e após crash detectado
-- Windows: `taskkill /PID <pid> /T /F` para árvore; Linux/macOS: `os.killpg(os.getpgid(pid), SIGKILL)`
+**Proteção de Ambientes Compartilhados (`.venv` / `node_modules`):**
+- O compartilhamento de `.venv` ou `node_modules` por symlink entre worktrees da Wave 1 só é seguro se nenhum worker mutar o ambiente compartilhado concorrentemente.
+- Durante a **Wave 1**, os arquivos de manifesto de dependências (`pyproject.toml`, `poetry.lock`, `requirements.txt`, `package.json`, `pnpm-lock.yaml`, `Cargo.toml`) são **excluídos de `allowed_paths`** (read-only para os workers paralelos). Qualquer tentativa de modificar esses manifestos ou rodar `pip install`/`npm install` fora da Wave 0 reprova o gate de escopo da tentativa.
 
-**Tratamento multiplataforma:**
-- Windows: caminhos longos (`\\?\` prefix), file locks obrigatórios (`git` falha se arquivo aberto)
-- POSIX: inode-based, symlinks permitidos (validar que não escapam da raiz canônica)
-- Normalização: `os.path.realpath()` para resolver symlinks antes de validar `allowed_paths`
+**Prevenção/limpeza de locks abandonados e Multiplataforma:**
+- Antes de `git worktree add`, verifica e remove `.git/worktrees/<name>/lock` órfãos (processo não existe) e executa `git worktree prune --expire=0` em startup.
+- Windows: `taskkill /PID <pid> /T /F` para árvore; Linux/macOS: `os.killpg(os.getpgid(pid), SIGKILL)`.
+- Normalização: `os.path.realpath()` para resolver symlinks antes de validar `allowed_paths`.
 
 #### 3.6.5 Auto-Healing (Reparação Cirúrgica) (RT12, RF12)
 
@@ -917,7 +890,7 @@ Todas pendentes. Cada linha é uma unidade de implementação com testes no mesm
 |------|---------|---------|-------------------------|------------------------------|
 | **T01** Config canônica | — | RF02 / RT01 | `config.py`, `config.yaml`, `.gitignore`, `tests/test_config.py` | Aliases resolvidos; inválidos recusados; runtime ignorado |
 | **T02** Contratos e estados | T01 | RF03/RF07 / RT02 | `model.py`, `prd_tecnico.md (§3.4)`, `tests/test_model.py` | Schemas Pydantic + transições válidos/inválidos cobertos |
-| **T03** Store e migração | T02 | RF03/RF05 / RT03/RT11 | `core/checkpointer.py`, `migrations/`, `tests/test_checkpointer.py` | Restart, chave idempotente, transação, WAL, FKs testados |
+| **T03** Store e migração | T02 | RF03/RF05 / RT03/RT11 | `core/checkpointer.py`, `migration/`, `tests/test_checkpointer.py` | Restart, chave idempotente, transação, WAL, FKs testados |
 | **T04** Runner e fake | T03 | RF04/RF06 / RT04 | `bridge/worker_runner.py`, `tests/test_worker_runner.py` | Cwd real, erro, timeout, árvore cancelada, fake só dry-run |
 | **T05** Workspace Git | T04 | RF01/RF04 / RT05 | `core/git_workspace.py`, `tests/test_git_workspace.py` | SHA fixo, worktree real, estado usuário preservado, lock cleanup |
 | **T06** Checks e integração | T05 | RF07/RF08 / RT06 | `core/git_workspace.py`, `core/run_service.py`, `tests/test_integration.py` | Patch real, escopo, conflito, checks combinados governam aceite |
@@ -931,7 +904,7 @@ Paths Python relativos a `src/hydra_orch/`, exceto `tests/`, config, docs. T01�
 | Task | Depende | RF / RT | Arquivos de propriedade propostos | Definição de concluído (DoD) |
 |------|---------|---------|-----------------------------------|------------------------------|
 | **T09** Auth e CORS estrito | T07 | RF15/RF24 / RT25 | `server.py`, `core/auth.py`, `core/redaction.py`, `tests/test_auth.py` | Token local obrigatório; CORS allowlist estrita; redaction validada |
-| **T10** Migrações control plane | T03, T09 | RF16–RF30 / RT03/RT25 | `core/checkpointer.py`, `migrations/`, `tests/test_migrations.py` | Tabelas expansão versionadas; rollback; FKs ativas; legado preservado |
+| **T10** Migrações control plane | T03, T09 | RF16–RF30 / RT03/RT25 | `core/checkpointer.py`, `migration/`, `tests/test_migration.py` | Tabelas expansão versionadas; rollback; FKs ativas; legado preservado |
 | **T11** Registry áreas/repos | T10 | RF16 / RT13 | `core/workspace_registry.py`, `tests/test_workspace_registry.py` | Hierarquia Area/WS/Project/Repo persistida; traversal bloqueado |
 | **T12** Catálogo agentes/capabilities | T02, T04, T10 | RF17, RF14 / RT14 | `core/agent_registry.py`, `config.yaml`, `tests/test_agent_registry.py` | Capabilities declaradas; driver não certificado bloqueado; CLI ausente = erro |
 | **T13** Perfis e snapshots imutáveis | T11, T12 | RF17, RF23 / RT15 | `core/profile_service.py`, `tests/test_profile.py` | Validação pré-exec; snapshot imutável com hash por run |
@@ -950,24 +923,8 @@ Paths Python relativos a `src/hydra_orch/`, exceto `tests/`, config, docs. T01�
 | **T26** HITL (Humano-no-Loop) | T07, T14 | RF27 / RT27 | `core/hitl.py`, `core/run_service.py`, `tests/test_hitl.py` | Pausa needs_context/needs_approval; timeout; retomada com resposta; evidência |
 | **T27** Resolução conflitos merge | T06, T08 | RF28 / RT28 | `core/conflict_resolver.py`, `core/git_workspace.py`, `tests/test_conflict.py` | Relatório 3-way; merge_repair com orçamento; opções manual/discard |
 | **T28** Budgeting e PR Packaging | T07, T15 | RF29, RF30 / RT29, RT30 | `core/budget.py`, `core/packaging.py`, `tests/test_budget_packaging.py` | Tetos USD/tokens/tempo; alerta 80%/congelamento 100%; PR package auto |
-| **T29** Comandos sessão e esforço | T14 | RF31 / RT31 | `core/session_service.py`, `model.py`, `cli.py`, `tests/test_session_commands.py` | Dispatcher para `/compact`, `/plan`, `/build`; parâmetro `reasoning_effort` repassado |
-| **T30** Motor e adaptador multimodal | T04, T10 | RF32 / RT32 | `adapter/multimodal.py`, `engine/multimodal.py`, `tests/test_multimodal.py` | Protocolo `MultimodalAdapter`; persistência com SHA-256; metadados de geração |
-| **T31** MCP Control Plane e Inspetor | T19 | RF33 / RT33 | `bridge/mcp_client.py`, `core/mcp_service.py`, `tests/test_mcp_control.py` | Cliente stdio/SSE/HTTP; inspeção dinâmica `tools/list`; ativação seletiva; SecretRef |
-| **T32** Ingestão RAG de documentos | T09, T10 | RF34 / RT34 | `core/knowledge/ingest.py`, `tests/test_rag_ingest.py` | Extratores PDF, MD, Code; sanitização com Redactor; chunks semânticos |
-| **T33** Armazenamento RAG híbrido | T32 | RF34 / RT34 | `core/knowledge/store.py`, `tests/test_rag_store.py` | Base isolada `.orchestrator/knowledge/`; embeddings + FTS5 BM25 |
-| **T34** Retriever e injeção RAG | T33, T14 | RF34 / RT34 | `core/knowledge/retriever.py`, `tests/test_rag_retriever.py` | Busca híbrida cosseno+BM25; RRF; injeção com limiar e teto de tokens |
-| **T35** Conector GitHub/GitLab | T07, T28 | RF35 / RT35 | `bridge/connector/base.py`, `github.py`, `tests/test_github_connector.py` | Contrato `TicketProvider`; conversão card→RunSpec; atualização de status |
-| **T36** Conectores Jira e Kanbanize | T35 | RF35 / RT35 | `bridge/connector/jira.py`, `kanbanize.py`, `tests/test_jira_kanbanize.py` | REST API Jira e Kanbanize; mapeamento de colunas/transições de cards |
-| **T37** Drivers de áudio STT/TTS | T04 | RF36 / RT36 | `bridge/voice/stt.py`, `tts.py`, `tests/test_voice_drivers.py` | STT Whisper e TTS Kokoro/ElevenLabs; áudio em chunks PCM/Opus |
-| **T38** Sessão de voz duplex WebSocket | T37, T14 | RF36 / RT36 | `core/voice_session.py`, `server.py`, `tests/test_voice_session.py` | WebSocket streaming; VAD para barge-in; TTFT < 500ms; bloqueio de aprovações destrutivas |
-| **T39** Automação browser Playwright | T04, T22 | RF37 / RT37 | `bridge/computer_use/browser.py`, `tests/test_browser_automation.py` | Sessão Playwright isolada por workspace; navegação persistente e cookies |
-| **T40** Automação desktop OS | T04 | RF37 / RT37 | `bridge/computer_use/desktop.py`, `tests/test_desktop_automation.py` | Captura de screenshots periódicos; envio de teclas e coordenadas de mouse |
-| **T41** Safety Governor Computer Use | T26, T39, T40 | RF37 / RT37 | `core/computer_use_governor.py`, `tests/test_computer_use_governor.py` | Interceptação de ações de efeito; emissão de HITL `needs_approval`; logs com screenshots |
-| **T42** Catálogo e busca LLMs locais | T10 | RF38 / RT38 | `bridge/local_llm/catalog.py`, `tests/test_local_catalog.py` | Consulta Ollama, LM Studio, vLLM; busca no Hugging Face com verificação SHA-256 |
-| **T43** Pipeline quantização GGUF | T42, T04 | RF38 / RT38 | `bridge/local_llm/quantize.py`, `tests/test_quantize.py` | Wrapper llama.cpp (`quantize`) com limites de RAM e concorrência 1 |
-| **T44** Customização Modelfile | T42 | RF38 / RT38 | `bridge/local_llm/modelfile.py`, `tests/test_modelfile.py` | Construtor de Modelfiles; templates de system prompts; montagem de LoRA |
 
-### 8.3 Faseamento e etapas propostas (S00 a S28)
+### 8.3 Faseamento e etapas propostas (S00 a S20)
 
 ```text
 V0 (Núcleo verificável):      S00 -> S01 -> S02 -> S03 -> S04 -> S05 -> M1 (T01-T08)
@@ -982,10 +939,6 @@ V4 (Memória, Discovery, Extensões, Conflitos, Budget, PR):
                               -> S18 (acessibilidade_transportes.md: T21, T22)
                               -> S19 (budget_packaging.md: T28)
                               -> S20 (cli_ci_manual.md: T23, T24)
-V5 (Multimodal & Interação):  S21 (session_commands: T29) -> S22 (multimodal_engine: T30)
-                              -> S26 (voice_duplex: T37, T38) -> S27 (computer_use: T39, T40, T41)
-V6 (Knowledge, Hub & Foundry): S23 (mcp_control: T31) -> S24 (rag_knowledge: T32, T33, T34)
-                              -> S25 (issue_trackers: T35, T36) -> S28 (local_foundry: T42, T43, T44)
 ```
 
 Nenhuma etapa da expansão pode anteceder a conclusão do marco M1 de execução verificável local.
@@ -1012,14 +965,6 @@ Nenhuma etapa da expansão pode anteceder a conclusão do marco M1 de execução
 | RF28 | RT28 | T27 | S05/S17 | Conflito 3-way + merge_repair + opções | Worktree preservada; não toca branch user |
 | RF29 | RT29 | T28 | S19 | Budget 80% alert / 100% freeze / extend | Recusa → budget_exhausted |
 | RF30 | RT30 | T28 | S19/S13 | PR package auto com descrição completa | Sem autorização → não publica |
-| RF31 | RT31 | T29 | S21 | Comandos `/compact`, `/plan`, `/build` e `reasoning_effort` | Mutação em `/plan` gera violação; texto não vira comando |
-| RF32 | RT32 | T30 | S22 | Binário multimodal persistido com hash SHA-256 e params | Recusa moderação tratada; custo unknown |
-| RF33 | RT33 | T31 | S23 | Inspeciona `tools/list`; desativa ferramenta; injeta SecretRef | Schema alterado → untrusted; segredo mascarado |
-| RF34 | RT34 | T32–T34 | S24 | Ingestão e busca híbrida cosseno+BM25 em base isolada | Tenant cruzado recusado 403; injeção respeita budget |
-| RF35 | RT35 | T35, T36 | S25 | Conectores Jira/Kanbanize/GitHub atualizam status | Queda API externa não bloqueia execução local |
-| RF36 | RT36 | T37, T38 | S26 | WebSocket streaming de voz duplex com VAD e barge-in | Comando destrutivo por voz recusado sem confirmação |
-| RF37 | RT37 | T39–T41 | S27 | Automação desktop/browser com Safety Governor e HITL | Ação de efeito sem aprovação gera bloqueio |
-| RF38 | RT38 | T42–T44 | S28 | Hub LLM local, download com SHA-256, quantização GGUF | Quantização sem hardware gera erro tipado |
 | Transversal | RT25 | T09 | S16 | Auth local + CORS estrita + redaction | CORS wildcard + creds → 403 |
 
 ---
@@ -1028,11 +973,11 @@ Nenhuma etapa da expansão pode anteceder a conclusão do marco M1 de execução
 
 A formalização completa da arquitetura da expansão exigirá o alinhamento dos seguintes documentos em etapas documentais dedicadas, antes da codificação das tarefas correspondentes:
 
-- `doc/b_spc/prd_tecnico.md` (§3.4): formalização dos schemas JSON de `ProfileSnapshot`, `Session`, `Thread`, `ConsentRecord`, `MemoryEntry`, `HandoffCheckpoint`, `BudgetPolicy`, `ConflictReport`, `PRPackage`, `MediaJob`, `KnowledgeDocument`, `ComputerUseAction`, `LocalModelSpec` e eventos de control plane.
-- `doc/g_code/architecture.md`: atualização dos diagramas de blocos para incluir `AgentRegistry`, `DiscoveryService`, `ExtensionHost`, `BudgetGovernor`, `ConflictResolver`, `PRPackager`, `McpService`, `ComputerUseGovernor`, `KnowledgeRetriever`.
-- `doc/d_mer/mer.md` e `mer.mmd`: modelagem relacional formal das tabelas de expansão (`areas`, `workspaces`, `repositories`, `profiles`, `sessions`, `memories`, `metric_samples`, `route_decisions`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`, `media_jobs`, `knowledge_*`, `computer_use_actions`, `local_models`).
-- `doc/e_class/diagrama_classe.md` e `diagrama_classe.mmd`: diagramas de classe para interfaces e serviços de control plane (incluindo `BudgetGovernor`, `ConflictResolver`, `PRPackager`, `HitlManager`, `KnowledgeRetriever`, `ComputerUseGovernor`).
-- `doc/b_spc/README.md`: sincronização dos contadores normativos para `RF01–RF38`, `RT01–RT38`, `RNF01–RNF15` e `T01–T44`.
+- `doc/b_spc/prd_tecnico.md` (§3.4): formalização dos schemas JSON de `ProfileSnapshot`, `Session`, `Thread`, `ConsentRecord`, `MemoryEntry`, `HandoffCheckpoint`, `BudgetPolicy`, `ConflictReport`, `PRPackage` e eventos de control plane.
+- `doc/g_code/architecture.md`: atualização dos diagramas de blocos para incluir `AgentRegistry`, `DiscoveryService`, `ExtensionHost`, `BudgetGovernor`, `ConflictResolver`, `PRPackager`.
+- `doc/d_mer/mer.md` e `mer.mmd`: modelagem relacional formal das tabelas de expansão (`areas`, `workspaces`, `repositories`, `profiles`, `sessions`, `memories`, `metric_samples`, `route_decisions`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`).
+- `doc/e_class/diagrama_classe.md` e `diagrama_classe.mmd`: diagramas de classe para interfaces e serviços de control plane (incluindo `BudgetGovernor`, `ConflictResolver`, `PRPackager`, `HitlManager`).
+- `doc/b_spc/README.md`: sincronização dos contadores normativos para `RF01–RF30`, `RT01–RT30`, `RNF01–RNF10` e `T01–T28`.
 - `doc/f_api/openapi.yaml`: especificação OpenAPI 3.0 completa para `/v1/control-plane/*` e `/v1/chat/completions`.
 - `doc/h_test/README.md`: matriz de rastreabilidade RF/RT → testes, estratégia hermética, critérios de cobertura, testes de segurança/a11y.
 - `doc/i_infra/README.md`: infraestrutura de sandboxing, gestão de processos multiplataforma, certificação de drivers.
@@ -1040,7 +985,7 @@ A formalização completa da arquitetura da expansão exigirá o alinhamento dos
 
 ---
 
-## 9. Requisitos Não-Funcionais (RNF01 a RNF15)
+## 9. Requisitos Não-Funcionais (RNF01 a RNF10)
 
 | ID | Categoria | Requisito | Métrica / Critério de Aceite |
 |----|-----------|-----------|------------------------------|
@@ -1054,11 +999,6 @@ A formalização completa da arquitetura da expansão exigirá o alinhamento dos
 | **RNF08** | Observabilidade | 100% de operações críticas (run, task, attempt, check, review, integrate, cancel) emitem evento SSE com payload redigido | Cobertura de eventos verificada em `tests/test_events_coverage.py` |
 | **RNF09** | Manutenibilidade | Cobertura de testes ≥ 80% em `core/`, `bridge/`, `engine/`; 100% em `model.py` (schemas) | `pytest --cov=src/hydra_orch --cov-fail-under=80` |
 | **RNF10** | Portabilidade | Zero dependências de runtime não-vendored; Python stdlib + dependências declaradas em `pyproject.toml` | `pip-audit` + `cyclonedx-bom` em CI; sem `sys.path` hacks |
-| **RNF11** | Latência de Voz Duplex | Latência fim-a-fim da conversação por áudio (detecção de fala, transcrição STT e início de stream TTS) < 500ms TTFT | Medido em `tests/test_voice_session.py`; benchmark de latência de buffer PCM |
-| **RNF12** | Sandbox e Segurança de Computer Use | 100% das ações de efeito no SO ou browser interceptadas por Safety Governor com token de aprovação assinado e expiração de 60s | Teste negativo garantindo recusa automática em ausência de assinatura válida |
-| **RNF13** | Integridade de Mídia Multimodal | Verificação de integridade criptográfica SHA-256 e validação de MIME type em 100% dos binários gerados antes da exposição na UI | Teste de corrupção simulada de byte em upload/geração gerando recusa de preview |
-| **RNF14** | Isolamento e Redação de Dados RAG | Zero vazamento de segredos, PII ou dados entre tenants distintos na base de conhecimento | Testes de isolamento multi-tenant garantindo zero vazamento de chunks entre coleções |
-| **RNF15** | Governança de Recursos de Quantização Local | Subprocessos de conversão/quantização de modelos limitados a 1 job concorrente e monitoramento contínuo de RAM | Teste de semáforo de quantização impedindo concorrência descontrolada |
 
 ---
 
@@ -1078,7 +1018,7 @@ POST de `RunSpec` com projeto, objetivo, base SHA e tarefa delimitada cria run `
 
 **Discovery local rejeitando adulteração:** `DiscoveryService` varre raiz autorizada, encontra manifesto de skill. Calcula SHA-256, registra `DiscoveredResource` como `untrusted`. Operador aprova via API/CLI → `approved`. Se arquivo alterado em disco, próximo hash check detecta divergência, transita para `untrusted` e impede execução até nova aprovação.
 
-**Handoff Relay com Code Stitching:** Executor atinge rate limit (evento `attempt.rate_limited`). Hydra cria `HandoffCheckpoint` com diff parcial, ferramentas executadas, próximo passo. Seleciona provedor fallback compatível. Nova tentativa carrega checkpoint; `tree-sitter` identifica âncora sintática no último nó completo; injeta prompt "continue from here". Valida integridade sintática antes de aplicar patch mesclado.
+**Handoff Relay por Estado Git/Worktree:** Executor atinge rate limit (evento `attempt.rate_limited`). Hydra inspeciona a worktree (`git status`, `git diff`), reverte apenas eventual arquivo truncado por kill com `git checkout -- <file>`, e grava `HandoffCheckpoint` com o diff consolidado, ferramentas executadas e checks pendentes. Seleciona provedor fallback compatível que assume a worktree no estado verificado para concluir as pendências.
 
 **Swarm com DAG e Auto-Healing:** Run modo `swarm` com T1→T2, T1→T3. Scheduler valida DAG (Kahn), despacha T1. T1 falha check. Operador solicita reparo → nova tentativa T1 (ordinal 2) com prompt de reparo contendo só erro + código atual. `max_repair_attempts=2` respeitado. T1 aceita → T2, T3 tornam-se `ready` e despachadas em paralelo (semáforo `max_parallel_worktrees=3`). Todas aceitas → integração serializada com checks combinados.
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -85,12 +85,12 @@ class HydraSettings(BaseModel):
 
     proxy_host: str = "127.0.0.1"
     proxy_port: int = 8000
-    default_mode: int = 1  # 1: Swarm Multi-Sessao, 2: Relay, 3: Persistente
+    default_mode: int = 1  # 1: Swarm (Wave 0 + Wave 1), 2: Relay, 3: Persistente
     preferred_primary_model: str = "claude-pro"
     worktree_base_dir: str = ".orchestrator/worktree"
     state_db: str = ".orchestrator/checkpoints.sqlite"
     auto_heal_build_errors: bool = True
-    max_heal_attempts: int = 3
+    max_heal_attempts: int = 2
 
 
 class LogicalModelMapping(BaseModel):
@@ -175,11 +175,13 @@ RemoteLocalConfig = RemoteSshGpuConfig
 
 
 class SwarmModeConfig(BaseModel):
-    """Configuração do modo Swarm paralelo."""
+    """Configuração do modo Swarm em Duas Ondas (Wave 0 Fundação + Wave 1 Paralela)."""
     model_config = ConfigDict(extra="forbid")
 
     max_parallel_worktrees: int = 4
     worker_cli: str = "opencode"
+    wave_0_foundation_enabled: bool = True
+    lock_dependency_manifests_in_wave_1: bool = True
     symlink_dirs: List[str] = Field(default_factory=lambda: ["node_modules", ".venv", "vendor"])
     roles: Dict[str, str] = Field(
         default_factory=lambda: {
@@ -205,6 +207,7 @@ class RelayModeConfig(BaseModel):
 
     sequence: List[RelayStage] = Field(default_factory=list)
     mid_stream_hot_swap: bool = True
+    handoff_strategy: Literal["worktree_state", "atomic_turn_retry"] = "worktree_state"
 
 
 class PersistentModeConfig(BaseModel):
@@ -214,6 +217,7 @@ class PersistentModeConfig(BaseModel):
     locked_model: str = "architect_heavy"
     wait_for_5h_quota_reset: bool = True
     poll_quota_interval_sec: int = 30
+    resume_strategy: Literal["worktree_state", "atomic_turn_retry"] = "worktree_state"
     stitch_anchor_lines: int = 15
 
 
@@ -281,15 +285,7 @@ class HydraConfig(BaseModel):
     # ------------------------------------------------------------------------
 
     def resolve_alias(self, alias: str) -> ResolvedTarget:
-        """Resolve um alias lógico de modelo para executor, provedor e modelo real.
-
-        Exemplos de alias:
-          - 'architect_heavy' -> primary: 'claude-code/claude-3-7-sonnet'
-          - 'fullstack_coder'  -> primary: 'codex/gpt-4o-plus'
-
-        Se o alias for um modelo direto (ex.: 'claude_pro' ou 'openrouter/deepseek-r1'),
-        ele é resolvido diretamente. Se for desconhecido, levanta UnknownAliasError.
-        """
+        """Resolve um alias lógico de modelo para executor, provedor e modelo real."""
         logical_models = self.omniroute.logical_models
 
         if alias in logical_models:
@@ -310,7 +306,6 @@ class HydraConfig(BaseModel):
                 preferred_adapter=adapter,
             )
 
-        # Caso seja uma referência direta a provedor conhecido
         if alias in _KNOWN_PROVIDER_ADAPTERS:
             return ResolvedTarget(
                 alias=alias,
@@ -322,7 +317,6 @@ class HydraConfig(BaseModel):
                 preferred_adapter=_KNOWN_PROVIDER_ADAPTERS[alias],
             )
 
-        # Caso tenha formato provider/model direto
         if "/" in alias:
             provider_part, model_part = alias.split("/", 1)
             adapter = _KNOWN_PROVIDER_ADAPTERS.get(provider_part)
@@ -378,7 +372,6 @@ class HydraConfig(BaseModel):
             }
             remote_local = {
                 "ollama_local": type("LocalCfg", (), {"enabled": True, "base_url": "http://127.0.0.1:11434", "model_dump": lambda: {"base_url": "http://127.0.0.1:11434"}}),
-                # GAP A13: suporte explícito a ssh_remote na compatibilidade
                 "ssh_remote": type("SshCfg", (), {
                     "enabled": ssh_cfg.enabled,
                     "ssh_target": ssh_cfg.ssh_target,
@@ -436,11 +429,7 @@ _CONFIG_CACHE: Optional[HydraConfig] = None
 
 
 def load_config(config_path: Optional[str | Path] = None, reload: bool = False) -> HydraConfig:
-    """Carrega configuração de arquivo YAML ou retorna instância em cache.
-
-    Aplica resolução de variáveis de ambiente recursiva e validação estrita DBC-9.
-    Se reload=True, invalida o cache em memória e recarrega.
-    """
+    """Carrega configuração de arquivo YAML ou retorna instância em cache."""
     global _CONFIG_CACHE
     if _CONFIG_CACHE is not None and config_path is None and not reload:
         return _CONFIG_CACHE
@@ -458,7 +447,6 @@ def load_config(config_path: Optional[str | Path] = None, reload: bool = False) 
         if path.is_file():
             with open(path, "r", encoding="utf-8") as f:
                 raw_data = yaml.safe_load(f) or {}
-                # Resolve segredos do tipo ${VAR}
                 resolved_data = _resolve_secrets_recursive(raw_data)
                 cfg = HydraConfig.model_validate(resolved_data)
                 _CONFIG_CACHE = cfg

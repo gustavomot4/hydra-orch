@@ -1,6 +1,6 @@
 # Documentação Técnica do hydra-orch
 
-**Versão:** `v01_02_0000`
+**Versão:** `v02_00_0000`
 **Status:** `PROPOSTO / EM DESENVOLVIMENTO`
 
 Esta pasta reúne a documentação canônica do projeto **hydra-orch**, estruturada rigorosamente conforme as diretrizes de taxonomia oficial da equipe (`doc/a_context/taxonomia_file_system.md`), ordenação sequencial por prefixos cognitivos (`a_...`, `b_...`) e regra da singularidade absoluta.
@@ -13,9 +13,9 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 
 | Prefixo | Diretório | Domínio Documental | Finalidade Principal | Status |
 |---------|-----------|-------------------|----------------------|--------|
-| `a_` | [`a_context/`](a_context/) | Contexto & Planejamento | Investigação Alethe, diagnóstico, plano mestre S00–S28, roadmap estratégico, backlog de tasks, taxonomia e visão | ✅ Completo |
-| `b_` | [`b_spc/`](b_spc/) | Especificações & PRDs | PRD Funcional (RF01–38) e PRD Técnico (RT01–38, RNF01–15, Contratos, DDL) | ✅ Completo |
-| `c_` | [`c_activity/`](c_activity/) | Atividades & Processos | Casos de uso UC01–UC10 com Mermaid TB/LR, DBC-9, Meta-JSON | ✅ Completo |
+| `a_` | [`a_context/`](a_context/) | Contexto & Planejamento | Investigação Alethe, diagnóstico, plano mestre S00–S20, roadmap estratégico (V0–V4), backlog de tasks (T01–T28), taxonomia, visão e ideias futuras | ✅ Completo |
+| `b_` | [`b_spc/`](b_spc/) | Especificações & PRDs | PRD Funcional (RF01–30) e PRD Técnico (RT01–30, RNF01–10, Contratos, DDL) | ✅ Completo |
+| `c_` | [`c_activity/`](c_activity/) | Atividades & Processos | Casos de uso UC01–UC05 com Mermaid TB/LR, DBC-9, Meta-JSON | ✅ Completo |
 | `d_` | [`d_mer/`](d_mer/) | Dados & MER | Modelo Entidade-Relacionamento (núcleo + expansão), DDL SQLite, índices | ✅ Completo |
 | `e_` | [`e_class/`](e_class/) | Classes & Tipagem | Diagramas de classes (núcleo + control plane), interfaces, serviços | ✅ Completo |
 | `f_` | [`f_api/`](f_api/) | Interfaces & OpenAPI | OpenAPI 3.0 completo `/v1/control-plane/*` + `/v1/chat/completions` | ✅ Completo |
@@ -31,8 +31,9 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 ### Contexto e Planejamento (`a_context/`)
 | Arquivo | Versão | Escopo |
 |---------|--------|--------|
-| [`roadmap.md`](a_context/roadmap.md) | `v01_00_0000` | Horizontes V0–V6, marcos M1–M4, subgates M4a/b/c, critérios DoR/DoD de marco e matriz de riscos |
-| [`backlog.md`](a_context/backlog.md) | `v01_00_0000` | Catálogo unificado das 44 tasks (T01–T44), 309 SP (Fibonacci), 16 ondas e matriz anti-colisão |
+| [`roadmap.md`](a_context/roadmap.md) | `v02_00_0000` | Horizontes V0–V4, marcos M1–M4, gates formais DoR/DoD de marco e matriz de riscos |
+| [`backlog.md`](a_context/backlog.md) | `v02_00_0000` | Catálogo unificado das 28 tasks (T01–T28), 204 SP (Fibonacci), 11 ondas e matriz anti-colisão |
+| [`ideia_futura.md`](a_context/ideia_futura.md) | `v01_00_0000` | Parking Lot pós-M4 (multimodal, voz duplex, Computer Use, RAG corporativo, Jira/Kanbanize e GGUF) |
 | [`plano_desenvolvimento.md`](a_context/plano_desenvolvimento.md) | `v01_00_0000` | Diagnóstico de código, catálogo de gaps A01–A18 e sequência de specs S00–S28 |
 | [`taxonomia_file_system.md`](a_context/taxonomia_file_system.md) | `v01_00_0000` | Norma arquitetural de singularidade estrita, prefixos e isolamento `.orchestrator/` |
 | [`visao_produto.md`](a_context/visao_produto.md) | `v01_00_0000` | Visão estratégica original do produto (V5.0), modos Swarm/Relay/Persistente |
@@ -41,8 +42,8 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 ### Especificações Normativas (`b_spc/`)
 | Arquivo | Versão | Escopo |
 |---------|--------|--------|
-| `prd_funcional.md` | `v01_02_0000` | RF01–RF38, UC01–UC10, RB01–RB28, proposta de valor |
-| `prd_tecnico.md` | `v01_02_0000` | RT01–RT38, RNF01–RNF15, contratos de execução, DDL SQLite, T01–T44, S00–S28 |
+| `prd_funcional.md` | `v01_02_0000` | RF01–RF30, UC01–UC05, RB01–RB20, proposta de valor |
+| `prd_tecnico.md` | `v01_02_0000` | RT01–RT30, RNF01–RNF10, contratos de execução, DDL SQLite, T01–T28, S00–S20 |
 
 ### Casos de Uso (`c_activity/`)
 | Arquivo | Fluxo | Requisitos |
@@ -79,14 +80,14 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 
 | Categoria | Range | Status |
 |-----------|-------|--------|
-| **RF** (Requisitos Funcionais) | RF01 – RF38 | Proposto |
-| **RT** (Requisitos Técnicos) | RT01 – RT38 | Proposto |
-| **RNF** (Requisitos Não-Funcionais) | RNF01 – RNF15 | Proposto |
-| **UC** (Casos de Uso) | UC01 – UC10 | Documentado |
-| **RB** (Regras de Negócio) | RB01 – RB28 | Definido |
-| **T** (Tasks de Implementação) | T01 – T44 | Proposto |
-| **S** (Etapas de Faseamento) | S00 – S28 | Planejado |
-| **M** (Marcos / Slices) | M1 – M4 (V0 a V6) | Planejado |
+| **RF** (Requisitos Funcionais) | RF01 – RF30 | Proposto |
+| **RT** (Requisitos Técnicos) | RT01 – RT30 | Proposto |
+| **RNF** (Requisitos Não-Funcionais) | RNF01 – RNF10 | Proposto |
+| **UC** (Casos de Uso) | UC01 – UC05 | Documentado |
+| **RB** (Regras de Negócio) | RB01 – RB20 | Definido |
+| **T** (Tasks de Implementação) | T01 – T28 | Proposto |
+| **S** (Etapas de Faseamento) | S00 – S20 | Planejado |
+| **M** (Marcos / Slices) | M1 – M4 (V0 a V4) | Planejado |
 | **SP** (Story Points Totais) | 309 SP (Fibonacci) | Estimado |
 | **O** (Ondas de Execução) | Onda 1 a Onda 16 | Estruturado |
 
@@ -104,12 +105,6 @@ V4 (Memória, Discovery, Ext):  S16 → S17 (T17, T18, T19, T20, T27)
                               → S18 (T21, T22)
                               → S19 (T28: budget + packaging)
                               → S20 (T23, T24: CLI, CI, manuals)
-V5 (Multimodal & Interação):  S21 (session commands: T29) → S22 (multimodal: T30)
-                              → S26 (voice duplex: T37, T38) → S27 (computer use: T39, T40, T41)
-V6 (Knowledge, Hub & Foundry): S23 (mcp control: T31) → S24 (rag knowledge: T32, T33, T34)
-                              → S25 (issue trackers: T35, T36) → S28 (local foundry: T42, T43, T44)
-```
-
 **Regra:** Nenhuma etapa da expansão antecede conclusão do marco M1 (execução verificável local).
 
 ---

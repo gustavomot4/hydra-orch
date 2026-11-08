@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import time
 from typing import Any, AsyncIterator, Dict, List, Optional
 import httpx
 
@@ -37,19 +35,25 @@ class OmniRouteClient:
             return False
 
     async def get_quota_status(self) -> Dict[str, Any]:
-        """Fetch current 5h quota windows and token usage from OmniRoute."""
+        """Fetch current 5h quota windows and token usage from OmniRoute.
+
+        Conforms to RT09 / RT17 (GAP A03): When OmniRoute is offline, marks status as 'unknown'
+        rather than claiming 100% observed availability.
+        """
         try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
+            async with httpx.AsyncClient(timeout=2.0) as client:
                 resp = await client.get(self.quota_api_url)
                 if resp.status_code == 200:
-                    return resp.json()
+                    data = resp.json()
+                    data.setdefault("status", "observed")
+                    return data
         except Exception as e:
             logger.debug(f"Could not reach OmniRoute quota API: {e}")
         return {
-            "status": "offline_or_mock",
-            "claude_pro": {"remaining_percent": 100, "resets_in_seconds": 0},
-            "chatgpt_plus": {"remaining_percent": 100, "resets_in_seconds": 0},
-            "gemini_pro": {"remaining_percent": 100, "resets_in_seconds": 0},
+            "status": "unknown",
+            "claude_pro": {"status": "unknown", "remaining_percent": 0, "resets_in_seconds": None},
+            "chatgpt_plus": {"status": "unknown", "remaining_percent": 0, "resets_in_seconds": None},
+            "gemini_pro": {"status": "unknown", "remaining_percent": 0, "resets_in_seconds": None},
         }
 
     async def stream_chat_completion(
@@ -58,6 +62,7 @@ class OmniRouteClient:
         messages: List[ChatMessage],
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        allow_offline_mock: bool = False,
     ) -> AsyncIterator[str]:
         """Stream tokens from OmniRoute gateway via standard SSE."""
         payload: Dict[str, Any] = {
@@ -93,8 +98,9 @@ class OmniRouteClient:
                                         yield content
                             except json.JSONDecodeError:
                                 continue
-        except httpx.ConnectError:
-            # Fallback mock for offline/dry-run test environments
-            logger.warning("OmniRoute daemon not reachable on :20128. Yielding simulated response.")
-            yield f"[OmniRoute Offline Mode: Executing task with logical model {model}]\n"
-            yield f"Result successfully generated for query: {messages[-1].content[:60]}...\n"
+        except httpx.ConnectError as e:
+            if allow_offline_mock:
+                logger.warning("OmniRoute daemon not reachable on :20128. Yielding dry-run simulated response.")
+                yield f"[OmniRoute Dry-Run Mode: Simulated response for {model}]\n"
+            else:
+                raise ConnectionError(f"OmniRoute daemon unreachable at {self.base_url}") from e

@@ -41,11 +41,6 @@ O projeto exige execução verificável local, orquestração assíncrona, strea
 | **Observabilidade** | Structlog + Prometheus | 24.1 / 0.19 | JSON logs, métricas `/metrics` |
 | **Config** | PyYAML | 6.0 | `config.yaml` tipado |
 | **Build** | Hatch | 1.11 | PEP 621, versioning, publishing |
-| **Voice / STT / TTS** *(V5)* | faster-whisper + sounddevice | 1.0 / 0.4 | Transcrição local, reprodução áudio, VAD |
-| **Computer Use** *(V5)* | Playwright + PyAutoGUI + Pillow | 1.44 / 0.9 / 10.3 | Automação navegador/desktop, screenshots |
-| **Knowledge / RAG** *(V6)* | pypdf + sqlite-vss (ou chromadb) | 4.2 / 0.1 | Extração documentos, busca vetorial híbrida |
-| **Local LLM Foundry** *(V6)* | huggingface-hub + llama-cpp-python | 0.23 / 0.2 | Download modelos, quantização GGUF local |
-| **Trackers** *(V6)* | jira + python-gitlab | 3.8 / 4.4 | Conectores REST Jira e GitLab |
 
 ### 3.2 Frontend (Interface Visual) — React 18 + TypeScript 5.5
 
@@ -135,47 +130,32 @@ hydra-orch/
 │       ├── model.py            # Schemas Pydantic (contratos)
 │       ├── core/               # Serviços de aplicação
 │       │   ├── run_service.py
-│       │   ├── session_service.py      # [+ V5] Comandos /compact, /plan, /build
-│       │   ├── mcp_service.py          # [+ V6] Catálogo e controle de MCPs
-│       │   ├── computer_use_governor.py # [+ V5] HITL e segurança de desktop/browser
-│       │   ├── voice_session.py        # [+ V5] Sessão de voz duplex WebSocket
-│       │   └── knowledge/              # [+ V6] Módulo RAG corporativo/pessoal
-│       │       ├── __init__.py
-│       │       ├── store.py            # SQLite + Vector / BM25
-│       │       ├── ingest.py           # Extratores PDF, MD, Code
-│       │       └── retriever.py        # Busca híbrida e injeção de contexto
-│       ├── engine/             # Estratégias (Swarm, Relay, Persist)
-│       │   ├── swarm.py
-│       │   ├── relay.py
-│       │   ├── persist.py
-│       │   ├── healer.py
-│       │   └── multimodal.py           # [+ V5] Orquestrador de jobs multimídia
-│       ├── bridge/             # Transporte, subprocess, SSH
-│       │   ├── worker_runner.py
-│       │   ├── mcp_client.py           # [+ V6] Cliente protocolo MCP
-│       │   ├── connector/              # [+ V6] Conectores de tarefas
-│       │   │   ├── __init__.py
-│       │   │   ├── base.py             # TicketProvider ABC
-│       │   │   ├── jira.py             # Conector Jira REST
-│       │   │   ├── kanbanize.py        # Conector Kanbanize API
-│       │   │   └── github.py           # Conector GitHub Issues/Projects
-│       │   ├── voice/                  # [+ V5] Drivers de áudio
-│       │   │   ├── __init__.py
-│       │   │   ├── stt.py              # Whisper STT
-│       │   │   └── tts.py              # Kokoro / ElevenLabs TTS
-│       │   ├── computer_use/           # [+ V5] Automação de SO e browser
-│       │   │   ├── __init__.py
-│       │   │   ├── desktop.py          # Mouse, teclado e screenshots
-│       │   │   └── browser.py          # Playwright CDP wrapper
-│       │   └── local_llm/              # [+ V6] Gestão de modelos locais
-│       │       ├── __init__.py
-│       │       ├── catalog.py          # Ollama/LM Studio API
-│       │       ├── quantize.py         # llama.cpp GGUF converter
-│       │       └── modelfile.py        # Construtor Modelfiles/Prompts
-│       └── adapter/            # Provedores de inferência
-│           ├── base.py
-│           ├── remote_local.py
-│           └── multimodal.py           # [+ V5] Adaptadores FLUX, SD, MusicGen, Sora
+│       │   ├── session_service.py      # Sessões, threads e SSE replay
+│       │   └── skill_registry.py       # Catálogo de skills e SecretRef
+│       │
+│       ├── engine/                     # Camada 2: Estratégias de Execução
+│       │   ├── __init__.py
+│       │   ├── decomposer.py           # Decompositor DAG (Wave 0 + Wave 1)
+│       │   ├── contract.py             # Gerador de Fundação Compilável (Wave 0)
+│       │   ├── swarm.py                # Execução paralela em worktrees (Wave 1)
+│       │   ├── relay.py                # Handoff por Estado Git/Worktree
+│       │   └── healer.py               # Auto-reparo limitado por orçamento
+│       │
+│       ├── bridge/                     # Camada 3: Transporte e Subprocessos
+│       │   ├── __init__.py
+│       │   ├── worker_runner.py        # Subprocessos de agentes CLI
+│       │   ├── omniroute_client.py     # Cliente gateway opcional
+│       │   ├── ssh_tunnel.py           # Gerenciador único de túnel SSH
+│       │   ├── mcp_client.py           # Cliente protocolo MCP
+│       │   └── cdp_fallback.py         # Fallback experimental via CDP
+│       │
+│       └── adapter/                    # Camada 4: Adaptadores de Inferência
+│           ├── __init__.py
+│           ├── base.py                 # Interface BaseAdapter
+│           ├── api_gateway.py          # OpenRouter / DeepSeek REST SSE
+│           ├── remote_local.py         # Ollama / vLLM local ou SSH
+│           ├── ide_bridge.py           # Ponte experimental com IDEs
+│           └── ui_cdp.py               # Automação experimental via CDP
 ├── tests/                      # Pytest (hermético, offline)
 │   ├── conftest.py             # Fixtures compartilhadas
 │   ├── test_config.py
@@ -199,7 +179,7 @@ hydra-orch/
 │   ├── test_security.py
 │   ├── test_a11y.py
 │   └── test_e2e.py
-├── migrations/                 # Alembic (versionado)
+├── migration/                  # Scripts de migração versionados (singular)
 │   ├── env.py
 │   ├── script.py.mako
 │   └── versions/
@@ -245,7 +225,6 @@ optional-dependencies = {
     backend = ["slowapi", "scalar-fastapi", "arq", "redis", "prometheus-fastapi-instrumentator"],
     ui = ["jinja2", "markdown-it-py"],
     voice = ["faster-whisper", "sounddevice", "scipy", "webrtcvad"],
-    computer_use = ["playwright", "pyautogui", "pillow"],
     rag = ["pypdf", "sqlite-vss"],
     local_llm = ["huggingface-hub", "llama-cpp-python"],
     trackers = ["jira", "python-gitlab"],
@@ -278,7 +257,7 @@ markers = ["unit", "integration", "e2e", "negative", "security", "a11y", "slow"]
 
 [tool.coverage.run]
 source = ["src/hydra_orch"]
-omit = ["*/tests/*", "*/migrations/*"]
+omit = ["*/tests/*", "*/migration/*"]
 
 [tool.alembic]
 script_location = "migrations"

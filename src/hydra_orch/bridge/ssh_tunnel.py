@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import shutil
@@ -18,18 +17,22 @@ class SshTunnelManager:
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        target = config.get("ssh_target", "usuario@192.168.1.100")
-        if "@" in target:
-            self.user, self.host = target.split("@", 1)
+        target = config.get("ssh_target")
+        if target and "@" in target:
+            self.user, default_host = target.split("@", 1)
         else:
             self.user = config.get("user", "hydra")
-            self.host = target
+            default_host = target or "localhost"
 
-        self.port: int = config.get("ssh_port", 22)
-        self.key_file: Optional[str] = config.get("ssh_key")
-        self.local_port: int = config.get("local_port", 11435)
+        self.host: str = config.get("host") or default_host
+        self.port: int = config.get("port") or config.get("ssh_port", 22)
+        self.key_file: Optional[str] = config.get("ssh_key") or config.get("key_file")
+        self.local_port: int = config.get("local_port") or config.get("local_bind_port", 11435)
+        self.local_bind_port: int = self.local_port
         self.remote_port: int = config.get("remote_port", 11434)
         self.healthcheck_interval: int = config.get("healthcheck_interval_sec", 10)
+        self.use_autossh: bool = config.get("use_autossh", True)
+        self.strict_host_key_checking: str = config.get("strict_host_key_checking", "accept-new")
         self._process: Optional[subprocess.Popen] = None
 
     def is_running(self) -> bool:
@@ -53,7 +56,7 @@ class SshTunnelManager:
             logger.info("SSH tunnel already running")
             return True
 
-        binary = "autossh" if shutil.which("autossh") else "ssh"
+        binary = "autossh" if (self.use_autossh and shutil.which("autossh")) else "ssh"
         cmd = [
             binary,
             "-o",
@@ -63,7 +66,7 @@ class SshTunnelManager:
             "-o",
             "ExitOnForwardFailure=yes",
             "-o",
-            "StrictHostKeyChecking=no",
+            f"StrictHostKeyChecking={self.strict_host_key_checking}",
             "-N",
             "-L",
             f"{self.local_port}:127.0.0.1:{self.remote_port}",
