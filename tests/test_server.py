@@ -21,7 +21,8 @@ from hydra_orch.server import app, config, get_run_service, router, set_run_serv
 def _init_temp_git_repo(base_dir: Path) -> Tuple[Path, str]:
     repo = base_dir / "repo"
     repo.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "checkout", "-B", "main"], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "test@hydra.local"], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Hydra Server Test"], cwd=repo, check=True, capture_output=True)
     if os.name == "nt":

@@ -513,7 +513,7 @@ async def create_run_endpoint(
         ws = svc._get_git_workspace(repo_root)
         try:
             base_sha = ws.resolve_commit_sha(base_branch)
-        except ContractViolation:
+        except (ContractViolation, GitWorkspaceError):
             base_sha = ws.resolve_commit_sha("HEAD")
 
     raw_tasks = payload.tasks if payload.tasks is not None else ([payload.task_spec] if payload.task_spec else [])

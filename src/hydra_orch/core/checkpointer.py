@@ -120,6 +120,15 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _parse_iso_datetime(value: str) -> datetime:
+    """Parse an ISO 8601 string across Python versions (including Python 3.10 where trailing 'Z' is not accepted)."""
+    clean = value.replace("Z", "+00:00")
+    dt = datetime.fromisoformat(clean)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 class ExecutionStore:
     """Canonical SQLite WAL store for runs, tasks, attempts, results, reviews, events, and migrations."""
 
@@ -1418,7 +1427,7 @@ class ExecutionStore:
                     if row["attempt_json"]:
                         att_data = json.loads(row["attempt_json"])
                         if att_data.get("started_at"):
-                            started_dt = datetime.fromisoformat(att_data["started_at"])
+                            started_dt = _parse_iso_datetime(att_data["started_at"])
                             if finished_dt < started_dt:
                                 finished_dt = started_dt
                         att_data["process_status"] = target_proc_status.value
@@ -1699,7 +1708,7 @@ class ExecutionStore:
             for r in rows:
                 ts_raw = r["created_at"]
                 if "T" in ts_raw:
-                    ts = datetime.fromisoformat(ts_raw)
+                    ts = _parse_iso_datetime(ts_raw)
                     if ts.tzinfo is None:
                         ts = ts.replace(tzinfo=timezone.utc)
                 else:

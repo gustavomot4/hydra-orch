@@ -367,7 +367,7 @@ class RunService:
         else:
             try:
                 resolved_sha = ws.resolve_commit_sha(base_branch)
-            except ContractViolation:
+            except (ContractViolation, GitWorkspaceError):
                 resolved_sha = ws.resolve_commit_sha("HEAD")
 
         pid = project_id or f"proj-{uuid.uuid4().hex[:12]}"

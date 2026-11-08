@@ -49,6 +49,7 @@ jobs:
         run: |
           git config --global user.name "Hydra Hermetic CI"
           git config --global user.email "ci@hydra-orch.local"
+          git config --global init.defaultBranch main
 
       - name: Check formatting and whitespace hygiene
         run: git diff --check
