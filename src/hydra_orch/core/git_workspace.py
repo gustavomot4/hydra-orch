@@ -155,6 +155,7 @@ class IntegrationOutcome:
     merged_result_ids: Tuple[str, ...] = ()
     conflicted_files: Tuple[str, ...] = ()
     checks_executed: Tuple[CheckResult, ...] = ()
+    check_artifacts: Tuple[Artifact, ...] = ()
     failure: Optional[FailureDetail] = None
 
 
@@ -427,9 +428,27 @@ class GitWorkspaceService:
         safe_task = _sanitize_token(task_id)
         safe_attempt = _sanitize_token(attempt_id)
 
-        wt_dir_name = f"{safe_run}_{safe_task}_{safe_attempt}"
-        branch = branch_name or f"hydra/{safe_run}/{safe_task}/{safe_attempt}"
-        ws_id = workspace_id or f"ws_{safe_run}_{safe_task}_{safe_attempt}"
+        raw_wt_name = f"{safe_run}_{safe_task}_{safe_attempt}"
+        if len(raw_wt_name) > 44:
+            digest = hashlib.sha256(f"{run_id}:{task_id}:{attempt_id}".encode("utf-8")).hexdigest()[:8]
+            wt_dir_name = f"{safe_run[:12]}_{safe_task[:12]}_{digest}"
+        else:
+            wt_dir_name = raw_wt_name
+
+        if branch_name:
+            branch = branch_name
+        else:
+            raw_branch = f"hydra/{safe_run}/{safe_task}/{safe_attempt}"
+            if len(raw_branch) > 48:
+                digest = hashlib.sha256(f"{run_id}:{task_id}:{attempt_id}".encode("utf-8")).hexdigest()[:8]
+                branch = f"hydra/{safe_run[:12]}/{safe_task[:12]}/{digest}"
+            else:
+                branch = raw_branch
+
+        ws_id = workspace_id or f"ws_{wt_dir_name}"
+
+        if os.name == "nt":
+            self._run_git(["config", "core.longpaths", "true"], cwd=self.repo_root)
 
         self.worktree_base_dir.mkdir(parents=True, exist_ok=True)
         worktree_path = self.worktree_base_dir / wt_dir_name
@@ -1107,8 +1126,23 @@ class GitWorkspaceService:
 
         final_sha = self.resolve_commit_sha("HEAD", cwd=int_wt_real)
         executed_checks: Tuple[CheckResult, ...] = ()
+        check_artifacts: Tuple[Artifact, ...] = ()
         if post_merge_checks and check_runner is not None:
-            executed_checks = tuple(check_runner(int_wt_real, final_sha, post_merge_checks))
+            raw_check_out = check_runner(int_wt_real, final_sha, post_merge_checks)
+            if asyncio.iscoroutine(raw_check_out):
+                raw_check_out = await raw_check_out
+            if (
+                isinstance(raw_check_out, tuple)
+                and len(raw_check_out) == 2
+                and isinstance(raw_check_out[0], (tuple, list))
+                and (not raw_check_out[0] or isinstance(raw_check_out[0][0], CheckResult))
+                and isinstance(raw_check_out[1], (tuple, list))
+            ):
+                executed_checks = tuple(raw_check_out[0])
+                check_artifacts = tuple(raw_check_out[1])
+            else:
+                executed_checks = tuple(raw_check_out)
+
             failed_checks = [c for c in executed_checks if c.exit_code != 0]
             if failed_checks:
                 status = transition_status(status, IntegrationStatus.FAILED)
@@ -1127,6 +1161,7 @@ class GitWorkspaceService:
                     status=status,
                     merged_result_ids=tuple(merged_ids),
                     checks_executed=executed_checks,
+                    check_artifacts=check_artifacts,
                     failure=failure,
                 )
                 await self._persist_integration_outcome(outcome, results)
@@ -1143,6 +1178,7 @@ class GitWorkspaceService:
             status=status,
             merged_result_ids=tuple(merged_ids),
             checks_executed=executed_checks,
+            check_artifacts=check_artifacts,
             failure=None,
         )
         await self._persist_integration_outcome(outcome, results)
@@ -1176,6 +1212,44 @@ class GitWorkspaceService:
                         outcome.status.value,
                     ),
                 )
+                for art in outcome.check_artifacts:
+                    await self.store._upsert_artifact_in_tx(db, art)
+                for chk in outcome.checks_executed:
+                    chk_row_id = f"chk-{outcome.integration_id}-{chk.check_id}"
+                    cur_art = await db.execute(
+                        "SELECT id FROM artifacts WHERE id = ?",
+                        (chk.stdout_artifact_id,),
+                    )
+                    stdout_id = chk.stdout_artifact_id if await cur_art.fetchone() is not None else None
+                    cur_err = await db.execute(
+                        "SELECT id FROM artifacts WHERE id = ?",
+                        (chk.stderr_artifact_id,),
+                    )
+                    stderr_id = chk.stderr_artifact_id if await cur_err.fetchone() is not None else None
+                    await db.execute(
+                        """
+                        INSERT OR REPLACE INTO check_results (
+                            id, result_id, integration_id, check_id, command_json, cwd,
+                            tested_sha, exit_code, duration_seconds,
+                            stdout_artifact_id, stderr_artifact_id, output_artifact_id,
+                            started_at, finished_at
+                        )
+                        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                        """,
+                        (
+                            chk_row_id,
+                            outcome.integration_id,
+                            chk.check_id,
+                            json.dumps(list(chk.command)),
+                            chk.cwd,
+                            chk.tested_sha,
+                            chk.exit_code,
+                            chk.duration_seconds,
+                            stdout_id,
+                            stderr_id,
+                            stdout_id,
+                        ),
+                    )
                 for pos, res in enumerate(results, start=1):
                     cur = await db.execute("SELECT 1 FROM results WHERE id = ?", (res.result_id,))
                     if await cur.fetchone() is not None:
@@ -1190,6 +1264,8 @@ class GitWorkspaceService:
                     "merge.completed"
                     if outcome.status == IntegrationStatus.INTEGRATED
                     else "merge.conflicted"
+                    if outcome.status == IntegrationStatus.CONFLICTED
+                    else "check.finished"
                 )
                 await self.store._insert_event_in_tx(
                     db,

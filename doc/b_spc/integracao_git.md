@@ -3,7 +3,7 @@
 **Identificador Formal:** `integracao_git.md`
 **Caminho Canônico:** `doc/b_spc/integracao_git.md`
 **Versão:** `v01_00_0000`
-**Status:** `IMPLEMENTADO (T05) / DECOMPOSTO (T06)`
+**Status:** `IMPLEMENTADO (T05 e T06)`
 **Autoridade:** Derivado normativo de [`prd_tecnico.md`](prd_tecnico.md) (§3.1 RT05, RT06; §3.4; §8.1 T05, T06), [`contrato_execucao.md`](contrato_execucao.md) (S02), [`persistencia_execucao.md`](persistencia_execucao.md) (S03) e [`executor_cli.md`](executor_cli.md) (S04).
 **Escopo:** Isolamento real em Git worktrees ancoradas a SHA base fixo, preservação estrita do checkout do operador, auditoria de escopo de arquivos (`allowed_paths` / symlinks), captura e atribuição de diffs/commits, integração serializada em branch dedicada, retenção em caso de conflito/falha e limpeza segura de worktrees e locks.
 

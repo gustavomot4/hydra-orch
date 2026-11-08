@@ -19,6 +19,11 @@ from hydra_orch.core.git_workspace import (
     WorkspaceRecord,
     WorktreeDiffArtifact,
 )
+from hydra_orch.core.run_service import (
+    CheckRunner,
+    RunService,
+    TaskExecutionOutcome,
+)
 from hydra_orch.core.ssh_tunnel import SshTunnelManager
 from hydra_orch.core.swarm import SwarmOrchestrator, SubTask
 from hydra_orch.core.router import HydraRouter
@@ -39,6 +44,9 @@ __all__ = [
     "ScopeValidationResult",
     "WorkspaceRecord",
     "WorktreeDiffArtifact",
+    "CheckRunner",
+    "RunService",
+    "TaskExecutionOutcome",
     "SshTunnelManager",
     "SwarmOrchestrator",
     "SubTask",
