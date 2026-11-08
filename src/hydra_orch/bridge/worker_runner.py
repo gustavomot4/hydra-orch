@@ -403,15 +403,21 @@ async def cancel_process_tree(
             except OSError:
                 pass
     else:
+        current_pgid = os.getpgrp() if hasattr(os, 'getpgrp') else None
         try:
             pgid = os.getpgid(pid)
-            os.killpg(pgid, signal.SIGTERM)
-        except ProcessLookupError:
-            return True
-        except OSError:
+        except (ProcessLookupError, OSError):
+            pgid = None
+
+        if pgid is not None and pgid > 1 and (current_pgid is None or pgid != current_pgid):
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                pass
+        else:
             try:
                 os.kill(pid, signal.SIGTERM)
-            except OSError:
+            except (ProcessLookupError, OSError):
                 pass
 
         deadline_grace = time.monotonic() + max(grace_seconds, 0.05)
@@ -420,15 +426,15 @@ async def cancel_process_tree(
                 return True
             await asyncio.sleep(0.02)
 
-        try:
-            pgid = os.getpgid(pid)
-            os.killpg(pgid, signal.SIGKILL)
-        except ProcessLookupError:
-            return True
-        except OSError:
+        if pgid is not None and pgid > 1 and (current_pgid is None or pgid != current_pgid):
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+        else:
             try:
                 os.kill(pid, signal.SIGKILL)
-            except OSError:
+            except (ProcessLookupError, OSError):
                 pass
 
     deadline = time.monotonic() + max(verify_timeout, 0.5)

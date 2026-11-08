@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 from typing import Dict
@@ -220,11 +221,17 @@ async def test_verify_tree_kill(tmp_path: Path):
         f"pathlib.Path({str(pids_file)!r}).write_text(json.dumps({{'parent': os.getpid(), 'child': child.pid}}))\n"
         "time.sleep(60)\n"
     )
+    sub_kwargs = {}
+    if os.name != "nt":
+        sub_kwargs["start_new_session"] = True
+    else:
+        sub_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         "-c",
         script,
         cwd=str(tmp_path),
+        **sub_kwargs,
     )
 
     for _ in range(50):
