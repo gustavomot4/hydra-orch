@@ -34,6 +34,7 @@ Para implementação e testes, seguir a sequência:
 
 | Arquivo | Tipo | Descrição | Versão |
 |---------|------|-----------|--------|
+| [`contrato_execucao.md`](contrato_execucao.md) | S02 / T02 (DBC-9) | Specs de execução, estados, evidência declarada e revisão explícita | — |
 | [`configuracao_runtime.md`](configuracao_runtime.md) | S01 / T01 (DBC-9) | Configuração estrita, provedores explícitos, aliases, política de gateway e migração manual | — |
 | [`prd_funcional.md`](prd_funcional.md) | PRD Funcional (DBC-9) | RF01–RF30, UC01–UC05, RB01–RB20, proposta de valor e critérios de aceite observáveis | `v01_02_0000` |
 | [`prd_tecnico.md`](prd_tecnico.md) | PRD Técnico (DBC-9) | RT01–RT30, RNF01–RNF10, contratos canônicos de execução, DDL SQLite, algoritmos, T01–T28 | `v01_02_0000` |

@@ -116,8 +116,8 @@ Todas as 28 tasks normativas detalhadas com seus contratos formais, dependência
 | ID | Nome da Task | Épico / Versão | Prio | SP | Dependências | RF / RT | Arquivos de Propriedade | Definition of Done (DoD Sintético) | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | **T01** | Config canônica | EP01 / V0 | P0 | 3 | — | RF02 / RT01 | `config.py`, `config.yaml`, `.gitignore`, consumidores router/gateway/CLI/API e testes | Aliases e modelo resolvidos; provedores explícitos; inválidos recusados; runtime `.orchestrator/`; gateway desligado sem chamadas e required com preflight | concluido |
-| **T02** | Contratos e estados | EP01 / V0 | P0 | 5 | T01 | RF03, RF07 / RT02 | `model.py`, `prd_tecnico.md (§3.4)`, `tests/test_model.py` | Schemas Pydantic + máquinas de transição válidas/inválidas 100% cobertas | pronto |
-| **T03** | Store e migração | EP01 / V0 | P0 | 8 | T02 | RF03, RF05 / RT03, RT11 | `core/checkpointer.py`, `migration/`, `tests/test_checkpointer.py` | SQLite WAL, restart seguro, chave de idempotência, transação atômica e FKs ativas | pendente *(scaffold)* |
+| **T02** | Contratos e estados | EP01 / V0 | P0 | 5 | T01 | RF03, RF07 / RT02 | `model.py`, `prd_tecnico.md (§3.4)`, `tests/test_model.py` | Schemas Pydantic + máquinas de transição válidas/inválidas 100% cobertas | concluido |
+| **T03** | Store e migração | EP01 / V0 | P0 | 8 | T02 | RF03, RF05 / RT03, RT11 | `core/checkpointer.py`, `migration/`, `tests/test_checkpointer.py` | SQLite WAL, restart seguro, chave de idempotência, transação atômica e FKs ativas | pronto *(scaffold)* |
 | **T04** | Runner e fake | EP01 / V0 | P0 | 8 | T03 | RF04, RF06 / RT04 | `bridge/worker_runner.py`, `tests/test_worker_runner.py` | Cwd operacional real, erro `executor_unavailable`, timeout com tree kill, fake restrito a dry-run | pendente *(scaffold)* |
 | **T05** | Workspace Git | EP01 / V0 | P0 | 8 | T04 | RF01, RF04 / RT05 | `core/git_workspace.py`, `tests/test_git_workspace.py` | SHA base fixo, worktree real isolada, checkout do usuário intacto, lock cleanup | pendente *(scaffold)* |
 | **T06** | Checks e integração | EP01 / V0 | P0 | 13 | T05 | RF07, RF08 / RT06 | `core/git_workspace.py`, `core/run_service.py`, `tests/test_integration.py` | Patch real atribuível, escopo validado, conflito bloqueante, checks determinam aceite | pendente |
@@ -251,3 +251,13 @@ Documentos formais de especificação que devem ser revisados e validados antes 
 - Configuração inválida e indisponibilidade de rota/gateway têm diagnóstico explícito; Codex não é convertido em CDP. Swarm pelo chat é recusado até a implementação dos gates de execução.
 - Próxima entrega: **T02 — contratos e estados**. M1 continua pendente de T02–T08; interface visual vem após o núcleo verificável.
 - A suíte exige execução fora da restrição de sockets deste sandbox Windows: o asyncio usa socket local interno mesmo em testes offline. Dependências foram instaladas somente em `.venv/`; cobertura e runtime permanecem ignorados.
+
+## Evidência da T02 — contratos e estados
+
+- Contrato implementado: [S02](../b_spc/contrato_execucao.md), em `src/hydra_orch/model.py`; os modelos de chat existentes foram preservados.
+- Entidades de run/tarefa/tentativa/resultado, orçamento, capabilities, revisão, artefatos, checks, evento e handoff têm validação e round-trip JSON. Specs são congeladas com tuplas; payload de evento é serializado pelo serviço de persistência futuro.
+- As quatro máquinas de estado cobrem **202 combinações** origem/destino, incluindo arestas ilegais e mistura de domínios. Revisão exige versão atual; simulação, checks ausentes e atribuição incorreta não autorizam aceite/integração.
+- Baseline T01: **77 testes aprovados**. Entrega T02: **173 testes aprovados**, com **100% de cobertura de linhas em `model.py`** (376 statements, nenhum ausente), no Windows/Python 3.14.6. Os cinco avisos de depreciação permanecem iguais ao baseline.
+- `CheckSpec.command` passou a array de argumentos, com ID explícito; o OpenAPI proposto foi alinhado. `persistent` é o nome canônico do modo. Isso não cria rotas HTTP de execução.
+- Não foram executados provedores, workers, processos Git de tarefa, checkpoints de run ou merges de produto. Os testes desta entrega validam contratos em memória; comprovação de bytes/hashes e execução pertence a T04–T06.
+- Próxima entrega: **T03 — store canônico e migração SQLite**. M1 continua pendente de T03–T08.

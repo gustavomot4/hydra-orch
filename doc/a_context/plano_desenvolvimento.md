@@ -108,7 +108,7 @@ Runtime canônico segue `.orchestrator/`, com subpastas singulares por run/taref
 
 ### 3.3. Entidades a formalizar em S02
 
-Expandir o contrato existente, com versão de schema e exemplos válidos/inválidos. Os nomes são propostas até sua implementação.
+A base tipada foi implementada na [spec S02](../b_spc/contrato_execucao.md), com versão de schema e exemplos válidos/inválidos. A tabela abaixo mantém a direção de evolução; campos e tipos efetivos do incremento inicial estão em `hydra_orch.model`.
 
 | Entidade | Campos/garantias mínimos |
 | --- | --- |
@@ -148,7 +148,7 @@ Cada linha exige spec revisável e uma entrega pequena, testada, antes da etapa 
 | --- | --- | --- | --- |
 | S00 — alinhamento no PRD e neste plano | — | Reconciliar visão, subset de compatibilidade, caminhos, licença pendente e matriz de capacidades. Separar metas de comportamento atual | Documentos não afirmam execução, recuperação ou suporte externo sem evidência; todos os exemplos locais têm destino coerente |
 | S01 — `configuracao_runtime.md` | S00 | Schema único, validação de modos/URLs/limites, resolução alias → modelo/provedor/executor; política de gateway disabled/optional/required; migrador explícito. `config.py`, YAML, `.gitignore` | Config inválida falha antes de qualquer processo; modo direto funciona com gateway desligado; required indisponível falha; segredo ausente é erro claro; relay escolhe provedor elegível em teste |
-| S02 — formalização dos contratos de execução | S01 | Models tipados em `prd_tecnico.md` (§3.4), estados, erros, capabilities, orçamento e exemplos JSON; `model.py` ou módulo singular dedicado | IDs/dependências/limites inválidos rejeitados; transições ilegais impedidas; zero do processo não promove aceite; fake não integra |
+| S02 — [contrato_execucao.md](../b_spc/contrato_execucao.md) | S01 | Models tipados em `prd_tecnico.md` (§3.4), estados, erros, capabilities, orçamento e exemplos JSON; `model.py` ou módulo singular dedicado | IDs/dependências/limites inválidos rejeitados; transições ilegais impedidas; zero do processo não promove aceite; fake não integra |
 | S03 — `persistencia_execucao.md` | S02 | Um armazenamento SQLite, migração versionada, eventos, referências/hash de artefato, idempotência e reconciliação pós-crash; core/checkpointer e engine/checkpointer | Estado+evento gravados em transação; replay ordenado; duas submissões idênticas não duplicam run; tentativa interrompida é reconciliada; banco legado preservado |
 | S04 — `executor_cli.md` | S02, S03 | Runner com `argv` por driver, stdin quando suportado, cwd real, env filtrado, timeout/cancelamento e artefatos; sem fallback de sucesso | Fake subprocesso altera arquivo na fixture e produz diff/check; CLI ausente, erro, saída vazia, timeout e cancelamento têm estados corretos; nenhum descendente continua após término confirmado |
 | S05 — `integracao_git.md` | S04 | Serviço Git único, SHA base fixo, worktree real, ownership, checks antes e depois da combinação, integração serializada e retenção em falha | Conflito/check falho/arquivo fora do escopo bloqueiam integração; caller não troca de branch; mudanças do usuário ficam intactas; remoção nunca perde diff não preservado |

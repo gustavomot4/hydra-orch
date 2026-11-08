@@ -22,6 +22,8 @@ Definir entidades, serviços e interfaces para execução verificável com contr
 
 Separar dados, decisões e transporte permite testar sem contas externas e consolidar os motores existentes. A expansão de control plane (áreas, perfis, sessões, métricas, memória, discovery, extensões, orçamento, conflitos, PR) é modelada como serviços e entidades distintas do núcleo de execução, mantendo o princípio de que inferência ≠ execução ≠ coordenação.
 
+**Núcleo implementado:** S02/T02 define os modelos de execução em `hydra_orch.model`; consultar [contrato_execucao.md](../b_spc/contrato_execucao.md) para campos e tipos canônicos. Os diagramas abaixo continuam como modelagem alvo, incluindo serviços ainda não implementados.
+
 ## 3. Contrato estrutural — Núcleo (V0)
 
 ```mermaid

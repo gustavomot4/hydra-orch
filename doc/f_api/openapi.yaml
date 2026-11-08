@@ -214,12 +214,19 @@ components:
     # ============ RUNS ============
     CheckSpec:
       type: object
-      required: [command]
+      required: [check_id, command]
       properties:
-        command:
+        check_id:
           type: string
-          minLength: 1
-          example: "pytest tests/ -xvs"
+          description: Identificador estável do critério dentro da tarefa
+          example: unit
+        command:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: Argumentos preservados para execução sem shell (contrato S02)
+          example: ["python", "-m", "pytest", "tests/", "-q"]
         cwd:
           type: string
           description: Diretório de trabalho relativo à worktree
@@ -302,8 +309,8 @@ components:
           maxLength: 5000
         mode:
           type: string
-          enum: [swarm, relay, persist]
-          default: swarm
+          enum: [swarm, relay, persistent]
+          default: relay
         task_spec:
           $ref: '#/components/schemas/TaskSpecRequest'
         budget:
@@ -958,7 +965,7 @@ components:
           default: {}
         orchestration_mode:
           type: string
-          enum: [swarm, relay, persist]
+          enum: [swarm, relay, persistent]
 
     ProfileResponse:
       type: object

@@ -111,7 +111,7 @@ O contrato canônico de execução padroniza toda a comunicação entre o contro
 
 | Entidade | Responsabilidade Arquitetural | Estado Mínimo Obrigatório |
 | :--- | :--- | :--- |
-| `RunSpec` | Execução completa iniciada pelo operador ou trigger | `run_id`, `project_id`, `objective`, `base_sha`, `base_branch`, `budget_policy`, `orchestration_mode`, `schema_version` |
+| `RunSpec` | Execução completa iniciada pelo operador ou trigger | `run_id`, `project_id`, `objective`, `repo_root`, `base_sha`, `base_branch`, `budget_policy`, `orchestration_mode`, `integration_policy`, `idempotency_key`, `tasks`, `schema_version` |
 | `TaskSpec` | Unidade atômica e delimitada entregue a um executor | `task_id`, `run_id`, `objective`, `acceptance_criteria` (comandos de check), `dependencies`, `allowed_paths`, `assigned_executor` |
 | `TaskAttempt` | Tentativa concreta de execução de uma tarefa | `attempt_id`, `task_id`, `ordinal` (1, 2, ...), `provider`, `model`, `started_at`, `finished_at`, `exit_reason` |
 | `TaskResult` | Resultado técnico verificável da tentativa | `result_id`, `attempt_id`, `process_status`, `task_status`, `patch_commit_sha`, `checks_executed`, `artifacts`, `risk_level`, `simulated` |
@@ -130,10 +130,22 @@ Ciclo de Vida da Tarefa (Engenharia):
   pending -> running -> needs_context | blocked | failed | ready_for_review -> accepted | rejected | cancelled
 
 Ciclo de Vida da Integração:
-  not_integrated -> integrating -> integrated | conflicted | discarded
+  not_integrated -> integrating -> integrated | conflicted | failed
+  not_integrated | conflicted | failed -> discarded
 ```
 
 **Invariante de Aceite:** Um processo que termina em `exited` com código de retorno zero (`exit_code = 0`) **NÃO** implica que a tarefa foi aceita. Respostas simuladas, saídas sem patch ou tarefas com ausência de execução de checks obrigatórios são categorizadas como falhas de execução e têm o avanço para merge bloqueado.
+
+#### Implementação tipada S02 / T02
+
+O contrato implementado está em `hydra_orch.model` e na [spec S02](contrato_execucao.md). Os exemplos de classes e DTOs abaixo são propostas complementares; em divergência de nomes ou tipos com o núcleo implementado, prevalecem S02 e os schemas Pydantic gerados por `model_json_schema()`.
+
+- Versão inicial `schema_version: "1.0"`; campos extras recusados; specs congeladas com coleções em tuplas, serializadas como arrays JSON.
+- `CheckSpec.command` é um array de argumentos com `check_id`, preservando espaços e argumentos vazios após o executável. Não há interpretação de shell. IDs, referências de checks, limites e DAG são validados antes da execução.
+- O modo canônico é `persistent`, alinhado à CLI existente; o primeiro run usa `relay`. A política inicial de integração é exclusivamente `explicit_review`.
+- Estados de run, processo, tarefa e integração são enums separados. `transition_status` valida adjacência, sem autorizar efeitos. Resultados encerrados/rejeitados permanecem auditáveis; nova tentativa tem nova identidade.
+- `review_result` compara revisão atual, atribuição e todos os checks obrigatórios antes do aceite; rejeição pode registrar checks ainda incompletos. `assert_integrable` exige aceite explícito e resultado real. O commit de patch deve ser diferente da base.
+- Validação de metadados não substitui leitura/hash de artefatos, checks realmente executados, persistência ou autenticação. Esses gates pertencem a T03–T07. Simulação nunca autoriza integração.
 
 #### Requisitos Normativos para Integrar uma Tarefa
 
@@ -727,7 +739,7 @@ class ProjectResponse(BaseModel):
 class RunCreateRequest(BaseModel):
     project_id: str
     objective: str = Field(min_length=10, max_length=5000)
-    mode: Literal["swarm", "relay", "persist"] = "swarm"
+    mode: Literal["swarm", "relay", "persistent"] = "relay"
     task_spec: TaskSpecRequest
     budget: Optional[BudgetPolicyRequest] = None
     profile_id: Optional[str] = None
@@ -742,7 +754,8 @@ class TaskSpecRequest(BaseModel):
     max_repair_attempts: int = Field(default=2, ge=0, le=5)
 
 class CheckSpec(BaseModel):
-    command: str = Field(min_length=1)
+    check_id: str
+    command: List[str] = Field(min_length=1)
     cwd: Optional[str] = None
     description: str = ""
 

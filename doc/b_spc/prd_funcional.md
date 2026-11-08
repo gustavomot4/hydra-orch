@@ -15,6 +15,8 @@ Status: especificação funcional normativa proposta para implementação. Base:
 
 **Incremento de configuração:** parte de RF02 possui implementação offline validada em [S01](configuracao_runtime.md). A configuração de um driver não comprova sua execução; a certificação do Codex e os critérios completos de M1 permanecem pendentes. Swarm é recusado no proxy de inferência até que os gates próprios existam.
 
+**Incremento de contratos:** [S02](contrato_execucao.md) implementa a base tipada de RF03/RF07 e os estados separados de processo, tarefa e integração. As regras são verificadas em memória; submissão persistente, execução real, revisão autenticada e merge dependem de T03–T07.
+
 ## 1. Propósito
 
 Permitir que um usuário organize áreas de trabalho, projetos e repositórios, escolha ou componha perfis de agentes e acompanhe tarefas de engenharia por uma interface visual e pelas superfícies CLI/API. O Hydra opera como control plane de engenharia de software unificando a inteligência de orquestração sobre quatro motores centrais integrados:
