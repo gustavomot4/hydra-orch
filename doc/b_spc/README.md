@@ -105,3 +105,6 @@ Cada requisito deve ter:
 **Para testes:** [`doc/h_test/`](../h_test/)<br>
 **Para infraestrutura:** [`doc/i_infra/`](../i_infra/)<br>
 **Para manuais:** [`doc/j_manual/`](../j_manual/)
+## Referência de interface
+
+- [UI inspirada no Orca](a_ui/README.md) — imagens fornecidas, análise de referência, requisitos de chat/terminal e processo de construção (proposta).
