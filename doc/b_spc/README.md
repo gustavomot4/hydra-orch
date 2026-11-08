@@ -34,6 +34,7 @@ Para implementação e testes, seguir a sequência:
 
 | Arquivo | Tipo | Descrição | Versão |
 |---------|------|-----------|--------|
+| [`executor_cli.md`](executor_cli.md) | S04 / T04 (DBC-9) | Runner de subprocessos CLI, cwd real, env filtrado, tree kill e dry-run isolado | — |
 | [`persistencia_execucao.md`](persistencia_execucao.md) | S03 / T03 (DBC-9) | Persistência transacional SQLite WAL, migrações versionadas e idempotência | — |
 | [`contrato_execucao.md`](contrato_execucao.md) | S02 / T02 (DBC-9) | Specs de execução, estados, evidência declarada e revisão explícita | — |
 | [`configuracao_runtime.md`](configuracao_runtime.md) | S01 / T01 (DBC-9) | Configuração estrita, provedores explícitos, aliases, política de gateway e migração manual | — |
