@@ -24,7 +24,7 @@ O produto evolui de um núcleo local comprovável de execução de código em Gi
 
 ## Incrementos iniciais validados
 
-A T01 foi revalidada conforme [S01](../b_spc/configuracao_runtime.md), com configuração estrita, provedores explícitos e política de gateway comprovada offline. O estado e as evidências estão no [backlog](backlog.md#evidência-da-revalidação-da-t01). O primeiro executor planejado é Codex no Windows; revisão e integração serão comandos separados. CLI/API precedem a interface visual. A T02 formalizou os [contratos e estados](../b_spc/contrato_execucao.md), com cobertura integral de linhas no módulo de modelos. O gate M1 permanece pendente de T03–T08.
+A T01 foi revalidada conforme [S01](../b_spc/configuracao_runtime.md), com configuração estrita, provedores explícitos e política de gateway comprovada offline. O estado e as evidências estão no [backlog](backlog.md#evidência-da-revalidação-da-t01). O primeiro executor planejado é Codex no Windows; revisão e integração serão comandos separados. CLI/API precedem a interface visual. A T02 formalizou os [contratos e estados](../b_spc/contrato_execucao.md), com cobertura integral de linhas no módulo de modelos. A T03 implementou o [store transacional SQLite WAL e migrações versionadas](../b_spc/persistencia_execucao.md), com idempotência, reconciliação pós-crash e replay por cursor. O gate M1 permanece pendente de T04–T08.
 
 ## 2. Why: Mapa de Horizontes e Versões (V0 a V4)
 

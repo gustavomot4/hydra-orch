@@ -34,6 +34,7 @@ Para implementação e testes, seguir a sequência:
 
 | Arquivo | Tipo | Descrição | Versão |
 |---------|------|-----------|--------|
+| [`persistencia_execucao.md`](persistencia_execucao.md) | S03 / T03 (DBC-9) | Persistência transacional SQLite WAL, migrações versionadas e idempotência | — |
 | [`contrato_execucao.md`](contrato_execucao.md) | S02 / T02 (DBC-9) | Specs de execução, estados, evidência declarada e revisão explícita | — |
 | [`configuracao_runtime.md`](configuracao_runtime.md) | S01 / T01 (DBC-9) | Configuração estrita, provedores explícitos, aliases, política de gateway e migração manual | — |
 | [`prd_funcional.md`](prd_funcional.md) | PRD Funcional (DBC-9) | RF01–RF30, UC01–UC05, RB01–RB20, proposta de valor e critérios de aceite observáveis | `v01_02_0000` |

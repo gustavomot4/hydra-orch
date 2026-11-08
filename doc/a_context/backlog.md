@@ -117,8 +117,8 @@ Todas as 28 tasks normativas detalhadas com seus contratos formais, dependência
 |---|---|---|---|---|---|---|---|---|---|
 | **T01** | Config canônica | EP01 / V0 | P0 | 3 | — | RF02 / RT01 | `config.py`, `config.yaml`, `.gitignore`, consumidores router/gateway/CLI/API e testes | Aliases e modelo resolvidos; provedores explícitos; inválidos recusados; runtime `.orchestrator/`; gateway desligado sem chamadas e required com preflight | concluido |
 | **T02** | Contratos e estados | EP01 / V0 | P0 | 5 | T01 | RF03, RF07 / RT02 | `model.py`, `prd_tecnico.md (§3.4)`, `tests/test_model.py` | Schemas Pydantic + máquinas de transição válidas/inválidas 100% cobertas | concluido |
-| **T03** | Store e migração | EP01 / V0 | P0 | 8 | T02 | RF03, RF05 / RT03, RT11 | `core/checkpointer.py`, `migration/`, `tests/test_checkpointer.py` | SQLite WAL, restart seguro, chave de idempotência, transação atômica e FKs ativas | pronto *(scaffold)* |
-| **T04** | Runner e fake | EP01 / V0 | P0 | 8 | T03 | RF04, RF06 / RT04 | `bridge/worker_runner.py`, `tests/test_worker_runner.py` | Cwd operacional real, erro `executor_unavailable`, timeout com tree kill, fake restrito a dry-run | pendente *(scaffold)* |
+| **T03** | Store e migração | EP01 / V0 | P0 | 8 | T02 | RF03, RF05 / RT03, RT11 | `core/checkpointer.py`, `migration/`, `tests/test_checkpointer.py` | SQLite WAL, restart seguro, chave de idempotência, transação atômica e FKs ativas | concluido |
+| **T04** | Runner e fake | EP01 / V0 | P0 | 8 | T03 | RF04, RF06 / RT04 | `bridge/worker_runner.py`, `tests/test_worker_runner.py` | Cwd operacional real, erro `executor_unavailable`, timeout com tree kill, fake restrito a dry-run | pronto *(scaffold)* |
 | **T05** | Workspace Git | EP01 / V0 | P0 | 8 | T04 | RF01, RF04 / RT05 | `core/git_workspace.py`, `tests/test_git_workspace.py` | SHA base fixo, worktree real isolada, checkout do usuário intacto, lock cleanup | pendente *(scaffold)* |
 | **T06** | Checks e integração | EP01 / V0 | P0 | 13 | T05 | RF07, RF08 / RT06 | `core/git_workspace.py`, `core/run_service.py`, `tests/test_integration.py` | Patch real atribuível, escopo validado, conflito bloqueante, checks determinam aceite | pendente |
 | **T07** | Entrada M1 (CLI/API) | EP01 / V0 | P0 | 8 | T06 | RF03–RF08 / RT10 | `cli.py`, `server.py`, `tests/test_server.py`, `tests/test_cli.py` | Submeter/consultar/cancelar/revisar usam mesmo serviço de run; auth local loopback | pendente |
@@ -261,3 +261,11 @@ Documentos formais de especificação que devem ser revisados e validados antes 
 - `CheckSpec.command` passou a array de argumentos, com ID explícito; o OpenAPI proposto foi alinhado. `persistent` é o nome canônico do modo. Isso não cria rotas HTTP de execução.
 - Não foram executados provedores, workers, processos Git de tarefa, checkpoints de run ou merges de produto. Os testes desta entrega validam contratos em memória; comprovação de bytes/hashes e execução pertence a T04–T06.
 - Próxima entrega: **T03 — store canônico e migração SQLite**. M1 continua pendente de T03–T08.
+
+## Evidência da T03 — store canônico e migração SQLite
+
+- Contrato implementado: [S03](../b_spc/persistencia_execucao.md), em `src/hydra_orch/core/checkpointer.py` (`ExecutionStore` e compatibilidade integral com `StreamCheckpointer`) e esquema DDL inicial em `migration/0001_initial_core.sql`.
+- Pragmas obrigatórios (`journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000`, `synchronous=NORMAL`), runner de migrações transacional com verificação de `checksum` SHA-256 e preservação de bancos legados (`legacy_handoff_checkpoints`, `checkpoints`, `provider_limits`, `active_generations`, `quota_status`).
+- Operações atômicas (`BEGIN IMMEDIATE`) entre mutação de estado e emissão de `RunEvent`, controle de concorrência otimista (`expected_revision`), submissão idempotente (`submit_run_idempotent` / `record_command` escopado com `IdempotencyConflictError`), unicidade parcial de tentativa ativa por tarefa (`idx_attempts_active_task`), reconciliação pós-crash (`reconcile_interrupted_attempts`) e replay ordenado por cursor (`after_seq`).
+- Suíte ampliada: **198 testes aprovados** (`python -m pytest tests -q`) no Windows/Python 3.12.10, incluindo 13 suítes herméticas de persistência, rollback transacional, concorrência WAL e restart em `tests/test_checkpointer.py`.
+- Próxima entrega: **T04 — runner de subprocessos e executor fake**. M1 continua pendente de T04–T08.
