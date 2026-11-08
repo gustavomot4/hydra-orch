@@ -2,10 +2,113 @@
 
 **Identificador Formal:** `j_manual`
 **Caminho Canônico:** `doc/j_manual/`
-**Versão:** `v01_01_0000`
-**Status:** `PROPOSTO / EM DESENVOLVIMENTO`
-**Autoridade:** Arquitetura do hydra-orch, complementando `prd_funcional.md`, `prd_tecnico.md`, `i_infra/README.md`.
-**Escopo:** Guias de instalação, configuração, operação, runbooks de manutenção, recuperação de desastres e auditoria.
+**Versão:** `v01_02_0000`
+**Status:** `OPERACIONAL M1 (T01–T08) / EXPANSÃO V1–V4 PROPOSTA`
+**Autoridade:** Arquitetura do hydra-orch, complementando [`../b_spc/prd_funcional.md`](../b_spc/prd_funcional.md), [`../b_spc/prd_tecnico.md`](../b_spc/prd_tecnico.md), [`../b_spc/api_control_plane.md`](../b_spc/api_control_plane.md), [`../b_spc/entrega_operacao.md`](../b_spc/entrega_operacao.md) e [`../i_infra/README.md`](../i_infra/README.md).
+**Escopo:** Manual operacional verificado do Marco M1 (V0) e referência para os horizontes de expansão (M2–M4 / V1–V4).
+
+---
+
+## 0. Manual Operacional M1 (Núcleo Verificável Local — Validado em T01–T08)
+
+Esta seção documenta a superfície **100% implementada e validada** no Marco **M1 (Gate G-M1)**. As seções 1 a 11 mais abaixo preservam a visão completa do produto incluindo comandos propostos para as ondas de expansão (`T09–T28`).
+
+### 0.1. Escopo Operacional M1 vs. Expansão (M2–M4)
+
+| Superfície / Capacidade | Status no Marco M1 (`T01–T08`) | Horizonte de Expansão |
+|---|---|---|
+| Configuração canônica (`config.yaml`), aliases e runtime `.orchestrator/` | **Operacional** (`T01`) | Catálogo estendido em `T12` |
+| Contratos tipados (`RunSpec`, `TaskSpec`, `TaskAttempt`, `TaskResult`, `ReviewDecision`, `Artifact`) | **Operacional** (`T02`) | Snapshots de perfil em `T13` |
+| Persistência SQLite WAL (`ExecutionStore`), migração `0001_initial_core.sql`, idempotência e replay | **Operacional** (`T03`) | Migrações V2–V4 em `T10` |
+| Runner de subprocessos (`WorkerRunner`), `cwd` real, env filtrado, tree kill e `dry_run` isolado | **Operacional** (`T04`) | Sandboxing de extensões em `T20` |
+| Isolamento em Git worktree real (`GitWorkspaceService`), SHA base fixo, auditoria de escopo | **Operacional** (`T05`) | Reparo 3-way de conflito em `T27` |
+| Checks determinísticos (`CheckRunner`) e serviço de aplicação/integração (`RunService`) | **Operacional** (`T06`) | Pausas HITL em `T26` |
+| CLI M1 (`hydra submit`, `inspect`, `review`, `integrate`, `cancel`, `retry`, `serve`, `status`, `quota`) | **Operacional** (`T07`) | Subcomandos estendidos em `T23` |
+| API Control Plane M1 (`/v1/control-plane/projects`, `/runs`, `/events`, `/review`, `/integrate`, `/discard`) | **Operacional** (`T07`) | RBAC/PBKDF2 e redactor completo em `T09` |
+| Pipeline CI offline hermético multiplataforma (`.github/workflows/ci.yml`) | **Operacional** (`T08`) | CI estendido V4 em `T24` |
+
+### 0.2. Instalação e Execução da Suíte Hermética M1
+
+```bash
+# 1. Instalar o pacote e dependências de desenvolvimento
+python -m pip install -e ".[dev]"
+
+# 2. Verificar superfície da CLI M1
+hydra --help
+
+# 3. Executar a suíte de testes offline hermética (zero rede / zero contas externas)
+python -m pytest tests -q
+```
+
+### 0.3. Fluxo Operacional Completo na CLI M1 (`RunService`)
+
+Todos os comandos da CLI M1 operam sobre a mesma camada transacional (`RunService` + `ExecutionStore` + `GitWorkspaceService`) que a API HTTP, suportando `--json` e `--output <arquivo>`:
+
+```bash
+# 1. Submeter (e opcionalmente executar tentativa em worktree real)
+hydra submit \
+  --repo-root /caminho/para/repositorio \
+  --objective "Implementar validação X" \
+  --task-id "run-01-t1" \
+  --executor "codex" \
+  --allowed-paths "src/**,tests/**" \
+  --acceptance-cmd "python -m pytest tests/test_x.py -q" \
+  --idempotency-key "idem-m1-operacao-0001" \
+  --json
+
+# Para validar o pipeline localmente sem invocar CLI externa paga (modo dry-run explícito):
+hydra submit \
+  --repo-root /caminho/para/repositorio \
+  --objective "Validar pipeline M1 offline" \
+  --allowed-paths "src/**" \
+  --acceptance-cmd "python -c \"import pathlib, sys; sys.exit(0 if pathlib.Path('src/mod.py').exists() else 1)\"" \
+  --execute --dry-run --fake-touch "src/mod.py=VALUE = 1\n" \
+  --json
+
+# 2. Inspecionar estado do run, tarefas, tentativas, artefatos e eventos
+hydra inspect <run_id> --repo-root /caminho/para/repositorio --events --artifacts --json
+
+# 3. Revisar resultado em ready_for_review (controle de concorrência otimista via --expected-revision)
+hydra review <run_id> <task_id> \
+  --repo-root /caminho/para/repositorio \
+  --accept \
+  --reason "Diff limpo e checks obrigatórios aprovados" \
+  --expected-revision 1 \
+  --json
+
+# 4. Integrar resultados aceitos na branch dedicada integrate/<run_id>
+#    (Resultados simulados de dry-run são bloqueados aqui por invariante de segurança)
+hydra integrate <run_id> --repo-root /caminho/para/repositorio --json
+
+# 5. Reexecutar tarefa rejeitada/falha ou cancelar run/tarefa
+hydra retry <run_id> <task_id> --repo-root /caminho/para/repositorio --json
+hydra cancel <run_id> --scope task --task-id <task_id> --reason "Cancelado pelo operador" --json
+hydra cancel <run_id> --scope run --reason "Run abortado" --json
+```
+
+**Códigos de saída determinísticos da CLI M1:**
+- `0`: Operação concluída com sucesso.
+- `1`: Violação de contrato ou validação de domínio (ex.: escopo inválido, revisão proibida, tentativa de integrar resultado `simulated=True`).
+- `2`: Erro de sistema/infraestrutura (ex.: falha de lock SQLite, corrupção de artefato, diretório Git inválido).
+- `3`: Conflito de concorrência ou idempotência (`IdempotencyConflictError`, `OptimisticLockError`, `InvalidTransitionError`).
+
+### 0.4. Operação via API REST e SSE (`/v1/control-plane/*`)
+
+Iniciar o servidor local (bind padrão `127.0.0.1:8000`):
+```bash
+hydra serve --host 127.0.0.1 --port 8000
+```
+
+Principais endpoints ativos no Marco M1:
+- `GET /v1/control-plane/bootstrap` — Estado de configuração, banco SQLite, diretórios `.orchestrator/` e gateway.
+- `POST /v1/control-plane/projects` e `GET /v1/control-plane/projects` — Registro e listagem de raízes Git válidas.
+- `POST /v1/control-plane/runs` — Submissão idempotente de run (suporta cabeçalho `Idempotency-Key`).
+- `GET /v1/control-plane/runs`, `GET /v1/control-plane/runs/{run_id}`, `GET /v1/control-plane/runs/{run_id}/tasks`, `GET /v1/control-plane/runs/{run_id}/artifacts` — Consultas de estado e evidências.
+- `GET /v1/control-plane/runs/{run_id}/events` — Stream SSE ordenado por `seq` monotônico com suporte a `Last-Event-ID` (`410 Gone` quando o cursor expirou) e `event: heartbeat`.
+- `POST /v1/control-plane/runs/{run_id}/tasks/{task_id}/review` — Decisão de revisão (`accepted` | `rejected`) com `expected_revision`.
+- `POST /v1/control-plane/runs/{run_id}/integrate` — Merge serializado na branch dedicada `integrate/<run_id>` com reexecução dos checks combinados.
+- `POST /v1/control-plane/runs/{run_id}/cancel` e `POST /v1/control-plane/runs/{run_id}/tasks/{task_id}/retry` — Cancelamento (`scope="run"` ou `scope="task"`) e nova tentativa.
+- `POST /v1/control-plane/runs/{run_id}/discard` — Limpeza de worktrees efêmeras após término do run, preservando e verificando o hash `SHA-256` de todos os artefatos retidos no SQLite.
 
 ---
 

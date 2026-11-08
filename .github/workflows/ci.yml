@@ -1,0 +1,95 @@
+name: Hermetic CI (M1)
+
+on:
+  push:
+    branches:
+      - main
+      - "task/**"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      run_driver_certification:
+        description: "Run isolated external CLI driver certification (never part of offline gate)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  HYDRA_OFFLINE_CI: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUTF8: "1"
+  GIT_TERMINAL_PROMPT: "0"
+
+jobs:
+  hermetic-ci:
+    name: "Hermetic Offline Suite (${{ matrix.os }} / Python ${{ matrix.python-version }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Configure local Git identity for temporary test fixtures
+        run: |
+          git config --global user.name "Hydra Hermetic CI"
+          git config --global user.email "ci@hydra-orch.local"
+
+      - name: Check formatting and whitespace hygiene
+        run: git diff --check
+
+      - name: Install hydra-orch and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Verify CLI entrypoint surface (M1)
+        run: |
+          hydra --help
+          hydra submit --help
+          hydra inspect --help
+          hydra review --help
+          hydra integrate --help
+          hydra cancel --help
+          hydra retry --help
+
+      - name: Execute hermetic offline test suite
+        run: python -m pytest tests -v
+
+  driver-certification:
+    name: "External CLI Driver Certification (Opt-In)"
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_driver_certification == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install hydra-orch
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Verify driver certification environment
+        run: |
+          echo "External CLI driver certification runs separately from the hermetic M1 CI gate (RT12)."
+          python -m pytest tests/test_worker_runner.py -v

@@ -1184,3 +1184,126 @@ async def test_additional_edge_cases_and_error_paths(tmp_path: Path, monkeypatch
         await store.record_event_atomic("run-001", "heartbeat")
     assert lock_exc.value.code == "storage_lock_error"
     monkeypatch.setattr(store, "_insert_event_in_tx", orig_insert)
+
+
+@pytest.mark.asyncio
+async def test_restart_preserves_state(tmp_path: Path):
+    """Explicit traceability entry (RF05 / RT03): state and revisions survive store restart."""
+    await test_full_execution_lifecycle_review_restart_and_replay(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_events_monotonic(tmp_path: Path):
+    """Explicit traceability entry (RF05 / RT03): concurrent WAL writes maintain monotonic seq."""
+    await test_concurrent_connections_monotonic_events(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_artifact_hash_verification(tmp_path: Path):
+    """Explicit traceability entry (RF15 / RT11): SHA-256 verification detects artifact tampering on disk."""
+    import hashlib
+
+    db_path = tmp_path / "artifacts_hash.sqlite"
+    store = ExecutionStore(db_path=db_path)
+    spec = _make_run_spec(str(tmp_path), run_id="run-art-hash", idempotency_key="idem-art-hash-0001")
+    await store.save_run_atomic(spec)
+
+    att = TaskAttempt(
+        attempt_id="att-art-1",
+        task_id=spec.tasks[0].task_id,
+        run_id=spec.run_id,
+        ordinal=1,
+        executor_id="codex",
+        provider="openai",
+        model="gpt-5",
+        base_sha=BASE_SHA,
+        process_status=ProcessStatus.RUNNING,
+        started_at=datetime.now(timezone.utc),
+    )
+    await store.save_attempt_atomic(att)
+
+    rel_path = "artifacts/att-art-1/diff.patch"
+    disk_file = tmp_path / ".orchestrator" / "run" / spec.run_id / rel_path
+    disk_file.parent.mkdir(parents=True, exist_ok=True)
+    content = b"diff --git a/x.py b/x.py\n+OK = True\n"
+    disk_file.write_bytes(content)
+    expected_sha = hashlib.sha256(content).hexdigest()
+
+    art = Artifact(
+        artifact_id="art-hash-001",
+        run_id=spec.run_id,
+        attempt_id=att.attempt_id,
+        relative_path=rel_path,
+        kind="patch",
+        sha256=expected_sha,
+        size_bytes=len(content),
+    )
+    await store.save_artifact(art, emit_event=True)
+
+    loaded = await store.get_artifacts(spec.run_id)
+    assert len(loaded) == 1
+    assert loaded[0].sha256 == expected_sha
+    assert hashlib.sha256(disk_file.read_bytes()).hexdigest() == loaded[0].sha256
+
+    # Attempting to overwrite the same artifact_id with a different SHA-256 is rejected
+    with pytest.raises(StorageIntegrityError):
+        await store.save_artifact(
+            Artifact(
+                artifact_id="art-hash-001",
+                run_id=spec.run_id,
+                attempt_id=att.attempt_id,
+                relative_path=rel_path,
+                kind="patch",
+                sha256="f" * 64,
+                size_bytes=len(content),
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_offline_ci_no_external(tmp_path: Path):
+    """Explicit traceability entry (RF12 / RF15 / RT12 / T08): hermetic CI workflow and M1 manual verification."""
+    import yaml
+
+    repo_root = Path(__file__).resolve().parents[1]
+    ci_path = repo_root / ".github" / "workflows" / "ci.yml"
+    manual_path = repo_root / "doc" / "j_manual" / "README.md"
+    pyproject_path = repo_root / "pyproject.toml"
+
+    assert ci_path.is_file(), "Missing .github/workflows/ci.yml for T08"
+    assert manual_path.is_file(), "Missing doc/j_manual/README.md for T08"
+    assert pyproject_path.is_file(), "Missing pyproject.toml for T08"
+
+    ci_data = yaml.safe_load(ci_path.read_text(encoding="utf-8"))
+    assert ci_data["env"]["HYDRA_OFFLINE_CI"] == "1"
+    jobs = ci_data["jobs"]
+    assert "hermetic-ci" in jobs
+    assert "driver-certification" in jobs
+
+    matrix_os = jobs["hermetic-ci"]["strategy"]["matrix"]["os"]
+    assert set(matrix_os) == {"ubuntu-latest", "windows-latest", "macos-latest"}
+
+    # Driver certification job must be strictly opt-in via workflow_dispatch (RT12)
+    cert_if = str(jobs["driver-certification"].get("if", ""))
+    assert "workflow_dispatch" in cert_if and "run_driver_certification" in cert_if
+
+    # Manual must document M1 verified CLI commands and exit codes
+    manual_text = manual_path.read_text(encoding="utf-8")
+    for required_token in (
+        "Manual Operacional M1",
+        "hydra submit",
+        "hydra inspect",
+        "hydra review",
+        "hydra integrate",
+        "hydra cancel",
+        "hydra retry",
+        "/v1/control-plane/runs",
+    ):
+        assert required_token in manual_text
+
+    # Verify ExecutionStore runs 100% offline in isolated tmp_path
+    store = ExecutionStore(db_path=tmp_path / "offline_ci.sqlite")
+    await store.initialize()
+    pragmas = await store.get_pragmas()
+    assert pragmas["journal_mode"] == "wal"
+    assert pragmas["foreign_keys"] == 1

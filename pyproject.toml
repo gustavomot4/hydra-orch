@@ -30,7 +30,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0"
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0"
 ]
 
 [project.scripts]
@@ -38,3 +39,14 @@ hydra = "hydra_orch.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hydra_orch"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: Hermetic unit tests for schemas, config, and state machines",
+    "integration: Multi-component integration tests (RunService, GitWorkspace, ExecutionStore)",
+    "e2e: End-to-end M1 control plane flows",
+    "negative: Objective negative test criteria (§7.A of technical PRD)",
+    "security: Local auth, strict CORS allowlist, and path/scope validation tests",
+    "a11y: Accessibility verification tests"
+]

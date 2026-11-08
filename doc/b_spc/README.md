@@ -34,6 +34,7 @@ Para implementação e testes, seguir a sequência:
 
 | Arquivo | Tipo | Descrição | Versão |
 |---------|------|-----------|--------|
+| [`entrega_operacao.md`](entrega_operacao.md) | S13 / M1 / T08 (DBC-9) | CI hermético multiplataforma, retenção verificada por SHA-256 e manual operacional M1 | `v01_00_0000` |
 | [`api_control_plane.md`](api_control_plane.md) | S10 / M1 / T07 (DBC-9) | Entrada unificada M1 (CLI e API REST/SSE) sobre `RunService`, idempotência, revisão e loopback auth | — |
 | [`integracao_git.md`](integracao_git.md) | S05 / T05–T06 (DBC-9) | Workspace Git isolado em worktree real, SHA fixo, escopo, integração serializada e decomposição T06 | — |
 | [`executor_cli.md`](executor_cli.md) | S04 / T04 (DBC-9) | Runner de subprocessos CLI, cwd real, env filtrado, tree kill e dry-run isolado | — |
