@@ -882,13 +882,13 @@ Cobrir: disco cheio, lock do banco, subprocesso órfão, arquivo fora do escopo,
 
 ## 8. Tasks iniciais rastreáveis
 
-Todas pendentes. Cada linha é uma unidade de implementação com testes no mesmo commit; não autoriza execução de provedores pagos. Para o acompanhamento operacional por ondas de execução, estimativas em Story Points e políticas de agentes, consulte [`../a_context/backlog.md`](../a_context/backlog.md) e o planejamento estratégico em [`../a_context/roadmap.md`](../a_context/roadmap.md). Specs S01–S13 detalham posteriormente cada módulo.
+O estado de implementação é registrado no backlog; a T01 possui uma entrega de configuração e roteamento especificada em [configuracao_runtime.md](configuracao_runtime.md). Cada linha é uma unidade de implementação com testes no mesmo commit; não autoriza execução de provedores pagos. Para o acompanhamento operacional por ondas de execução, estimativas em Story Points e políticas de agentes, consulte [`../a_context/backlog.md`](../a_context/backlog.md) e o planejamento estratégico em [`../a_context/roadmap.md`](../a_context/roadmap.md). Specs S01–S13 detalham posteriormente cada módulo.
 
 ### 8.1 Núcleo (T01 a T08)
 
 | Task | Depende | RF / RT | Arquivos de propriedade | Definição de concluído (DoD) |
 |------|---------|---------|-------------------------|------------------------------|
-| **T01** Config canônica | — | RF02 / RT01 | `config.py`, `config.yaml`, `.gitignore`, `tests/test_config.py` | Aliases resolvidos; inválidos recusados; runtime ignorado |
+| **T01** Config canônica | — | RF02 / RT01 | `config.py`, `config.yaml`, `.gitignore`, consumo em `core/router.py`, `bridge/omniroute_client.py`, `cli.py`, `server.py`; testes correspondentes | Aliases/modelos resolvidos; CLI separada de CDP; inválidos recusados; runtime ignorado; gateway disabled/required comprovado |
 | **T02** Contratos e estados | T01 | RF03/RF07 / RT02 | `model.py`, `prd_tecnico.md (§3.4)`, `tests/test_model.py` | Schemas Pydantic + transições válidos/inválidos cobertos |
 | **T03** Store e migração | T02 | RF03/RF05 / RT03/RT11 | `core/checkpointer.py`, `migration/`, `tests/test_checkpointer.py` | Restart, chave idempotente, transação, WAL, FKs testados |
 | **T04** Runner e fake | T03 | RF04/RF06 / RT04 | `bridge/worker_runner.py`, `tests/test_worker_runner.py` | Cwd real, erro, timeout, árvore cancelada, fake só dry-run |

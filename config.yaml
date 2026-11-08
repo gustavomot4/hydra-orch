@@ -3,12 +3,42 @@ version: "5.0"
 hydra:
   proxy_host: "127.0.0.1"
   proxy_port: 8000
-  default_mode: 1 # 1: Swarm (Wave 0 + Wave 1) | 2: Relay Sequencial | 3: Persistente Auto-Resume
-  preferred_primary_model: "claude-pro"
+  default_mode: 2 # Proxy sequencial; execução verificável CLI será entregue em M1.
+  preferred_primary_model: "fast_classifier"
+  inference_fallback_chain: ["fast_classifier"]
   worktree_base_dir: ".orchestrator/worktree"
   state_db: ".orchestrator/checkpoints.sqlite"
   auto_heal_build_errors: true
   max_heal_attempts: 2
+
+# Configuração do primeiro driver; execução/certificação pertencem à T04.
+execution:
+  driver: "codex"
+  model: null # Selecionar explicitamente na certificação; não presume modelo disponível.
+  timeout_seconds: 300
+
+# Somente entradas habilitadas são instanciadas. CLI Codex/Claude não equivale a CDP.
+providers:
+  ui_cdp:
+    claude_pro: {enabled: false, cdp_port: 9222}
+    chatgpt_plus: {enabled: false, cdp_port: 9223}
+    gemini_pro: {enabled: false, cdp_port: 9224}
+  ide_bridge:
+    antigravity: {enabled: false, bridge_url: "http://127.0.0.1:9330"}
+  api_gateway:
+    openrouter:
+      enabled: false
+      base_url: "https://openrouter.ai/api/v1"
+      api_key_env: "OPENROUTER_API_KEY"
+    deepseek:
+      enabled: false
+      base_url: "https://api.deepseek.com/v1"
+      api_key_env: "DEEPSEEK_API_KEY"
+  remote_local:
+    ollama_local:
+      enabled: true
+      base_url: "http://127.0.0.1:11434"
+      default_model: "qwen2.5-coder:7b"
 
 # ============================================================================
 # INTEGRAÇÃO COM O OMNIROUTE GATEWAY (Conexão OAuth Assinaturas + Free Tiers)
@@ -31,21 +61,23 @@ omniroute:
 
     fullstack_coder:
       primary: "codex/gpt-4o-plus"
-      fallbacks: ["cursor/claude-sonnet", "claude-code/claude-3-7-sonnet"]
+      fallbacks: ["claude-code/claude-3-7-sonnet"]
       min_difficulty: 6
 
     context_and_docs:
-      primary: "gemini-cli/gemini-2-5-pro"
-      fallbacks: ["ai-studio/gemini-pro-free"]
+      primary: "gemini/gemini-2-5-pro"
+      fallbacks: []
       min_difficulty: 4
 
     database_and_tests:
       primary: "ssh-home-gpu/qwen2.5-coder:32b"
+      adapter: "ssh_remote"
       fallbacks: ["deepseek/deepseek-chat", "openrouter/qwen-2.5-coder-32b-instruct:free"]
       min_difficulty: 3
 
     fast_classifier:
       primary: "local-ollama/qwen2.5-coder:7b"
+      adapter: "ollama_local"
       fallbacks: ["openrouter/llama-3.3-70b-instruct:free"]
       min_difficulty: 1
 
@@ -68,7 +100,7 @@ remote_ssh_gpu:
 modes:
   mode_1_swarm:
     max_parallel_worktrees: 4
-    worker_cli: "opencode" # opencode | aider | claude-code | antigravity
+    worker_cli: "codex" # Configurado; suporte de execução será certificado separadamente.
     wave_0_foundation_enabled: true
     lock_dependency_manifests_in_wave_1: true
     symlink_dirs: ["node_modules", ".venv", "vendor"]

@@ -13,6 +13,8 @@
 
 Status: especificação funcional normativa proposta para implementação. Base: revisão registrada no [plano](../a_context/plano_desenvolvimento.md) e síntese da [visão de produto](../a_context/visao_produto.md). Não representa funcionalidades já certificadas. Este documento detalha o comportamento esperado do produto; o [PRD técnico](prd_tecnico.md) define sua realização e contratos executáveis.
 
+**Incremento de configuração:** parte de RF02 possui implementação offline validada em [S01](configuracao_runtime.md). A configuração de um driver não comprova sua execução; a certificação do Codex e os critérios completos de M1 permanecem pendentes. Swarm é recusado no proxy de inferência até que os gates próprios existam.
+
 ## 1. Propósito
 
 Permitir que um usuário organize áreas de trabalho, projetos e repositórios, escolha ou componha perfis de agentes e acompanhe tarefas de engenharia por uma interface visual e pelas superfícies CLI/API. O Hydra opera como control plane de engenharia de software unificando a inteligência de orquestração sobre quatro motores centrais integrados:

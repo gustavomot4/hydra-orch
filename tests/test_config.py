@@ -15,6 +15,7 @@ import pytest
 from pydantic import ValidationError
 
 from hydra_orch.config import (
+    ConfigError,
     HydraConfig,
     HydraSettings,
     OmniRouteConfig,
@@ -71,7 +72,8 @@ def test_resolve_alias_valid():
     assert target_arch.primary == "claude-code/claude-3-7-sonnet"
     assert target_arch.primary_provider == "claude-code"
     assert target_arch.primary_model == "claude-3-7-sonnet"
-    assert target_arch.preferred_adapter == "claude_pro"
+    assert target_arch.preferred_adapter is None
+    assert target_arch.executor == "claude-code"
     assert target_arch.min_difficulty == 8
     assert len(target_arch.fallbacks) >= 1
 
@@ -79,12 +81,13 @@ def test_resolve_alias_valid():
     target_coder = config.resolve_alias("fullstack_coder")
     assert target_coder.primary_provider == "codex"
     assert target_coder.primary_model == "gpt-4o-plus"
-    assert target_coder.preferred_adapter == "chatgpt_plus"
+    assert target_coder.preferred_adapter is None
+    assert target_coder.executor == "codex"
 
     # 3. database_and_tests
     target_db = config.resolve_alias("database_and_tests")
     assert target_db.primary_provider == "ssh-home-gpu"
-    assert target_db.preferred_adapter == "ollama_local"
+    assert target_db.preferred_adapter == "ssh_remote"
 
 
 def test_resolve_alias_direct_provider():
@@ -109,7 +112,6 @@ def test_resolve_alias_unknown_raises_error():
         config.resolve_alias("modelo_inexistente_xyz_123")
 
     assert "modelo_inexistente_xyz_123" in str(exc_info.value)
-    assert "architect_heavy" in str(exc_info.value)
 
 
 def test_omniroute_modes_and_direct_mode():
@@ -129,15 +131,11 @@ def test_omniroute_modes_and_direct_mode():
     assert cfg_required.is_omniroute_required is True
     assert cfg_required.is_direct_mode is False
 
-    # 3. Config com enabled=False harmoniza connection_mode para disabled
-    cfg_disabled = HydraConfig.model_validate({
-        "omniroute": {
-            "enabled": False,
-            "connection_mode": "required",
-        }
-    })
-    assert cfg_disabled.omniroute.connection_mode == "disabled"
-    assert cfg_disabled.is_direct_mode is True
+    # A mandatory dependency must never be silently disabled.
+    with pytest.raises(ValidationError):
+        HydraConfig.model_validate({
+            "omniroute": {"enabled": False, "connection_mode": "required"},
+        })
 
     # 4. Modo inválido levanta InvalidConnectionModeError
     with pytest.raises(ValidationError):
@@ -167,8 +165,109 @@ def test_secret_reference_resolution(monkeypatch):
 def test_providers_compat_ssh_remote():
     """Valida que providers.remote_local inclui ssh_remote mapeado para remote_ssh_gpu (GAP A13)."""
     config = load_config(reload=True)
-    ssh_remote = config.providers.remote_local.get("ssh_remote")
-    assert ssh_remote is not None
-    assert ssh_remote.ssh_port == 22
-    assert ssh_remote.local_port == 11435
-    assert hasattr(ssh_remote, "model_dump")
+    ssh_remote = config.provider_groups()["remote_local"]["ssh_remote"]
+    assert ssh_remote.enabled is False
+    assert ssh_remote.base_url == "http://127.0.0.1:11435"
+    assert config.remote_ssh_gpu.ssh_port == 22
+
+
+@pytest.mark.parametrize("section, values", [
+    ("hydra", {"proxy_port": 0}),
+    ("hydra", {"proxy_port": 65536}),
+    ("hydra", {"proxy_port": True}),
+    ("hydra", {"default_mode": 4}),
+    ("hydra", {"default_mode": True}),
+    ("hydra", {"default_mode": "2"}),
+    ("hydra", {"max_heal_attempts": -1}),
+    ("hydra", {"state_db": ".hydra/state.sqlite"}),
+    ("hydra", {"worktree_base_dir": ".orchestrator/../outside"}),
+    ("execution", {"driver": "unimplemented"}),
+    ("execution", {"timeout_seconds": 0}),
+    ("visual_interface", {"port": -1}),
+    ("remote_ssh_gpu", {"ssh_port": 65536}),
+    ("remote_ssh_gpu", {"healthcheck_interval_sec": 0}),
+    ("omniroute", {"base_url": "file:///tmp/gateway"}),
+    ("omniroute", {"base_url": "http://user:password@localhost"}),
+    ("omniroute", {"quota_api_url": "http://localhost:99999"}),
+    ("omniroute", {"auto_start_daemon": True}),
+    ("omniroute", {"enabled": True, "connection_mode": "disabled"}),
+])
+def test_invalid_runtime_configuration_rejected(section, values):
+    with pytest.raises(ValidationError):
+        HydraConfig.model_validate({section: values})
+
+
+@pytest.mark.parametrize("mode, values", [
+    ("mode_1_swarm", {"max_parallel_worktrees": 0}),
+    ("mode_1_swarm", {"worker_cli": "unknown"}),
+    ("mode_3_persistent", {"poll_quota_interval_sec": 0}),
+    ("mode_3_persistent", {"stitch_anchor_lines": -1}),
+    ("mode_2_relay", {"sequence": [{"stage": "a", "model": "unknown"}]}),
+])
+def test_invalid_mode_configuration_rejected(mode, values):
+    with pytest.raises(ValidationError):
+        HydraConfig.model_validate({"modes": {mode: values}})
+
+
+def test_explicit_missing_file_never_falls_back(tmp_path):
+    with pytest.raises(ConfigError, match="not found"):
+        load_config(tmp_path / "missing.yaml")
+
+
+@pytest.mark.parametrize("content", [
+    "hydra: [", "[]", "false", "42",
+    "hydra:\n  proxy_port: 8000\n  proxy_port: 9000\n",
+    "hydra: {}\nhydra: {}\n",
+])
+def test_invalid_yaml_has_clear_error(tmp_path, content):
+    source = tmp_path / "config.yaml"
+    source.write_text(content, encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_config(source)
+
+
+def test_explicit_config_does_not_replace_default_cache(tmp_path):
+    default = load_config(reload=True)
+    source = tmp_path / "config.yaml"
+    source.write_text("hydra:\n  proxy_port: 9001\n", encoding="utf-8")
+    assert load_config(source).server.port == 9001
+    assert load_config() is default
+
+
+def test_default_cache_follows_working_directory(tmp_path, monkeypatch):
+    load_config(reload=True)
+    (tmp_path / "config.yaml").write_text("hydra:\n  proxy_port: 9002\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert load_config().server.port == 9002
+
+
+def test_enabled_api_requires_credential_reference(monkeypatch):
+    monkeypatch.delenv("HYDRA_TEST_MISSING_KEY", raising=False)
+    with pytest.raises(ValidationError, match="Missing credential"):
+        HydraConfig.model_validate({"providers": {"api_gateway": {
+            "test": {"enabled": True, "base_url": "https://example.invalid/v1",
+                     "api_key_env": "HYDRA_TEST_MISSING_KEY"},
+        }}})
+
+
+def test_unknown_adapter_reference_and_duplicate_provider_rejected():
+    with pytest.raises(ValidationError, match="Unknown inference adapter"):
+        HydraConfig.model_validate({"omniroute": {"logical_models": {
+            "example": {"primary": "codex/model", "adapter": "missing"},
+        }}})
+    with pytest.raises(ValidationError, match="unique across"):
+        HydraConfig.model_validate({"providers": {
+            "ui_cdp": {"same": {}},
+            "remote_local": {"same": {"base_url": "http://localhost:11434"}},
+        }})
+    with pytest.raises(ValidationError, match="Unknown model alias"):
+        HydraConfig.model_validate({"omniroute": {"logical_models": {
+            "typo": {"primary": "unregistered/model"},
+        }}})
+
+
+def test_codex_configuration_does_not_create_browser_adapter():
+    config = HydraConfig.model_validate({"execution": {"driver": "codex"}})
+    assert config.resolve_alias("codex/model").executor == "codex"
+    assert config.resolve_alias("codex/model").preferred_adapter is None
+    assert config.providers.ui_cdp == {}

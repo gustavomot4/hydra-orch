@@ -115,7 +115,7 @@ Todas as 28 tasks normativas detalhadas com seus contratos formais, dependência
 
 | ID | Nome da Task | Épico / Versão | Prio | SP | Dependências | RF / RT | Arquivos de Propriedade | Definition of Done (DoD Sintético) | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| **T01** | Config canônica | EP01 / V0 | P0 | 3 | — | RF02 / RT01 | `config.py`, `config.yaml`, `.gitignore`, `tests/test_config.py` | Aliases resolvidos; inválidos recusados; runtime `.orchestrator/`; modo direto sem gateway | concluido |
+| **T01** | Config canônica | EP01 / V0 | P0 | 3 | — | RF02 / RT01 | `config.py`, `config.yaml`, `.gitignore`, consumidores router/gateway/CLI/API e testes | Aliases e modelo resolvidos; provedores explícitos; inválidos recusados; runtime `.orchestrator/`; gateway desligado sem chamadas e required com preflight | concluido |
 | **T02** | Contratos e estados | EP01 / V0 | P0 | 5 | T01 | RF03, RF07 / RT02 | `model.py`, `prd_tecnico.md (§3.4)`, `tests/test_model.py` | Schemas Pydantic + máquinas de transição válidas/inválidas 100% cobertas | pronto |
 | **T03** | Store e migração | EP01 / V0 | P0 | 8 | T02 | RF03, RF05 / RT03, RT11 | `core/checkpointer.py`, `migration/`, `tests/test_checkpointer.py` | SQLite WAL, restart seguro, chave de idempotência, transação atômica e FKs ativas | pendente *(scaffold)* |
 | **T04** | Runner e fake | EP01 / V0 | P0 | 8 | T03 | RF04, RF06 / RT04 | `bridge/worker_runner.py`, `tests/test_worker_runner.py` | Cwd operacional real, erro `executor_unavailable`, timeout com tree kill, fake restrito a dry-run | pendente *(scaffold)* |
@@ -241,3 +241,13 @@ Documentos formais de especificação que devem ser revisados e validados antes 
 | Matriz de Testes Herméticos | `doc/h_test/README.md` | T08, T24 |
 | Certificação de Transportes | `doc/i_infra/README.md` | T22 |
 | Manuais e Runbooks | `doc/j_manual/README.md` | T08, T24 |
+
+## Evidência da revalidação da T01
+
+- Contrato: [S01 — configuração de runtime](../b_spc/configuracao_runtime.md). Escopo inclui os consumidores necessários no router, gateway, CLI e API; não entrega T04/T07 nem certifica provedores.
+- Baseline do commit `2b46168` executado em cópia temporária: **26 testes aprovados**. Entrega ampliada: **77 testes aprovados** no Windows/Python 3.14.6. Permanecem cinco avisos de depreciação já presentes no baseline.
+- Cobertura de linhas de `config.py`: **97%** (344 statements, 9 não executados), medida com coverage no ambiente virtual local. O gate mínimo de 80% da T01 passou; isso não representa cobertura integral dos motores ainda em scaffold.
+- Sem chamadas reais de modelos, CLI de agente, SSH ou CDP. O teste de quota offline usa HTTP simulado; testes que escrevem contratos usam diretório temporário.
+- Configuração inválida e indisponibilidade de rota/gateway têm diagnóstico explícito; Codex não é convertido em CDP. Swarm pelo chat é recusado até a implementação dos gates de execução.
+- Próxima entrega: **T02 — contratos e estados**. M1 continua pendente de T02–T08; interface visual vem após o núcleo verificável.
+- A suíte exige execução fora da restrição de sockets deste sandbox Windows: o asyncio usa socket local interno mesmo em testes offline. Dependências foram instaladas somente em `.venv/`; cobertura e runtime permanecem ignorados.

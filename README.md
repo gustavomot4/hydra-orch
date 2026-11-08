@@ -10,6 +10,12 @@ Ele atua como o cérebro central para alimentar agentes de código autônomos co
 
 ---
 
+## Estado da implementação
+
+O núcleo verificável M1 está em desenvolvimento. A configuração e o roteamento de inferência têm testes offline; execução de tarefas com Codex, revisão e integração serão entregues nas próximas etapas. `hydra run` atualmente gera texto. O modo swarm pelo chat é recusado para impedir operações Git sem os gates de M1. Os diagramas e pilares abaixo descrevem a arquitetura pretendida, não certificação de provedores.
+
+Consulte a [configuração de runtime](doc/b_spc/configuracao_runtime.md) e o [backlog](doc/a_context/backlog.md) para os contratos e o estado de cada entrega.
+
 ## 🏗️ Arquitetura do Sistema
 
 ```mermaid
@@ -98,31 +104,27 @@ pip install -e .
 
 ### 2. Configurar o `config.yaml`
 
-O arquivo `config.yaml` permite personalizar portas CDP, credenciais e a esteira de fallback:
+O YAML versionado contém a configuração canônica. Por padrão, somente o adaptador Ollama local está habilitado; é necessário ter o serviço e o modelo configurado disponíveis. As demais integrações exigem habilitação explícita. Para desenvolvimento, instale também os testes com `python -m pip install -e ".[dev]"`.
 
 ```yaml
-orchestrator:
-  default_mode: "relay"
-  resilience:
-    on_limit_action: "hot_handoff"
-    handoff_fallback_chain:
-      - "claude_pro"
-      - "chatgpt_plus"
-      - "deepseek"
-      - "openrouter"
-      - "ollama_local"
-
+hydra:
+  default_mode: 2
+  inference_fallback_chain: [coder]
 providers:
-  ui_cdp:
-    claude_pro:
+  remote_local:
+    local:
       enabled: true
-      cdp_port: 9222
-  api_gateway:
-    deepseek:
-      enabled: true
-      base_url: "https://api.deepseek.com/v1"
-      api_key_env: "DEEPSEEK_API_KEY"
+      base_url: "http://127.0.0.1:11434"
+      default_model: "qwen2.5-coder:7b"
+omniroute:
+  enabled: false
+  connection_mode: disabled
+  logical_models:
+    coder:
+      primary: "local/qwen2.5-coder:7b"
 ```
+
+O driver inicial `execution.driver: codex` é configuração preparatória; ele não cria um adaptador de inferência nem comprova execução. Credenciais de API usam nomes de variáveis de ambiente (`api_key_env`). Campos desconhecidos, políticas contraditórias e caminhos legados são recusados; consulte o [procedimento de migração](doc/b_spc/configuracao_runtime.md#7-falhas-e-migração).
 
 ### 3. Iniciar o Servidor Proxy OpenAI
 
@@ -138,7 +140,7 @@ Seu servidor estará pronto em `http://localhost:8000/v1`.
 - **API Provider:** `OpenAI Compatible`
 - **Base URL:** `http://localhost:8000/v1`
 - **API Key:** `hydra` (ou qualquer valor)
-- **Model ID:** `hydra-default` (ou `hydra-swarm`, `hydra-relay`, `hydra-persistent`)
+- **Model ID:** `hydra-default` ou `hydra-relay`; `hydra-persistent` exige uma rota primária habilitada
 
 #### No **Aider**:
 ```bash
@@ -151,8 +153,8 @@ aider --openai-api-base http://localhost:8000/v1 --openai-api-key hydra --model 
 # Executar prompt no Modo Relay padrão com live streaming
 hydra run "Crie um endpoint FastAPI com autenticação JWT e documentação Swagger"
 
-# Executar prompt no Modo Swarm Paralelo (Git Worktrees)
-hydra run "Crie uma aplicação completa de barbearia com backend e frontend" --mode swarm
+# Selecionar explicitamente um alias de inferência
+hydra run "Explique como testar um endpoint FastAPI" --mode relay --provider fast_classifier
 
 # Verificar status dos provedores e conexões ativas
 hydra status

@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from hydra_orch.config import HydraConfig, load_config
+from hydra_orch.config import ConfigError, HydraConfig, load_config
 from hydra_orch.core.router import HydraRouter
 from hydra_orch.core.ssh_tunnel import SshTunnelManager
 from hydra_orch.model import (
@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 config = load_config()
 router = HydraRouter(config)
 ssh_manager: SshTunnelManager | None = None
-ssh_remote = config.providers.remote_local.get("ssh_remote")
-if ssh_remote and getattr(ssh_remote, "enabled", False):
+ssh_remote = config.remote_ssh_gpu
+if ssh_remote.enabled:
     ssh_manager = SshTunnelManager(ssh_remote.model_dump())
 
 app = FastAPI(
@@ -50,6 +50,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event() -> None:
+    await router.ensure_gateway()
     await router.checkpointer.initialize()
     if ssh_manager:
         ssh_manager.start_tunnel()
@@ -78,7 +79,6 @@ async def health_check() -> Dict[str, Any]:
 async def list_models() -> ModelListResponse:
     base_models = [
         "hydra-default",
-        "hydra-swarm",
         "hydra-relay",
         "hydra-persistent",
     ]
@@ -96,6 +96,9 @@ async def create_chat_completion(request: ChatCompletionRequest) -> Any:
         request.mode = "relay"
     elif request.model == "hydra-persistent":
         request.mode = "persistent"
+
+    router.validate_request(request)
+    await router.ensure_gateway()
 
     # If stream requested, stream SSE format
     if request.stream:
@@ -196,8 +199,16 @@ async def quota_status() -> Dict[str, Any]:
     client = OmniRouteClient(
         base_url=config.omniroute.base_url,
         quota_api_url=config.omniroute.quota_api_url,
+        enabled=not config.is_direct_mode,
     )
     return await client.get_quota_status()
+
+
+@app.exception_handler(ConfigError)
+async def configuration_error_handler(request: Request, exc: ConfigError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={
+        "code": exc.code, "message": str(exc), "run_id": None, "retryable": False,
+    })
 
 
 def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:

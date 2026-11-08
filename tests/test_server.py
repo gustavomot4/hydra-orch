@@ -52,7 +52,7 @@ def test_server_models_endpoint():
     model_ids = [m["id"] for m in data["data"]]
     # Base orchestration models must be present
     assert "hydra-default" in model_ids
-    assert "hydra-swarm" in model_ids
+    assert "hydra-swarm" not in model_ids
     assert "hydra-relay" in model_ids
     assert "hydra-persistent" in model_ids
 
@@ -106,3 +106,51 @@ def test_ssh_tunnel_instantiation_conditions():
     assert isinstance(manager_2, SshTunnelManager)
     assert manager_2.host == "gpu-node.local"
     assert manager_2.port == 2222
+
+
+def test_missing_provider_is_structured_503_before_stream(monkeypatch):
+    monkeypatch.setattr(router, "adapters", {})
+    response = TestClient(app).post("/v1/chat/completions", json={
+        "messages": [{"role": "user", "content": "test"}], "stream": True,
+    })
+    assert response.status_code == 503
+    assert response.json()["code"] == "provider_unavailable"
+    assert "traceback" not in response.text.lower()
+
+
+def test_swarm_inference_request_rejected_without_git_effects(monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Inference must not create worktrees")
+    monkeypatch.setattr(router.swarm, "create_worktree", forbidden)
+    response = TestClient(app).post("/v1/chat/completions", json={
+        "model": "hydra-swarm", "messages": [{"role": "user", "content": "test"}],
+    })
+    assert response.status_code == 422
+    assert response.json()["code"] == "unsupported_mode"
+
+
+def test_quota_disabled_has_no_http_calls(monkeypatch):
+    import httpx
+    def forbidden(*args, **kwargs):
+        pytest.fail("Disabled gateway must not make HTTP calls")
+    monkeypatch.setattr(httpx, "AsyncClient", forbidden)
+    response = TestClient(app).get("/v1/quota")
+    assert response.status_code == 200
+    assert response.json()["status"] == "unknown"
+    assert response.json()["claude_pro"]["remaining_percent"] is None
+
+
+@pytest.mark.asyncio
+async def test_required_gateway_failure_precedes_startup_side_effects(monkeypatch):
+    from hydra_orch.config import GatewayUnavailableError
+    from hydra_orch.server import startup_event
+
+    async def unavailable():
+        raise GatewayUnavailableError("Required gateway unavailable")
+    async def forbidden():
+        pytest.fail("Startup must stop before checkpoint initialization")
+
+    monkeypatch.setattr(router, "ensure_gateway", unavailable)
+    monkeypatch.setattr(router.checkpointer, "initialize", forbidden)
+    with pytest.raises(GatewayUnavailableError):
+        await startup_event()

@@ -1799,7 +1799,6 @@ paths:
         '422':
           description: Schema inválido ou perfil incompatível
 
-  /runs:
     get:
       tags: [Runs]
       summary: Listar execuções

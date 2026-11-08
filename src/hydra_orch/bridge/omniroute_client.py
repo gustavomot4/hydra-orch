@@ -20,13 +20,17 @@ class OmniRouteClient:
         base_url: str = "http://127.0.0.1:20128/v1",
         quota_api_url: str = "http://127.0.0.1:20128/api/usage/quota",
         timeout: float = 120.0,
+        enabled: bool = True,
     ):
         self.base_url = base_url.rstrip("/")
         self.quota_api_url = quota_api_url
         self.timeout = timeout
+        self.enabled = enabled
 
     async def is_available(self) -> bool:
         """Check if OmniRoute daemon is active and listening."""
+        if not self.enabled:
+            return False
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 resp = await client.get(f"{self.base_url}/models")
@@ -40,6 +44,13 @@ class OmniRouteClient:
         Conforms to RT09 / RT17 (GAP A03): When OmniRoute is offline, marks status as 'unknown'
         rather than claiming 100% observed availability.
         """
+        unknown = {
+            "status": "unknown",
+            **{name: {"status": "unknown", "remaining_percent": None, "resets_in_seconds": None}
+               for name in ("claude_pro", "chatgpt_plus", "gemini_pro")},
+        }
+        if not self.enabled:
+            return unknown
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 resp = await client.get(self.quota_api_url)
@@ -49,12 +60,7 @@ class OmniRouteClient:
                     return data
         except Exception as e:
             logger.debug(f"Could not reach OmniRoute quota API: {e}")
-        return {
-            "status": "unknown",
-            "claude_pro": {"status": "unknown", "remaining_percent": 0, "resets_in_seconds": None},
-            "chatgpt_plus": {"status": "unknown", "remaining_percent": 0, "resets_in_seconds": None},
-            "gemini_pro": {"status": "unknown", "remaining_percent": 0, "resets_in_seconds": None},
-        }
+        return unknown
 
     async def stream_chat_completion(
         self,

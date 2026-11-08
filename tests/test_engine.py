@@ -92,12 +92,17 @@ async def test_engine_checkpointer_and_anchor():
 
 
 @pytest.mark.asyncio
-async def test_omniroute_client_quota_unknown_when_offline():
+async def test_omniroute_client_quota_unknown_when_offline(monkeypatch):
+    import httpx
+    async def offline(*args, **kwargs):
+        raise httpx.ConnectError("offline fixture")
+    monkeypatch.setattr(httpx.AsyncClient, "get", offline)
     client = OmniRouteClient(quota_api_url="http://127.0.0.1:59999/api/usage/quota")
     quota = await client.get_quota_status()
     assert quota["status"] == "unknown"
     assert "claude_pro" in quota
     assert quota["claude_pro"]["status"] == "unknown"
+    assert quota["claude_pro"]["remaining_percent"] is None
 
 
 @pytest.mark.asyncio

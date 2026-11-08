@@ -13,7 +13,7 @@ from rich.table import Table
 from rich.live import Live
 from rich.markdown import Markdown
 
-from hydra_orch.config import load_config
+from hydra_orch.config import ConfigError, load_config
 from hydra_orch.model import ChatCompletionRequest, ChatMessage
 from hydra_orch.core.router import HydraRouter
 
@@ -83,7 +83,11 @@ def run(
                 full_text = "".join(accumulated)
                 live.update(Markdown(full_text))
 
-    asyncio.run(_execute())
+    try:
+        asyncio.run(_execute())
+    except ConfigError as exc:
+        console.print(f"{exc.code}: {exc}", markup=False)
+        raise typer.Exit(code=1) from exc
 
 
 @app.command()
@@ -127,6 +131,7 @@ def quota():
     client = OmniRouteClient(
         base_url=cfg.omniroute.base_url,
         quota_api_url=cfg.omniroute.quota_api_url,
+        enabled=not cfg.is_direct_mode,
     )
 
     table = Table(title="OmniRoute 5h Quota Tracker", border_style="green")
@@ -139,9 +144,11 @@ def quota():
         data = await client.get_quota_status()
         for k, v in data.items():
             if isinstance(v, dict):
-                rem = f"{v.get('remaining_percent', 100)}%"
-                resets = f"{v.get('resets_in_seconds', 0)}s"
-                status_str = "ACTIVE" if v.get("remaining_percent", 100) > 0 else "QUOTA_LIMITED"
+                remaining = v.get("remaining_percent")
+                reset = v.get("resets_in_seconds")
+                rem = f"{remaining}%" if remaining is not None else "unknown"
+                resets = f"{reset}s" if reset is not None else "unknown"
+                status_str = v.get("status", "unknown").upper()
                 table.add_row(k.replace("_", " ").title(), rem, resets, status_str)
 
     asyncio.run(_fetch())

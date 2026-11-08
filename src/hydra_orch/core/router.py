@@ -7,7 +7,11 @@ import logging
 import time
 import uuid
 from typing import AsyncIterator, Dict, List, Optional
-from hydra_orch.config import HydraConfig, UnknownAliasError, load_config
+from hydra_orch.config import (
+    HydraConfig, UnknownAliasError, ProviderUnavailableError, GatewayUnavailableError,
+    UnsupportedModeError, load_config,
+)
+from hydra_orch.bridge.omniroute_client import OmniRouteClient
 from hydra_orch.model import ChatCompletionRequest, ChatMessage
 from hydra_orch.adapter.base import BaseAdapter, LimitHitException
 from hydra_orch.adapter.ui_cdp import UiCdpAdapter
@@ -36,25 +40,25 @@ class HydraRouter:
 
     def _initialize_adapters(self) -> None:
         """Instantiate all enabled adapters based on configuration."""
-        providers = self.config.providers
+        providers = self.config.provider_groups()
 
         # 1. UI CDP adapters
-        for name, cfg in providers.ui_cdp.items():
+        for name, cfg in providers["ui_cdp"].items():
             if cfg.enabled:
                 self.adapters[name] = UiCdpAdapter(name, cfg.model_dump())
 
         # 2. IDE Bridge adapters
-        for name, cfg in providers.ide_bridge.items():
+        for name, cfg in providers["ide_bridge"].items():
             if cfg.enabled:
                 self.adapters[name] = IdeBridgeAdapter(name, cfg.model_dump())
 
         # 3. API Gateway adapters
-        for name, cfg in providers.api_gateway.items():
+        for name, cfg in providers["api_gateway"].items():
             if cfg.enabled:
                 self.adapters[name] = ApiGatewayAdapter(name, cfg.model_dump())
 
         # 4. Remote Local / SSH adapters
-        for name, cfg in providers.remote_local.items():
+        for name, cfg in providers["remote_local"].items():
             if cfg.enabled:
                 self.adapters[name] = RemoteLocalAdapter(name, cfg.model_dump())
 
@@ -81,30 +85,70 @@ class HydraRouter:
 
     def select_provider_for_complexity(self, complexity: int) -> str:
         """Maps complexity score (1-10) to configured preferred provider."""
-        thresholds = self.config.swarm.difficulty_thresholds
-        if complexity <= thresholds.get("simple", {}).max_complexity:
-            candidate = thresholds["simple"].preferred_provider
-        elif complexity <= thresholds.get("moderate", {}).max_complexity:
-            candidate = thresholds["moderate"].preferred_provider
-        else:
-            candidate = thresholds["complex"].preferred_provider
-
-        resolved = self.resolve_provider_name(candidate)
-        if resolved:
-            return resolved
+        if type(complexity) is not int or not 1 <= complexity <= 10:
+            raise ValueError("complexity must be an integer between 1 and 10")
+        candidates = sorted(
+            self.config.omniroute.logical_models.items(),
+            key=lambda item: item[1].min_difficulty, reverse=True,
+        )
+        for alias, mapping in candidates:
+            if mapping.min_difficulty <= complexity:
+                resolved = self.resolve_provider_name(alias)
+                if resolved:
+                    return resolved
 
         for fallback in self.config.orchestrator.resilience.handoff_fallback_chain:
             fb_resolved = self.resolve_provider_name(fallback)
             if fb_resolved:
                 return fb_resolved
 
-        return list(self.adapters.keys())[0] if self.adapters else "mock"
+        raise ProviderUnavailableError("No eligible inference adapter is configured")
+
+    async def ensure_gateway(self) -> None:
+        """Required is fail-closed; disabled/optional never need a preflight call."""
+        if self.config.is_omniroute_required:
+            gateway = OmniRouteClient(base_url=self.config.omniroute.base_url)
+            if not await gateway.is_available():
+                raise GatewayUnavailableError("Required OmniRoute gateway is unavailable")
+
+    def validate_request(self, request: ChatCompletionRequest) -> None:
+        mode = request.mode or self.config.orchestrator.default_mode
+        if mode == "swarm":
+            raise UnsupportedModeError("Verified swarm execution is not available in the inference proxy")
+        if request.preferred_provider and not self.resolve_provider_name(request.preferred_provider):
+            raise ProviderUnavailableError("Requested route has no enabled inference adapter; CLI drivers are separate")
+        if not self.adapters:
+            raise ProviderUnavailableError("No inference adapters are enabled")
+        if mode == "relay" and not self._inference_routes(request.preferred_provider):
+            raise ProviderUnavailableError("No eligible inference route is configured")
+        if mode == "persistent":
+            target = request.preferred_provider or self.config.modes.mode_3_persistent.locked_model
+            if not target or not self.resolve_provider_name(target):
+                raise ProviderUnavailableError("Persistent inference route is not enabled")
+
+    def _inference_routes(self, preferred: Optional[str] = None) -> list:
+        references = ([preferred] if preferred else []) + self.config.orchestrator.resilience.handoff_fallback_chain
+        routes = []
+        seen = set()
+        for reference in references:
+            target = self.config.resolve_alias(reference)
+            for route in [target] + [self.config.resolve_alias(f) for f in target.fallbacks]:
+                name = route.preferred_adapter
+                identity = (name, route.primary_model)
+                if name in self.adapters and identity not in seen:
+                    routes.append((name, route.primary_model))
+                    seen.add(identity)
+        return routes
 
     async def stream_chat_completion(
         self, request: ChatCompletionRequest
     ) -> AsyncIterator[str]:
         """Entry point for handling chat completion requests according to selected mode."""
-        mode = request.mode or self.config.orchestrator.default_mode
+        if request.mode is None:
+            request = request.model_copy(update={"mode": self.config.orchestrator.default_mode})
+        self.validate_request(request)
+        await self.ensure_gateway()
+        mode = request.mode
         session_id = request.session_id or f"sess-{uuid.uuid4().hex[:10]}"
 
         logger.info(f"Executing request in mode: '{mode}' (Session ID: {session_id})")
@@ -123,28 +167,15 @@ class HydraRouter:
         self, request: ChatCompletionRequest, session_id: str
     ) -> AsyncIterator[str]:
         """Mode 2: Relay Pipeline with alias resolution and structured handoff on limit hit."""
-        fallback_chain = self.config.orchestrator.resilience.handoff_fallback_chain
-
-        providers_to_try: List[str] = []
-        if request.preferred_provider:
-            pref_resolved = self.resolve_provider_name(request.preferred_provider)
-            if pref_resolved:
-                providers_to_try.append(pref_resolved)
-
-        for entry in fallback_chain:
-            resolved = self.resolve_provider_name(entry)
-            if resolved and resolved not in providers_to_try:
-                providers_to_try.append(resolved)
-
+        providers_to_try = self._inference_routes(request.preferred_provider)
         if not providers_to_try:
-            yield "Error: No active adapters configured in hydra-orch."
-            return
+            raise ProviderUnavailableError("No eligible inference route is configured")
 
         accumulated_text = ""
         user_prompt = "\n".join([m.content or "" for m in request.messages if m.role == "user"])
         current_messages = list(request.messages)
 
-        for provider_name in providers_to_try:
+        for provider_name, resolved_model in providers_to_try:
             adapter = self.adapters[provider_name]
 
             if await self.checkpointer.is_provider_limited(provider_name):
@@ -156,7 +187,8 @@ class HydraRouter:
                 logger.info(f"Routing request to provider: {provider_name}")
                 async for chunk in adapter.generate_stream(
                     current_messages,
-                    options={"model": request.model, "temperature": request.temperature},
+                    options={"model": resolved_model if request.model.startswith("hydra-") else request.model,
+                             "temperature": request.temperature},
                 ):
                     accumulated_text += chunk
                     yield chunk
@@ -208,12 +240,11 @@ class HydraRouter:
         self, request: ChatCompletionRequest, session_id: str
     ) -> AsyncIterator[str]:
         """Mode 3: Persistent Focus with active timer wait and auto-resume."""
-        raw_primary = request.preferred_provider or self.config.modes.mode_3_persistent.locked_model or "claude_pro"
+        raw_primary = request.preferred_provider or self.config.modes.mode_3_persistent.locked_model
         primary_provider = self.resolve_provider_name(raw_primary) or raw_primary
         adapter = self.adapters.get(primary_provider)
         if not adapter:
-            yield f"Error: Primary provider '{primary_provider}' not found."
-            return
+            raise ProviderUnavailableError("Persistent inference route is not enabled")
 
         user_prompt = "\n".join([m.content or "" for m in request.messages if m.role == "user"])
         accumulated_text = ""
@@ -230,7 +261,9 @@ class HydraRouter:
             try:
                 async for chunk in adapter.generate_stream(
                     current_messages,
-                    options={"model": request.model, "temperature": request.temperature},
+                    options={"model": self.config.resolve_alias(raw_primary).primary_model
+                             if request.model.startswith("hydra-") else request.model,
+                             "temperature": request.temperature},
                 ):
                     accumulated_text += chunk
                     yield chunk
