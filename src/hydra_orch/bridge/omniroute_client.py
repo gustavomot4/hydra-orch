@@ -7,6 +7,7 @@ import logging
 from typing import Any, AsyncIterator, Dict, List, Optional
 import httpx
 
+from hydra_orch.config import normalize_gemini_argon_target
 from hydra_orch.model import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,14 @@ class OmniRouteClient:
         self.quota_api_url = quota_api_url
         self.timeout = timeout
         self.enabled = enabled
+
+    @staticmethod
+    def normalize_model(model: str) -> str:
+        """Normalize model IDs before sending to OmniRoute (e.g. Gemini 4 Argon tiers)."""
+        normalized = normalize_gemini_argon_target(model.strip())
+        if normalized == "antigravity/gemini-4-argon-high":
+            return "agy/gemini-4-argon-high"
+        return normalized
 
     async def is_available(self) -> bool:
         """Check if OmniRoute daemon is active and listening."""
@@ -71,8 +80,9 @@ class OmniRouteClient:
         allow_offline_mock: bool = False,
     ) -> AsyncIterator[str]:
         """Stream tokens from OmniRoute gateway via standard SSE."""
+        resolved_model = self.normalize_model(model)
         payload: Dict[str, Any] = {
-            "model": model,
+            "model": resolved_model,
             "messages": [m.model_dump(exclude_none=True) for m in messages],
             "stream": True,
             "temperature": temperature,

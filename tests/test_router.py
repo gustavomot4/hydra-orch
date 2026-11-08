@@ -125,3 +125,15 @@ async def test_alias_model_reaches_adapter_without_gateway(monkeypatch, tmp_path
     checkpoint = await router.checkpointer.get_checkpoint("direct-test")
     assert checkpoint["status"] == "completed"
     assert checkpoint["provider"] == "local"
+
+
+@pytest.mark.parametrize("raw_model, expected", [
+    ("gemini-4-argon", "agy/gemini-4-argon-high"),
+    ("gemini/gemini-4-argon", "agy/gemini-4-argon-high"),
+    ("antigravity/gemini-4-argon", "agy/gemini-4-argon-high"),
+    ("antigravity/gemini-4-argon-high", "agy/gemini-4-argon-high"),
+    ("agy/gemini-4-argon-high", "agy/gemini-4-argon-high"),
+    ("gemini-4-argon-medium", "agy/gemini-4-argon-medium"),
+])
+def test_omniroute_client_normalizes_gemini_argon_models(raw_model, expected):
+    assert OmniRouteClient.normalize_model(raw_model) == expected

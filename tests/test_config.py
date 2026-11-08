@@ -271,3 +271,22 @@ def test_codex_configuration_does_not_create_browser_adapter():
     assert config.resolve_alias("codex/model").executor == "codex"
     assert config.resolve_alias("codex/model").preferred_adapter is None
     assert config.providers.ui_cdp == {}
+
+
+@pytest.mark.parametrize("raw_alias, expected_primary, expected_provider, expected_model", [
+    ("gemini-4-argon", "agy/gemini-4-argon-high", "agy", "gemini-4-argon-high"),
+    ("gemini/gemini-4-argon", "agy/gemini-4-argon-high", "agy", "gemini-4-argon-high"),
+    ("agy/gemini-4-argon", "agy/gemini-4-argon-high", "agy", "gemini-4-argon-high"),
+    ("agy/gemini-4-argon-high", "agy/gemini-4-argon-high", "agy", "gemini-4-argon-high"),
+    ("gemini-4-argon-medium", "agy/gemini-4-argon-medium", "agy", "gemini-4-argon-medium"),
+    ("gemini-4-argon-low", "agy/gemini-4-argon-low", "agy", "gemini-4-argon-low"),
+    ("antigravity/gemini-4-argon", "antigravity/gemini-4-argon-high", "antigravity", "gemini-4-argon-high"),
+])
+def test_resolve_alias_gemini_4_argon_normalization(raw_alias, expected_primary, expected_provider, expected_model):
+    """Valida que Gemini 4 Argon é normalizado para os tiers suportados pelo perfil CLI (agy)."""
+    config = load_config(reload=True)
+    resolved = config.resolve_alias(raw_alias)
+    assert resolved.primary == expected_primary
+    assert resolved.primary_provider == expected_provider
+    assert resolved.primary_model == expected_model
+    assert resolved.preferred_adapter == "antigravity"

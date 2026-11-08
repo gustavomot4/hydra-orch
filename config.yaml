@@ -56,7 +56,7 @@ omniroute:
   logical_models:
     architect_heavy:
       primary: "claude-code/claude-3-7-sonnet"
-      fallbacks: ["antigravity/gemini-2-5-pro", "openrouter/deepseek-r1:free"]
+      fallbacks: ["agy/gemini-4-argon-high", "antigravity/gemini-2-5-pro", "openrouter/deepseek-r1:free"]
       min_difficulty: 8
 
     fullstack_coder:
@@ -65,8 +65,8 @@ omniroute:
       min_difficulty: 6
 
     context_and_docs:
-      primary: "gemini/gemini-2-5-pro"
-      fallbacks: []
+      primary: "agy/gemini-4-argon-high"
+      fallbacks: ["gemini/gemini-2-5-pro"]
       min_difficulty: 4
 
     database_and_tests:

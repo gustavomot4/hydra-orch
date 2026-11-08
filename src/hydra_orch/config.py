@@ -333,6 +333,35 @@ class VisualInterfaceConfig(StrictConfig):
     expose_quota: bool = True
 
 
+_ARGON_TIERS = {"gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low"}
+
+
+def normalize_gemini_argon_target(target: str) -> str:
+    """Normalize Gemini 4 Argon model targets to tiered Antigravity CLI ('agy') IDs.
+
+    Google AI Studio ('gemini/gemini-4-argon') has 0 free/API-key quota for Argon 4,
+    and Cloud Code / Antigravity only serves tiered IDs ('gemini-4-argon-high',
+    '-medium', '-low') under the CLI clientProfile ('agy').
+    """
+    stripped = target.strip()
+    if stripped != target or not stripped:
+        return target
+    if stripped == "gemini-4-argon":
+        return "agy/gemini-4-argon-high"
+    if stripped in _ARGON_TIERS:
+        return f"agy/{stripped}"
+    provider, sep, model = stripped.partition("/")
+    if not sep:
+        return target
+    if provider in {"gemini", "agy"} and model == "gemini-4-argon":
+        return "agy/gemini-4-argon-high"
+    if provider == "antigravity" and model == "gemini-4-argon":
+        return "antigravity/gemini-4-argon-high"
+    if provider == "gemini" and model in _ARGON_TIERS:
+        return f"agy/{model}"
+    return target
+
+
 class HydraConfig(StrictConfig):
     """Configuração canônica e tipada do Hydra Orchestrator (RT01)."""
     version: str = "5.0"
@@ -352,9 +381,12 @@ class HydraConfig(StrictConfig):
         """Resolve inference adapters separately from configured CLI executors."""
         alias = alias.strip()
         mapping = self.omniroute.logical_models.get(alias)
-        primary = mapping.primary if mapping else alias
+        raw_primary = mapping.primary if mapping else alias
+        if raw_primary != raw_primary.strip():
+            raise UnknownAliasError("Invalid provider/model target")
+        primary = normalize_gemini_argon_target(raw_primary)
         provider, _, model = primary.partition("/")
-        if primary != primary.strip() or any(c.isspace() for c in provider):
+        if any(c.isspace() for c in provider):
             raise UnknownAliasError("Invalid provider/model target")
         if not mapping and not model:
             for group in self.provider_groups().values():
@@ -364,16 +396,20 @@ class HydraConfig(StrictConfig):
         model = model or provider
         adapter = mapping.adapter if mapping else None
         known = self.providers.names() | {"ssh_remote"}
-        if adapter is None and provider in known:
-            adapter = provider
-        executor = provider if provider in {"codex", "claude-code", "gemini", "opencode", "aider"} else None
+        if adapter is None:
+            if provider in known:
+                adapter = provider
+            elif provider == "agy" and "antigravity" in known:
+                adapter = "antigravity"
+        executor = provider if provider in {"codex", "claude-code", "gemini", "agy", "opencode", "aider"} else None
         if not primary.strip() or not provider or ("/" in primary and not primary.partition("/")[2].strip()):
             raise UnknownAliasError("Expected a nonempty provider/model target")
         if (mapping is None or mapping.adapter is None) and provider not in known and executor is None:
             raise UnknownAliasError(f"Unknown model alias '{alias}'")
+        fallbacks = [normalize_gemini_argon_target(fb) for fb in mapping.fallbacks] if mapping else []
         return ResolvedTarget(
             alias=alias, primary=primary, primary_provider=provider, primary_model=model,
-            fallbacks=mapping.fallbacks if mapping else [],
+            fallbacks=fallbacks,
             min_difficulty=mapping.min_difficulty if mapping else 1,
             preferred_adapter=adapter, executor=executor,
         )
