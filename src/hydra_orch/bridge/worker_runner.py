@@ -29,6 +29,14 @@ from hydra_orch.model import (
 
 logger = logging.getLogger(__name__)
 
+
+def _redact_output(data: bytes) -> str:
+    # core's compatibility exports import the runner; defer this dependency
+    # until execution to keep standalone bridge imports usable.
+    from hydra_orch.core.redaction import redact_text
+    return redact_text(data.decode("utf-8", errors="replace"))
+
+
 _SAFE_ENV_EXACT = frozenset(
     {
         "PATH",
@@ -591,6 +599,8 @@ class WorkerRunner:
         - Missing CLI returns `success=False`, `error="executor_unavailable"`, `simulated=False` unless `dry_run=True`.
         - Timeout or `cancel(attempt_id)` terminates the entire process tree (`cancel_process_tree`) and verifies death.
         """
+        from hydra_orch.core.redaction import install_log_redaction
+        install_log_redaction()
         resolved_attempt_id = attempt_id or f"att-{uuid.uuid4().hex[:12]}"
         cli = (cli_name or self.default_cli).strip()
         raw_path_str = str(worktree_path)
@@ -769,7 +779,7 @@ class WorkerRunner:
                 exit_code = int(process.returncode or 0)
                 success = exit_code == 0
                 exit_reason = "completed" if success else f"exited_with_code_{exit_code}"
-                stderr_text_tmp = stderr_bytes.decode("utf-8", errors="replace")
+                stderr_text_tmp = _redact_output(stderr_bytes)
                 error_code = None if success else (stderr_text_tmp.strip() or "worker_nonzero_exit")
                 failure_obj = (
                     None
@@ -821,8 +831,8 @@ class WorkerRunner:
                 "cli": cli,
                 "pid": process.pid,
                 "exit_code": process.returncode if proc_status == ProcessStatus.EXITED else None,
-                "output": stdout_bytes.decode("utf-8", errors="replace"),
-                "stderr": stderr_bytes.decode("utf-8", errors="replace"),
+                "output": _redact_output(stdout_bytes),
+                "stderr": _redact_output(stderr_bytes),
                 "error": error_code,
                 "simulated": False,
                 "process_status": proc_status.value,
@@ -895,8 +905,8 @@ class WorkerRunner:
                 "cli": cli,
                 "pid": pid_val,
                 "exit_code": None,
-                "output": stdout_bytes.decode("utf-8", errors="replace"),
-                "stderr": stderr_bytes.decode("utf-8", errors="replace"),
+                "output": _redact_output(stdout_bytes),
+                "stderr": _redact_output(stderr_bytes),
                 "error": err_str,
                 "simulated": False,
                 "process_status": proc_status.value,
@@ -971,7 +981,7 @@ class WorkerRunner:
         prefix = (artifacts_rel_prefix or f"attempt/{attempt_id}").strip("/")
         stdout_art = _write_artifact_atomic(
             out_dir / "stdout.log",
-            stdout_bytes,
+            _redact_output(stdout_bytes).encode("utf-8"),
             artifact_id=f"art-{attempt_id}-stdout",
             run_id=run_id,
             attempt_id=attempt_id,
@@ -980,7 +990,7 @@ class WorkerRunner:
         )
         stderr_art = _write_artifact_atomic(
             out_dir / "stderr.log",
-            stderr_bytes,
+            _redact_output(stderr_bytes).encode("utf-8"),
             artifact_id=f"art-{attempt_id}-stderr",
             run_id=run_id,
             attempt_id=attempt_id,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-import hmac
+import asyncio
 import json
 import logging
 import os
@@ -15,10 +15,12 @@ import uuid
 from fastapi import APIRouter, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse as BaseJSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from hydra_orch.config import ConfigError, HydraConfig, load_config
+from hydra_orch.core.auth import load_cors_origins, load_token_verifier, validate_cors_origins
+from hydra_orch.core.redaction import install_log_redaction, redact
 from hydra_orch.core.checkpointer import (
     IdempotencyConflictError,
     OptimisticLockError,
@@ -48,7 +50,16 @@ from hydra_orch.model import (
     TaskSpec,
 )
 
+install_log_redaction()
 logger = logging.getLogger(__name__)
+
+
+class JSONResponse(BaseJSONResponse):
+    """Sanitize JSON evidence and errors before HTTP exposure."""
+
+    def render(self, content: Any) -> bytes:
+        return super().render(redact(content))
+
 
 DEFAULT_CORS_ALLOW_ORIGINS: List[str] = [
     "http://127.0.0.1:8000",
@@ -58,7 +69,6 @@ DEFAULT_CORS_ALLOW_ORIGINS: List[str] = [
     "http://127.0.0.1:5173",
     "http://localhost:5173",
 ]
-_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 config = load_config()
 router = HydraRouter(config)
@@ -89,6 +99,10 @@ def set_run_service(service: Optional[RunService]) -> None:
 
 
 async def startup_event() -> None:
+    app.state.token_verifier = load_token_verifier()
+    if app.state.token_verifier is None:
+        raise RuntimeError("Configure HYDRA_API_TOKEN_HASH or HYDRA_API_TOKEN before serving HTTP")
+    validate_cors_origins(app.state.cors_allow_origins)
     await router.ensure_gateway()
     await router.checkpointer.initialize()
     if ssh_manager:
@@ -116,16 +130,16 @@ app = FastAPI(
     description=config.server.description,
     version="0.1.0",
     lifespan=_lifespan,
+    default_response_class=JSONResponse,
 )
 
-app.state.cors_allow_origins = list(DEFAULT_CORS_ALLOW_ORIGINS)
-app.state.api_token = os.environ.get("HYDRA_API_TOKEN")
-app.state.require_auth = False
+app.state.cors_allow_origins = load_cors_origins(DEFAULT_CORS_ALLOW_ORIGINS)
+app.state.token_verifier = load_token_verifier()
 app.state.expired_cursors = {}  # run_id -> min_valid_seq
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=DEFAULT_CORS_ALLOW_ORIGINS,
+    allow_origins=app.state.cors_allow_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "Last-Event-ID"],
@@ -152,53 +166,38 @@ def _error_response(
     return JSONResponse(status_code=status_code, content=payload)
 
 
-def _check_control_plane_security(request: Request) -> Optional[JSONResponse]:
-    """Enforce strict CORS origin allowlist and local loopback / Bearer token authentication."""
+async def _check_control_plane_security(request: Request) -> Optional[JSONResponse]:
+    """Require Bearer auth for all HTTP routes; validate browser origin first."""
+    try:
+        allowed_origins = validate_cors_origins(app.state.cors_allow_origins)
+    except ValueError:
+        return _error_response(503, "cors_configuration_invalid", "Invalid CORS allowlist")
     origin = request.headers.get("origin")
-    allowed_origins = getattr(app.state, "cors_allow_origins", DEFAULT_CORS_ALLOW_ORIGINS)
-    if origin is not None:
-        if origin.strip() == "*" or origin not in allowed_origins:
-            return _error_response(
-                403,
-                "cors_origin_forbidden",
-                f"Origin '{origin}' is not in the strict local CORS allowlist",
-                retryable=False,
-            )
+    if origin is not None and origin not in allowed_origins:
+        return _error_response(403, "cors_origin_forbidden", "Origin is not authorized")
 
-    expected_token = getattr(app.state, "api_token", None) or os.environ.get("HYDRA_API_TOKEN")
-    require_auth = bool(getattr(app.state, "require_auth", False)) or bool(expected_token)
-    client_host = request.client.host if request.client else "127.0.0.1"
-
-    if not require_auth and client_host not in _LOOPBACK_HOSTS:
-        require_auth = True
-
-    if require_auth:
-        auth_header = request.headers.get("authorization", "")
-        if not auth_header.lower().startswith("bearer "):
-            return _error_response(
-                401,
-                "unauthorized",
-                "Local Bearer token is required in Authorization header",
-                retryable=False,
-            )
-        provided_token = auth_header[7:].strip()
-        if not expected_token or not hmac.compare_digest(provided_token, str(expected_token)):
-            return _error_response(
-                401,
-                "unauthorized",
-                "Invalid local Bearer token",
-                retryable=False,
-            )
+    # Browsers cannot send Authorization on the preflight itself. CORS middleware
+    # validates method/headers and returns no application data on this path.
+    if (request.method == "OPTIONS" and origin is not None
+            and "access-control-request-method" in request.headers):
+        return None
+    auth_headers = request.headers.getlist("authorization")
+    auth_header = auth_headers[0] if len(auth_headers) == 1 else ""
+    scheme, _, provided_token = auth_header.partition(" ")
+    verifier = getattr(app.state, "token_verifier", None)
+    if (scheme.lower() != "bearer" or verifier is None
+            or not await asyncio.to_thread(verifier.verify, provided_token)):
+        response = _error_response(401, "unauthorized", "A valid local Bearer token is required")
+        response.headers["WWW-Authenticate"] = "Bearer"
+        return response
     return None
 
 
 @app.middleware("http")
 async def control_plane_security_middleware(request: Request, call_next: Any) -> Any:
-    path = request.url.path
-    if path.startswith("/v1/control-plane") or path in {"/projects", "/runs"} or path.startswith("/runs/"):
-        sec_err = _check_control_plane_security(request)
-        if sec_err is not None:
-            return sec_err
+    sec_err = await _check_control_plane_security(request)
+    if sec_err is not None:
+        return sec_err
     return await call_next(request)
 
 
@@ -728,7 +727,7 @@ async def stream_run_events_endpoint(
                 "correlation_id": ev.correlation_id,
                 "task_id": ev.task_id,
                 "attempt_id": ev.attempt_id,
-                "payload": ev.redacted_payload,
+                "payload": redact(ev.redacted_payload),
                 "timestamp": ev.timestamp.isoformat(),
             }
             yield (

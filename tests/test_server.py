@@ -10,7 +10,8 @@ import sys
 from typing import Tuple
 
 import pytest
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient as BaseTestClient
+from hydra_orch.core.auth import TokenVerifier
 
 from hydra_orch.core.checkpointer import ExecutionStore
 from hydra_orch.core.run_service import RunService
@@ -42,6 +43,21 @@ def _init_temp_git_repo(base_dir: Path) -> Tuple[Path, str]:
     return repo, sha
 
 
+TEST_API_TOKEN = "hydra-test-local-bearer-token-0123456789"
+TEST_VERIFIER = TokenVerifier.from_token(TEST_API_TOKEN)
+
+
+def TestClient(application):
+    return BaseTestClient(application, headers={"Authorization": f"Bearer {TEST_API_TOKEN}"})
+
+
+@pytest.fixture(autouse=True)
+def authenticated_api(monkeypatch):
+    monkeypatch.setitem(app.state._state, "token_verifier", TEST_VERIFIER)
+    monkeypatch.setenv("HYDRA_API_TOKEN", TEST_API_TOKEN)
+    monkeypatch.delenv("HYDRA_API_TOKEN_HASH", raising=False)
+
+
 @pytest.fixture
 def isolated_run_service(tmp_path: Path):
     repo, base_sha = _init_temp_git_repo(tmp_path)
@@ -49,18 +65,12 @@ def isolated_run_service(tmp_path: Path):
     store = ExecutionStore(db_path=rt_dir / "checkpoints.sqlite")
     svc = RunService(repo_root=repo, store=store, runtime_dir=rt_dir)
     set_run_service(svc)
-    prev_token = getattr(app.state, "api_token", None)
-    prev_req_auth = getattr(app.state, "require_auth", False)
     prev_expired = dict(getattr(app.state, "expired_cursors", {}))
-    app.state.api_token = None
-    app.state.require_auth = False
     app.state.expired_cursors = {}
     try:
         yield svc, repo, base_sha
     finally:
         set_run_service(None)
-        app.state.api_token = prev_token
-        app.state.require_auth = prev_req_auth
         app.state.expired_cursors = prev_expired
 
 
@@ -630,8 +640,7 @@ def test_cancel_task_in_swarm(isolated_run_service):
 
 
 def test_auth_required(isolated_run_service):
-    app.state.api_token = "local-secret-token-xyz"
-    client = TestClient(app)
+    client = BaseTestClient(app)
 
     # Without Authorization header -> 401
     r_no_auth = client.get("/v1/control-plane/runs")
@@ -648,7 +657,7 @@ def test_auth_required(isolated_run_service):
     # With valid token -> 200
     r_ok = client.get(
         "/v1/control-plane/runs",
-        headers={"Authorization": "Bearer local-secret-token-xyz"},
+        headers={"Authorization": "Bearer hydra-test-local-bearer-token-0123456789"},
     )
     assert r_ok.status_code == 200
 

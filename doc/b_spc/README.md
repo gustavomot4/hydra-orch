@@ -115,3 +115,5 @@ Cada requisito deve ter:
 ## Referência de interface
 
 - [UI inspirada no Orca](a_ui/README.md) — imagens fornecidas, análise de referência, requisitos de chat/terminal e processo de construção (proposta).
+
+- [S16 — Segurança local e proveniência (T09)](seguranca_proveniencia.md)

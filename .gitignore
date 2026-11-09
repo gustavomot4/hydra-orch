@@ -40,6 +40,9 @@ venv.bak/
 *.sqlite3
 *.db
 *.log
+.coverage
+.coverage.*
+htmlcov/
 orchestrator_checkpoints.db
 
 # Hydra worktrees and runtime artifacts

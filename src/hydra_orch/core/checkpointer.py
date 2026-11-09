@@ -16,6 +16,7 @@ import uuid
 import aiosqlite
 from pydantic import BaseModel
 
+from hydra_orch.core.redaction import redact
 from hydra_orch.model import (
     Artifact,
     CheckResult,
@@ -407,7 +408,7 @@ class ExecutionStore:
         next_seq = int(seq_row["next_seq"]) if seq_row else 1
 
         corr_id = correlation_id or f"corr-{run_id}-{next_seq}"
-        safe_payload: Dict[str, Any] = json.loads(json.dumps(payload or {}, sort_keys=True))
+        safe_payload: Dict[str, Any] = redact(json.loads(json.dumps(payload or {}, sort_keys=True)))
         event = RunEvent(
             seq=next_seq,
             run_id=run_id,
@@ -1722,7 +1723,7 @@ class ExecutionStore:
                         attempt_id=r["attempt_id"],
                         timestamp=ts,
                         event_type=r["type"],
-                        redacted_payload=json.loads(r["payload_json"]),
+                        redacted_payload=redact(json.loads(r["payload_json"])),
                     )
                 )
             return events

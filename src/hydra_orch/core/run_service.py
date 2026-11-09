@@ -31,6 +31,7 @@ from hydra_orch.core.git_workspace import (
     IntegrationOutcome,
     WorkspaceRecord,
 )
+from hydra_orch.core.redaction import redact_text
 from hydra_orch.model import (
     Artifact,
     CheckResult,
@@ -77,6 +78,7 @@ def _write_check_artifact_atomic(
     attempt_id: Optional[str],
     relative_path: str,
 ) -> Artifact:
+    content = redact_text(content.decode("utf-8", errors="replace")).encode("utf-8")
     target_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = target_path.with_name(f".{target_path.name}.{uuid.uuid4().hex[:8]}.tmp")
     with open(tmp_path, "wb") as f:

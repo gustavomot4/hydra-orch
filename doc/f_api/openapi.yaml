@@ -95,7 +95,7 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
+      bearerFormat: opaque local token (PBKDF2-SHA256 verifier)
 
   schemas:
     # ============ COMUNS ============

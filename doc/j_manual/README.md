@@ -96,8 +96,24 @@ hydra cancel <run_id> --scope run --reason "Run abortado" --json
 
 Iniciar o servidor local (bind padrão `127.0.0.1:8000`):
 ```bash
+# T09: configure o hash antes de iniciar. A credencial é lida sem eco no terminal.
+# Gere previamente um token aleatório (ex.: secrets.token_urlsafe(32)) e guarde-o
+# no gerenciador de segredos usado pelos clientes.
+export HYDRA_API_TOKEN_HASH="$(python -c 'from getpass import getpass; from hydra_orch.core.auth import TokenVerifier; print(TokenVerifier.from_token(getpass("Token: ")).encode())')"
 hydra serve --host 127.0.0.1 --port 8000
 ```
+
+Todas as requisições HTTP exigem `Authorization: Bearer <token>`, inclusive health,
+inferência e SSE. A CLI local de execução continua chamando o serviço diretamente.
+Também é possível fornecer `HYDRA_API_TOKEN` por ambiente externo; não configure
+as duas variáveis simultaneamente. O servidor mantém apenas o hash derivado.
+Para rotacionar o token, substitua o hash e reinicie. Nunca versione a credencial.
+
+Para personalizar as origens do cliente web, configure antes de iniciar:
+`HYDRA_CORS_ALLOW_ORIGINS='["http://localhost:3000"]'`. Apenas origens HTTP(S)
+loopback explícitas são aceitas. Clientes sem Origin exigem Bearer normalmente;
+preflight CORS válido não entrega dados e dispensa token. Veja o contrato
+[S16](../b_spc/seguranca_proveniencia.md) para regras de redaction e limites.
 
 Principais endpoints ativos no Marco M1:
 - `GET /v1/control-plane/bootstrap` — Estado de configuração, banco SQLite, diretórios `.orchestrator/` e gateway.
