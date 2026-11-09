@@ -283,71 +283,207 @@ class ExecutionStore:
                 await db.execute("INSERT OR IGNORE INTO legacy_handoff_checkpoints SELECT * FROM handoff_checkpoints;")
                 await db.execute("DROP TABLE handoff_checkpoints;")
 
-    async def _apply_migrations(self, db: aiosqlite.Connection) -> None:
-        if not self.migrations_dir.exists() or not self.migrations_dir.is_dir():
+    def _migration_catalog(self) -> List[Dict[str, Any]]:
+        if not self.migrations_dir.is_dir():
             raise MigrationError(f"Migrations directory not found: {self.migrations_dir}")
-
-        migration_files = sorted(self.migrations_dir.glob("*.sql"))
-        if not migration_files:
+        files = sorted(self.migrations_dir.glob("*.sql"))
+        if not files:
             raise MigrationError(f"No SQL migration files found in {self.migrations_dir}")
+        catalog: List[Dict[str, Any]] = []
+        versions = set()
+        for path in files:
+            version = path.stem.split("_", 1)[0]
+            if len(version) != 4 or not version.isascii() or not version.isdigit() or version in versions:
+                raise MigrationError(f"Invalid or duplicate migration version: {path.name}")
+            versions.add(version)
+            try:
+                sql = path.read_text(encoding="utf-8")
+                down_path = self.migrations_dir / "rollback" / path.name
+                down = down_path.read_text(encoding="utf-8") if down_path.exists() else None
+            except (OSError, UnicodeError) as exc:
+                raise MigrationError(f"Failed to read migration {path.name}: {exc}") from exc
+            if not _split_sql_statements(sql):
+                raise MigrationError(f"Migration file {path.name} contains no executable SQL statements")
+            catalog.append({"version": version, "name": path.name, "sql": sql,
+                            "checksum": _compute_migration_checksum(sql), "down": down,
+                            "rollback_checksum": _compute_migration_checksum(down) if down is not None else None})
+        return catalog
 
+    async def _ensure_migration_metadata(self, db: aiosqlite.Connection) -> None:
         async with self._transaction(db):
-            await db.execute(
-                """
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS schema_migrations (
-                    version TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    checksum TEXT NOT NULL,
+                    version TEXT PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL,
                     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
                 )
-                """
-            )
-            info_cur = await db.execute("PRAGMA table_info(schema_migrations);")
-            info_cols = {row["name"] for row in await info_cur.fetchall()}
-            if "checksum" not in info_cols:
-                await db.execute("ALTER TABLE schema_migrations ADD COLUMN checksum TEXT DEFAULT '';")
+            """)
+            columns = {r["name"] for r in await (await db.execute("PRAGMA table_info(schema_migrations)")).fetchall()}
+            if "checksum" not in columns:
+                await db.execute("ALTER TABLE schema_migrations ADD COLUMN checksum TEXT DEFAULT ''")
+            if "rollback_checksum" not in columns:
+                await db.execute("ALTER TABLE schema_migrations ADD COLUMN rollback_checksum TEXT")
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS migration_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    version TEXT NOT NULL,
+                    direction TEXT NOT NULL CHECK (direction IN ('up','down')),
+                    checksum TEXT NOT NULL,
+                    backup_path TEXT,
+                    status TEXT NOT NULL CHECK (status IN ('applied','failed')),
+                    message TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
 
-        applied_cur = await db.execute("SELECT version, name, checksum FROM schema_migrations ORDER BY version;")
-        applied_rows = {row["version"]: dict(row) for row in await applied_cur.fetchall()}
+    async def _migration_backup(self, backup_path: Optional[Union[str, Path]] = None) -> str:
+        """Snapshot committed WAL pages through SQLite's backup API, never file copy.
 
-        for sql_file in migration_files:
-            version = sql_file.stem.split("_", 1)[0]
-            name = sql_file.name
-            try:
-                sql_text = sql_file.read_text(encoding="utf-8")
-            except OSError as exc:
-                raise MigrationError(f"Failed to read migration {sql_file}: {exc}") from exc
+        The caller holds BEGIN IMMEDIATE without pending writes, so another reader
+        can copy a consistent snapshot while concurrent writers remain excluded.
+        """
+        target = Path(backup_path) if backup_path is not None else (
+            Path(self.db_path).parent / "migration_backup" / f"{uuid.uuid4().hex}.sqlite"
+        )
+        if target.resolve() == Path(self.db_path).resolve():
+            raise MigrationError("Migration backup must not overwrite the live database")
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            # Exclusive creation protects existing operator files and symlinks.
+            import os
+            fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+            async with aiosqlite.connect(self.db_path) as source:
+                async with aiosqlite.connect(target) as destination:
+                    await source.backup(destination)
+                    result = await (await destination.execute("PRAGMA integrity_check")).fetchone()
+                    if result is None or result[0] != "ok":
+                        raise MigrationError("Migration backup failed integrity_check")
+        except (OSError, sqlite3.Error) as exc:
+            raise MigrationError(f"Migration backup failed: {exc}") from exc
+        return str(target.resolve())
 
-            checksum = _compute_migration_checksum(sql_text)
-            if version in applied_rows:
-                existing_checksum = applied_rows[version].get("checksum")
-                if existing_checksum and existing_checksum != checksum:
-                    raise MigrationError(
-                        f"Checksum mismatch for applied migration {version} ({name}): "
-                        f"expected {existing_checksum}, got {checksum}"
-                    )
+    async def _record_migration_history(
+        self, db: aiosqlite.Connection, migration: Dict[str, Any], direction: str,
+        status: str, backup_path: Optional[str], message: Optional[str] = None,
+    ) -> None:
+        checksum = migration["checksum"] if direction == "up" else migration["rollback_checksum"]
+        await db.execute("""
+            INSERT INTO migration_history (version, direction, checksum, backup_path, status, message)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (migration["version"], direction, checksum, backup_path, status, redact(message)))
+
+    async def _validate_migration_state(
+        self, db: aiosqlite.Connection, catalog: List[Dict[str, Any]],
+    ) -> Dict[str, Dict[str, Any]]:
+        applied = {row["version"]: dict(row) for row in await (await db.execute(
+            "SELECT version, name, checksum, rollback_checksum FROM schema_migrations ORDER BY version"
+        )).fetchall()}
+        known = {m["version"] for m in catalog}
+        if set(applied) - known:
+            raise MigrationError("Database contains migrations missing from this checkout")
+        seen_pending = False
+        for migration in catalog:
+            existing = applied.get(migration["version"])
+            if existing is None:
+                seen_pending = True
                 continue
+            if seen_pending:
+                raise MigrationError("Applied migration history is not a contiguous prefix")
+            if existing["name"] != migration["name"] or (
+                existing["checksum"] and existing["checksum"] != migration["checksum"]
+            ):
+                raise MigrationError(f"Checksum mismatch for applied migration {migration['version']}")
+            if existing["rollback_checksum"] != migration["rollback_checksum"]:
+                raise MigrationError(f"Rollback checksum mismatch for migration {migration['version']}")
+        return applied
 
-            statements = _split_sql_statements(sql_text)
-            if not statements:
-                raise MigrationError(f"Migration file {name} contains no executable SQL statements")
+    async def _apply_migrations(self, db: aiosqlite.Connection) -> None:
+        catalog = self._migration_catalog()
+        await self._ensure_migration_metadata(db)
+        current: Optional[Dict[str, Any]] = None
+        backup = None
+        try:
+            # Re-read versions after acquiring the writer lock: concurrent startups
+            # must not both try to apply the same migration.
+            async with self._transaction(db):
+                applied = await self._validate_migration_state(db, catalog)
+                pending = [m for m in catalog if m["version"] not in applied]
+                if pending:
+                    current = pending[0]
+                    backup = await self._migration_backup()
+                for current in pending:
+                    if current["version"] == "0001":
+                        await self._preserve_legacy_tables_in_tx(db)
+                    for statement in _split_sql_statements(current["sql"]):
+                        await db.execute(statement)
+                    violations = await (await db.execute("PRAGMA foreign_key_check")).fetchall()
+                    if violations:
+                        raise MigrationError("Migration leaves foreign key violations")
+                    await db.execute("""
+                        INSERT INTO schema_migrations (version, name, checksum, rollback_checksum)
+                        VALUES (?, ?, ?, ?)
+                    """, (current["version"], current["name"], current["checksum"], current["rollback_checksum"]))
+                    await self._record_migration_history(db, current, "up", "applied", backup)
+        except Exception as exc:
+            if current is not None:
+                await self._record_migration_history(db, current, "up", "failed", backup, str(exc))
+            if isinstance(exc, MigrationError):
+                raise
+            raise MigrationError(f"Failed applying migration: {redact(str(exc))}") from exc
 
+    async def rollback_migrations(
+        self, target_version: str, *, backup_path: Optional[Union[str, Path]] = None,
+    ) -> List[str]:
+        """Explicit offline downgrade with backup, script integrity and refusal of data loss.
+
+        Never initializes first: doing so would reapply a previous downgrade.
+        The same store remains at the selected version; a fresh store upgrades again.
+        """
+        catalog = self._migration_catalog()
+        if target_version not in {m["version"] for m in catalog}:
+            raise MigrationError("Rollback target must be a known, applied migration")
+        current: Optional[Dict[str, Any]] = None
+        backup = None
+        reverted: List[str] = []
+        async with self._connect() as db:
+            await self._ensure_migration_metadata(db)
             try:
                 async with self._transaction(db):
-                    await self._preserve_legacy_tables_in_tx(db)
-                    for stmt in statements:
-                        await db.execute(stmt)
-                    await db.execute(
-                        """
-                        INSERT INTO schema_migrations (version, name, checksum, applied_at)
-                        VALUES (?, ?, ?, datetime('now'))
-                        """,
-                        (version, name, checksum),
-                    )
-            except MigrationError:
-                raise
+                    applied = await self._validate_migration_state(db, catalog)
+                    if target_version not in applied:
+                        raise MigrationError("Rollback target is not applied")
+                    pending = [m for m in reversed(catalog) if m["version"] in applied and m["version"] > target_version]
+                    if any(m["down"] is None for m in pending):
+                        raise MigrationError("Rollback script missing; refusing downgrade")
+                    if pending:
+                        current = pending[0]
+                        backup = await self._migration_backup(backup_path)
+                    for current in pending:
+                        for statement in _split_sql_statements(current["down"]):
+                            await db.execute(statement)
+                        if await (await db.execute("PRAGMA foreign_key_check")).fetchall():
+                            raise MigrationError("Rollback leaves foreign key violations")
+                        await db.execute("DELETE FROM schema_migrations WHERE version = ?", (current["version"],))
+                        await self._record_migration_history(db, current, "down", "applied", backup)
+                        reverted.append(current["version"])
             except Exception as exc:
-                raise MigrationError(f"Failed applying migration {name}: {exc}") from exc
+                if current is not None:
+                    await self._record_migration_history(db, current, "down", "failed", backup, str(exc))
+                if isinstance(exc, MigrationError):
+                    raise
+                raise MigrationError(f"Failed rolling back migration (data or SQL guard): {redact(str(exc))}") from exc
+        self._initialized = self._migrations_applied = True
+        return reverted
+
+    async def get_migration_history(self) -> List[Dict[str, Any]]:
+        """Read audit without upgrading a database deliberately downgraded offline."""
+        async with self._connect() as db:
+            exists = await (await db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='migration_history'"
+            )).fetchone()
+            if not exists:
+                return []
+            return [dict(r) for r in await (await db.execute("SELECT * FROM migration_history ORDER BY id")).fetchall()]
 
     async def get_pragmas(self) -> Dict[str, Any]:
         """Return active SQLite connection pragmas for verification."""

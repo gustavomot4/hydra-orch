@@ -317,7 +317,9 @@ ConflictReport:
 **SQLite:** Foreign keys habilitadas (`PRAGMA foreign_keys=ON`); modo WAL obrigatório (`PRAGMA journal_mode=WAL`); `PRAGMA busy_timeout = 5000` para concorrência control plane + webhooks; migração versionada; transações curtas; concorrência otimista via coluna `revision` (inteiro). Artefatos no filesystem: gravar arquivo temporário, `fsync`, rename atômico, só então registrar referência. Após crash, reconciliar órfãos (arquivos sem ref / refs sem arquivo) sem apagar automaticamente.
 
 **Novas tabelas da expansão** (migrações versionadas independentes):
-`areas`, `workspaces`, `projects`, `repositories`, `authorizations`, `agent_definitions`, `capability_declarations`, `profiles`, `profile_snapshots`, `sessions`, `threads`, `metric_samples`, `route_decisions`, `memory_entries`, `consent_records`, `discovered_resources`, `skill_definitions`, `mcp_definitions`, `secret_refs`, `extension_manifests`, `extension_installs`, `preferences`, `preference_snapshots`, `transport_definitions`, `transport_health`, `access_tokens`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`.
+`areas`, `area_workspaces`, `projects`, `repositories`, `authorizations`, `agent_definitions`, `capability_declarations`, `profiles`, `profile_snapshots`, `sessions`, `threads`, `metric_samples`, `route_decisions`, `memory_entries`, `consent_records`, `discovered_resources`, `skill_definitions`, `mcp_definitions`, `secret_refs`, `extension_manifests`, `extension_installs`, `preferences`, `preference_snapshots`, `transport_definitions`, `transport_health`, `access_tokens`, `handoff_checkpoints`, `budget_policies`, `conflict_reports`, `pr_packages`.
+
+Mapeamento físico T10: o workspace organizacional é `area_workspaces`; `workspaces` continua sendo a tabela de worktrees por tentativa da 0001. A expansão é aditiva e a T10 também materializa associações `profile_skills` e `profile_mcps`. Contrato de migração/rollback e limites dos serviços em [S14](workspaces_perfis.md).
 
 Tabela `checkpoints` restrita à recuperação técnica de execuções; `memory_entries` tem ciclo de vida, expiração e auditoria próprias.
 

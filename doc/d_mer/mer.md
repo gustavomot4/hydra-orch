@@ -12,7 +12,7 @@
 
 Complemento visual autônomo disponível em [`mer.mmd`](mer.mmd).
 
-Status: modelo lógico proposto para SQLite; não representa tabelas já migradas. Alinhado ao [PRD técnico](../b_spc/prd_tecnico.md) e ao [diagrama de classes](../e_class/diagrama_classe.md).
+Status: modelo lógico do produto; o núcleo 0001 e o schema aditivo T10/0002 estão implementados. Serviços da expansão permanecem faseados. O Workspace organizacional usa `area_workspaces`; `workspaces` preserva as worktrees por tentativa. Mapeamento físico e rollback em [S14](../b_spc/workspaces_perfis.md). Alinhado ao [PRD técnico](../b_spc/prd_tecnico.md) e ao [diagrama de classes](../e_class/diagrama_classe.md).
 
 ## 1. Propósito
 

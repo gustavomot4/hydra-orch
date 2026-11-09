@@ -47,7 +47,7 @@ PRAGMA synchronous = NORMAL;
       applied_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   ```
-- O runner de migração descobre arquivos `.sql` em `migration/`, ordena alfanumericamente, calcula o hash SHA-256 (`checksum`, com finais de linha normalizados para LF) do script e aplica em transação exclusiva (`BEGIN IMMEDIATE`) aqueles cuja versão ainda não consta em `schema_migrations`. Caso uma versão já aplicada apresente `checksum` divergente do arquivo em disco, lança `MigrationError`.
+- O runner de migração descobre arquivos `.sql` em `migration/`, ordena alfanumericamente, calcula o hash SHA-256 (`checksum`, com finais de linha normalizados para LF) do script e aplica o lote pendente em uma transação exclusiva (`BEGIN IMMEDIATE`), relendo as versões sob o lock. A T10 acrescenta checksum do script down, backup SQLite consistente com WAL e `migration_history`; veja [S14](workspaces_perfis.md). Caso uma versão já aplicada apresente `checksum` divergente do arquivo em disco, lança `MigrationError`.
 - **Preservação de banco legado:** Tabelas legadas de streaming (`checkpoints`, `provider_limits`, `active_generations`, `quota_status`) são preservadas intactas. Caso um banco legado pré-existente contenha a tabela antiga `handoff_checkpoints` (sem coluna `attempt_id`), o migrador a preserva renomeando-a para `legacy_handoff_checkpoints` antes de criar a tabela canônica `handoff_checkpoints`.
 
 ### 3.3. Esquema Relacional do Núcleo (V0 / M1)

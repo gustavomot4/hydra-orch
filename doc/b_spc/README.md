@@ -117,3 +117,5 @@ Cada requisito deve ter:
 - [UI inspirada no Orca](a_ui/README.md) — imagens fornecidas, análise de referência, requisitos de chat/terminal e processo de construção (proposta).
 
 - [S16 — Segurança local e proveniência (T09)](seguranca_proveniencia.md)
+
+- [S14 — Base relacional, workspaces e perfis (T10)](workspaces_perfis.md)
