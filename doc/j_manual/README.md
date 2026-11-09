@@ -3,7 +3,7 @@
 **Identificador Formal:** `j_manual`
 **Caminho Canônico:** `doc/j_manual/`
 **Versão:** `v01_02_0000`
-**Status:** `OPERACIONAL M1 (T01–T08) / EXPANSÃO V1–V4 PROPOSTA`
+**Status:** `OPERACIONAL M1 + SEGURANÇA T09 / EXPANSÃO T10–T28 PROPOSTA`
 **Autoridade:** Arquitetura do hydra-orch, complementando [`../b_spc/prd_funcional.md`](../b_spc/prd_funcional.md), [`../b_spc/prd_tecnico.md`](../b_spc/prd_tecnico.md), [`../b_spc/api_control_plane.md`](../b_spc/api_control_plane.md), [`../b_spc/entrega_operacao.md`](../b_spc/entrega_operacao.md) e [`../i_infra/README.md`](../i_infra/README.md).
 **Escopo:** Manual operacional verificado do Marco M1 (V0) e referência para os horizontes de expansão (M2–M4 / V1–V4).
 
@@ -11,7 +11,7 @@
 
 ## 0. Manual Operacional M1 (Núcleo Verificável Local — Validado em T01–T08)
 
-Esta seção documenta a superfície **100% implementada e validada** no Marco **M1 (Gate G-M1)**. As seções 1 a 11 mais abaixo preservam a visão completa do produto incluindo comandos propostos para as ondas de expansão (`T09–T28`).
+Esta seção documenta a superfície **100% implementada e validada** no Marco **M1 (Gate G-M1)**. As seções 1 a 11 mais abaixo preservam a visão completa do produto incluindo comandos propostos para as ondas de expansão (`T10–T28`); a segurança HTTP T09 está documentada na seção 0.4.
 
 ### 0.1. Escopo Operacional M1 vs. Expansão (M2–M4)
 
@@ -24,7 +24,7 @@ Esta seção documenta a superfície **100% implementada e validada** no Marco *
 | Isolamento em Git worktree real (`GitWorkspaceService`), SHA base fixo, auditoria de escopo | **Operacional** (`T05`) | Reparo 3-way de conflito em `T27` |
 | Checks determinísticos (`CheckRunner`) e serviço de aplicação/integração (`RunService`) | **Operacional** (`T06`) | Pausas HITL em `T26` |
 | CLI M1 (`hydra submit`, `inspect`, `review`, `integrate`, `cancel`, `retry`, `serve`, `status`, `quota`) | **Operacional** (`T07`) | Subcomandos estendidos em `T23` |
-| API Control Plane M1 (`/v1/control-plane/projects`, `/runs`, `/events`, `/review`, `/integrate`, `/discard`) | **Operacional** (`T07`) | RBAC/PBKDF2 e redactor completo em `T09` |
+| API Control Plane M1 (`/v1/control-plane/projects`, `/runs`, `/events`, `/review`, `/integrate`, `/discard`) | **Operacional** (`T07`) | Bearer/PBKDF2, CORS e redaction entregues em `T09` |
 | Pipeline CI offline hermético multiplataforma (`.github/workflows/ci.yml`) | **Operacional** (`T08`) | CI estendido V4 em `T24` |
 
 ### 0.2. Instalação e Execução da Suíte Hermética M1
