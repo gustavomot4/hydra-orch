@@ -123,3 +123,5 @@ Cada requisito deve ter:
 - [S15 — Sessões, observabilidade e modos (T14)](sessoes_observabilidade.md)
 
 - [T26 — intervenção humana durável](intervencao_humana.md)
+
+- [T17 — consentimento e memória](seguranca_proveniencia.md#contrato-t17--consentimento-e-memória-antes-da-implementação)

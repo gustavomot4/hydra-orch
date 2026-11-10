@@ -1956,6 +1956,221 @@ components:
           type: string
           format: date-time
 
+    # T17 — schemas operacionais de memória consentida
+    MemoryScope:
+      properties:
+        schema_version:
+          type: string
+          const: '1.0'
+          title: Schema Version
+          default: '1.0'
+        scope_type:
+          type: string
+          enum:
+          - principal
+          - area
+          - workspace
+          - project
+          title: Scope Type
+        scope_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$
+          title: Scope Id
+      additionalProperties: false
+      type: object
+      required:
+      - scope_type
+      - scope_id
+      title: MemoryScope
+    MemoryWrite:
+      properties:
+        schema_version:
+          type: string
+          const: '1.0'
+          title: Schema Version
+          default: '1.0'
+        scope_type:
+          type: string
+          enum:
+          - principal
+          - area
+          - workspace
+          - project
+          title: Scope Type
+        scope_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$
+          title: Scope Id
+        content:
+          type: string
+          maxLength: 16384
+          minLength: 1
+          title: Content
+        consent_id:
+          anyOf:
+          - type: string
+            pattern: ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$
+          - type: 'null'
+          title: Consent Id
+        retention_policy:
+          type: string
+          enum:
+          - day
+          - month
+          title: Retention Policy
+      additionalProperties: false
+      type: object
+      required:
+      - scope_type
+      - scope_id
+      - content
+      - retention_policy
+      title: MemoryWrite
+    MemoryEntry:
+      properties:
+        schema_version:
+          type: string
+          const: '1.0'
+          title: Schema Version
+          default: '1.0'
+        memory_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$
+          title: Memory Id
+        scope_type:
+          type: string
+          enum:
+          - principal
+          - area
+          - workspace
+          - project
+          title: Scope Type
+        scope_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$
+          title: Scope Id
+        content_redacted:
+          type: string
+          minLength: 1
+          title: Content Redacted
+        author_ref:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$
+          title: Author Ref
+        consent_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$
+          title: Consent Id
+        version:
+          type: integer
+          minimum: 1.0
+          title: Version
+        retention_policy_id:
+          type: string
+          enum:
+          - day
+          - month
+          title: Retention Policy Id
+        status:
+          type: string
+          enum:
+          - pending_consent
+          - active
+          - revoked
+          - rejected
+          - expired
+          title: Status
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+      additionalProperties: false
+      type: object
+      required:
+      - memory_id
+      - scope_type
+      - scope_id
+      - content_redacted
+      - author_ref
+      - consent_id
+      - version
+      - retention_policy_id
+      - status
+      - created_at
+      - expires_at
+      title: MemoryEntry
+    ConsentRecord:
+      properties:
+        schema_version:
+          type: string
+          const: '1.0'
+          title: Schema Version
+          default: '1.0'
+        consent_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$
+          title: Consent Id
+        principal_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$
+          title: Principal Id
+        purpose:
+          type: string
+          const: memory
+          title: Purpose
+        scope:
+          type: string
+          title: Scope
+        status:
+          type: string
+          enum:
+          - requested
+          - granted
+          - denied
+          - revoked
+          - expired
+          title: Status
+        granted_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Granted At
+        revoked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Revoked At
+      additionalProperties: false
+      type: object
+      required:
+      - consent_id
+      - principal_id
+      - purpose
+      - scope
+      - status
+      title: ConsentRecord
+    ConsentActionPayload:
+      properties:
+        action:
+          type: string
+          enum:
+          - granted
+          - denied
+          - revoked
+          - expired
+          title: Action
+      additionalProperties: false
+      type: object
+      required:
+      - action
+      title: ConsentActionPayload
+
 paths:
   # ============ NÚCLEO (MVP) ============
   /projects:
@@ -2778,130 +2993,282 @@ paths:
                 items:
                   $ref: '#/components/schemas/RouteDecisionResponse'
 
-  # ============ EXPANSÃO: MEMORY ============
-  /memory:
+  # T17 — implementação operacional
+  /consents:
+    post:
+      summary: Create Consent Endpoint
+      operationId: create_consent_endpoint_v1_control_plane_consents_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryScope'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentRecord'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '403':
+          description: Principal ou escopo não autorizado
+        '409':
+          description: Consentimento inativo ou conflito de estado/versão
     get:
-      tags: [Memory]
-      summary: Consultar memórias
-      operationId: queryMemory
-      security:
-        - BearerAuth: []
+      summary: List Consents Endpoint
+      operationId: list_consents_endpoint_v1_control_plane_consents_get
       parameters:
-        - name: scope_type
-          in: query
-          schema:
-            type: string
-            enum: [user, area, project, global]
-        - name: scope_id
-          in: query
-          schema:
-            type: string
-        - name: query
-          in: query
-          schema:
-            type: string
+      - name: scope_type
+        in: query
+        required: true
+        schema:
+          enum:
+          - principal
+          - area
+          - workspace
+          - project
+          type: string
+          title: Scope Type
+      - name: scope_id
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Scope Id
       responses:
         '200':
-          description: Memórias encontradas
+          description: Successful Response
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/MemoryEntryResponse'
-
-    post:
-      tags: [Memory]
-      summary: Gravar memória (exige consentimento ativo)
-      operationId: storeMemory
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/MemoryEntryRequest'
-      responses:
-        '201':
-          description: Memória gravada
+                  $ref: '#/components/schemas/ConsentRecord'
+                title: Response List Consents Endpoint V1 Control Plane Consents Get
+        '422':
+          description: Validation Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MemoryEntryResponse'
+                $ref: '#/components/schemas/HTTPValidationError'
+        '403':
+          description: Principal ou escopo não autorizado
         '409':
-          description: Consentimento ausente ou revogado
-
-  /memory/{id}/revoke:
+          description: Consentimento inativo ou conflito de estado/versão
+  /consents/{consent_id}:
     post:
-      tags: [Memory]
-      summary: Revogar memória
-      operationId: revokeMemory
-      security:
-        - BearerAuth: []
+      summary: Decide Consent Endpoint
+      operationId: decide_consent_endpoint_v1_control_plane_consents__consent_id__post
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Memória revogada
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  revoked:
-                    type: boolean
-        '404':
-          description: Memória não encontrada
-
-  # ============ EXPANSÃO: CONSENTS ============
-  /consents:
-    post:
-      tags: [Consents]
-      summary: Solicitar consentimento
-      operationId: requestConsent
-      security:
-        - BearerAuth: []
+      - name: consent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Consent Id
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ConsentRequest'
-      responses:
-        '201':
-          description: Consentimento solicitado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ConsentResponse'
-
-  /consents/{id}/revoke:
-    post:
-      tags: [Consents]
-      summary: Revogar consentimento
-      operationId: revokeConsent
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+              $ref: '#/components/schemas/ConsentActionPayload'
       responses:
         '200':
-          description: Consentimento revogado
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ConsentResponse'
+                $ref: '#/components/schemas/ConsentRecord'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '403':
+          description: Principal ou escopo não autorizado
+        '409':
+          description: Consentimento inativo ou conflito de estado/versão
+  /consents/{consent_id}/revoke:
+    post:
+      summary: Revoke Consent Endpoint
+      operationId: revoke_consent_endpoint_v1_control_plane_consents__consent_id__revoke_post
+      parameters:
+      - name: consent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Consent Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentRecord'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '403':
+          description: Principal ou escopo não autorizado
+        '409':
+          description: Consentimento inativo ou conflito de estado/versão
+  /memory:
+    post:
+      summary: Create Memory Endpoint
+      operationId: create_memory_endpoint_v1_control_plane_memory_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryWrite'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryEntry'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '403':
+          description: Principal ou escopo não autorizado
+        '409':
+          description: Consentimento inativo ou conflito de estado/versão
+    get:
+      summary: Query Memory Endpoint
+      operationId: query_memory_endpoint_v1_control_plane_memory_get
+      parameters:
+      - name: scope_type
+        in: query
+        required: true
+        schema:
+          enum:
+          - principal
+          - area
+          - workspace
+          - project
+          type: string
+          title: Scope Type
+      - name: scope_id
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Scope Id
+      - name: query
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 256
+          default: ''
+          title: Query
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MemoryEntry'
+                title: Response Query Memory Endpoint V1 Control Plane Memory Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '403':
+          description: Principal ou escopo não autorizado
+        '409':
+          description: Consentimento inativo ou conflito de estado/versão
+  /memory/{memory_id}:
+    put:
+      summary: Update Memory Endpoint
+      operationId: update_memory_endpoint_v1_control_plane_memory__memory_id__put
+      parameters:
+      - name: memory_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Memory Id
+      - name: expected_version
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          title: Expected Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryWrite'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryEntry'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '403':
+          description: Principal ou escopo não autorizado
+        '409':
+          description: Consentimento inativo ou conflito de estado/versão
+  /memory/{memory_id}/revoke:
+    post:
+      summary: Revoke Memory Endpoint
+      operationId: revoke_memory_endpoint_v1_control_plane_memory__memory_id__revoke_post
+      parameters:
+      - name: memory_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Memory Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryEntry'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '403':
+          description: Principal ou escopo não autorizado
+        '409':
+          description: Consentimento inativo ou conflito de estado/versão
 
   # ============ EXPANSÃO: DISCOVERY ============
   /discovery/scan:

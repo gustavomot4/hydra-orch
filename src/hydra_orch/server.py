@@ -36,6 +36,9 @@ from hydra_orch.core.metrics import MetricsService, MetricScope
 from hydra_orch.core.hitl import HITLService, HitlKind, HitlRequest
 from hydra_orch.core.agent_registry import AgentRegistry
 from hydra_orch.core.route_selector import RouteSelector
+from hydra_orch.core.consent import ConsentService, ConsentRecord, MemoryScope, ScopeType
+from hydra_orch.core.memory_store import MemoryStore, MemoryWrite, MemoryEntry
+from hydra_orch.core.workspace_registry import WorkspaceRegistry
 from hydra_orch.core.ssh_tunnel import SshTunnelManager
 from hydra_orch.model import (
     BudgetPolicy,
@@ -153,6 +156,7 @@ app = FastAPI(
 app.state.cors_allow_origins = load_cors_origins(DEFAULT_CORS_ALLOW_ORIGINS)
 app.state.token_verifier = load_token_verifier()
 app.state.expired_cursors = {}  # run_id -> min_valid_seq
+app.state.local_principal_id = "operator"  # Identity of the authenticated single local operator.
 
 app.add_middleware(
     CORSMiddleware,
@@ -698,6 +702,59 @@ class SessionCreatePayload(BaseModel):
     agent_ref: Optional[str] = Field(default=None, max_length=128)
 
 
+def get_memory_store() -> MemoryStore:
+    runs = get_run_service()
+    registry = WorkspaceRegistry(runs.store, allowed_roots=[runs.repo_root])
+    return MemoryStore(ConsentService(runs.store, registry))
+
+
+@app.post("/v1/control-plane/consents", status_code=201)
+async def create_consent_endpoint(payload: MemoryScope) -> ConsentRecord:
+    return await get_memory_store().consents.request(payload, principal_id=app.state.local_principal_id)
+
+
+@app.get("/v1/control-plane/consents")
+async def list_consents_endpoint(scope_type: ScopeType, scope_id: str) -> tuple[ConsentRecord, ...]:
+    return await get_memory_store().consents.list(MemoryScope(scope_type=scope_type, scope_id=scope_id),
+        principal_id=app.state.local_principal_id)
+
+
+class ConsentActionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["granted", "denied", "revoked", "expired"]
+
+
+@app.post("/v1/control-plane/consents/{consent_id}")
+async def decide_consent_endpoint(consent_id: str, payload: ConsentActionPayload) -> ConsentRecord:
+    return await get_memory_store().consents.decide(consent_id, payload.action, principal_id=app.state.local_principal_id)
+
+
+@app.post("/v1/control-plane/consents/{consent_id}/revoke")
+async def revoke_consent_endpoint(consent_id: str) -> ConsentRecord:
+    return await get_memory_store().consents.decide(consent_id, 'revoked', principal_id=app.state.local_principal_id)
+
+
+@app.post("/v1/control-plane/memory", status_code=201)
+async def create_memory_endpoint(payload: MemoryWrite) -> MemoryEntry:
+    return await get_memory_store().write(payload, principal_id=app.state.local_principal_id)
+
+
+@app.get("/v1/control-plane/memory")
+async def query_memory_endpoint(scope_type: ScopeType, scope_id: str, query: str = Query(default='', max_length=256)) -> tuple[MemoryEntry, ...]:
+    return await get_memory_store().query(MemoryScope(scope_type=scope_type, scope_id=scope_id),
+        principal_id=app.state.local_principal_id, query=query)
+
+
+@app.put("/v1/control-plane/memory/{memory_id}")
+async def update_memory_endpoint(memory_id: str, payload: MemoryWrite, expected_version: int = Query(ge=1)) -> MemoryEntry:
+    return await get_memory_store().update(memory_id, payload, principal_id=app.state.local_principal_id, expected_version=expected_version)
+
+
+@app.post("/v1/control-plane/memory/{memory_id}/revoke")
+async def revoke_memory_endpoint(memory_id: str) -> MemoryEntry:
+    return await get_memory_store().revoke(memory_id, principal_id=app.state.local_principal_id)
+
+
 @app.get("/v1/control-plane/runs/{run_id}/metrics")
 async def run_metrics_endpoint(run_id: str, scope: MetricScope = Query(default="run"),
     scope_id: Optional[str] = Query(default=None), max_age_seconds: float = Query(default=300, ge=0, le=86400)):
@@ -1147,7 +1204,8 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         "git_command_failed",
         "scope_violation",
     }
-    conflict_codes |= {"session_state_conflict", "thread_state_conflict", "hitl_pending", "hitl_busy", "hitl_conflict"}
+    conflict_codes |= {"session_state_conflict", "thread_state_conflict", "hitl_pending", "hitl_busy", "hitl_conflict",
+        "consent_required", "consent_conflict", "memory_conflict"}
     if exc.code in {"authorization_denied", "session_scope_mismatch", "thread_scope_mismatch", "metric_scope_mismatch"}:
         status_code = 403
     elif exc.code == "resource_not_found":

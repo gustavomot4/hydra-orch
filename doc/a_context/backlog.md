@@ -131,7 +131,7 @@ Todas as 28 tasks normativas detalhadas com seus contratos formais, dependência
 | **T14** | Sessões, threads, SSE replay | EP04 / V3 | P1 | 8 | T03, T07, T10 | RF18, RF05 / RT16 | `core/session_service.py`, `server.py`, `tests/test_sse_replay.py` | Árvore hierárquica sessões/threads; SSE com Last-Event-ID, replay e dedup | concluido |
 | **T15** | Métricas observabilidade | EP04 / V3 | P1 | 5 | T03, T10, T14 | RF19 / RT17 | `core/metrics.py`, `tests/test_metrics.py` | Fila, duração, tokens, custo com status observed/stale/unknown; zero não inventado | concluido |
 | **T16** | Seleção adaptativa rotas | EP04 / V3 | P1 | 8 | T12, T15 | RF20, RF11 / RT18 | `core/route_selector.py`, `bridge/omniroute_client.py`, `tests/test_route_selector.py` | RouteDecision auditável; modo direto sem gateway testado; quota unknown | concluido |
-| **T17** | Consentimento e memória | EP05 / V4 | P2 | 8 | T09, T10 | RF21 / RT19 | `core/consent.py`, `core/memory_store.py`, `tests/test_memory.py` | Escrita exige ConsentRecord; revogação funcional; isolamento de checkpoints | pendente |
+| **T17** | Consentimento e memória | EP05 / V4 | P2 | 8 | T09, T10 | RF21 / RT19 | `core/consent.py`, `core/memory_store.py`, `tests/test_memory.py` | Escrita exige ConsentRecord; revogação funcional; isolamento de checkpoints | em_revisao |
 | **T18** | Discovery local controlado | EP05 / V4 | P2 | 5 | T09, T11 | RF22 / RT20 | `core/discovery.py`, `tests/test_discovery.py` | Varredura opt-in restrita a allowlist; hash SHA-256 + untrusted; sem auto-ativação | pendente |
 | **T19** | Skills, MCPs, secret refs | EP05 / V4 | P2 | 8 | T12, T17, T18 | RF17, RF22 / RT21 | `core/skill_registry.py`, `bridge/mcp_client.py`, `tests/test_secrets.py` | Segredos como referências externas; resolução no spawn com env filtrado | pendente |
 | **T20** | Isolamento extensões/plugins | EP05 / V4 | P2 | 13 | T18, T19 | RF24 / RT22 | `core/extension_host.py`, `tests/test_extension.py` | Manifesto versionado; processo isolado sem acesso ao DB core; revogação imediata | pendente |
@@ -401,3 +401,11 @@ T16 integrada por fast-forward: `a61ecee`. Próxima entrega da Onda 7: T25, com 
 - Limites explícitos em S15: worktree não é sandbox; transporte gateway não executa workspace; quota CLI desconhecida não recebe reset inventado. Budget financeiro/tokens, conflitos e comandos estendidos permanecem T28/T27/T23. Esta evidência não certifica drivers externos nem fecha por si só todos os gates operacionais de M3/G-SEG.
 
 T25 integrada por fast-forward: `66eb365`. Próxima entrega do ciclo: **T17 — consentimento e memória**, iniciando a Onda 8.
+
+### Evidências T17 — consentimento e memória
+
+- Consentimento solicitado/concedido/negado/revogado/expirado com escopo e principal explícitos. Mudança de estado e auditoria atômicas; revogação desativa entradas e bloqueia consultas/escritas e novos perfis com a política revogada.
+- Memórias com autoria, versão otimista, retenção de 1/30 dias e expiração; escopo/consentimento imutáveis. Conteúdo sanitizado antes da persistência; auditoria inclui hash/versão, sem duplicar o texto. Checkpoints têm tabela/lifecycle próprios e nunca alimentam memória automaticamente.
+- API autenticada em `/v1/control-plane/consents` e `/memory`; sem consentimento a escrita retorna **409**, outro contexto/principal **403**. Identidade HTTP é o operador local fixo, sem aceitar principal fornecido pelo request. Schemas e paths operacionais atualizados em OpenAPI.
+- **447 testes aprovados**, **100% de cobertura em consent.py, memory_store.py e model.py**, Linux/Python 3.14.9. Casos de concorrência, rollback de auditoria, redaction, escopo, retenção, revogação e HTTP; sem LLM/serviço externo. `git diff --check` e **125 referências OpenAPI** verificados.
+- Contrato e limites em [S16](../b_spc/seguranca_proveniencia.md): heurísticas não garantem detectar toda PII em texto livre. Nenhuma certificação global de G-SEG; discovery e extensões permanecem T18–T20.

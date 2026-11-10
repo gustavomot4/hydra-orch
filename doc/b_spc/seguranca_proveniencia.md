@@ -57,3 +57,53 @@ usam autenticação explícita, mantendo as verificações funcionais M1.
 T09 não fecha isoladamente G-SEG: autorização de raízes/path traversal do catálogo
 pertence à T11; consentimento, discovery, SecretRef e isolamento de extensões
 dependem de T17–T20. Certificação de um driver externo também permanece separada.
+
+## Contrato T17 — consentimento e memória (antes da implementação)
+
+`ConsentService` registra solicitação `memory` para um escopo explícito
+`principal`, `area`, `workspace` ou `project`. O principal autenticado deve ser
+proprietário desse contexto. Transições permitidas: requested → granted/denied;
+granted → revoked/expired. Revogação/expiração também desativam as memórias
+vinculadas na mesma transação e geram auditoria imutável em `commands`.
+Consentimento revogado nunca é reativado; uma nova concessão exige outro registro.
+
+`MemoryStore` compartilha o SQLite e o registry com `ConsentService`. Escrita,
+consulta e alteração exigem escopo/principal correspondentes e consentimento
+atualmente granted. Conteúdo textual passa por redaction antes do INSERT, sem
+captura automática de checkpoints, logs ou artefatos. Autoria vem do caller
+identificado. Retenção explícita de 1 dia ou 30 dias gera expires_at; consultas
+expiram registros vencidos antes de selecioná-los. Alteração exige versão
+esperada e incrementa version; auditoria guarda versões/hashes, sem cópias do
+conteúdo anterior. A versão atual é consultável, sem promessa de histórico textual.
+
+A API local autenticada usa principal fixo `operator` (um operador local, sem
+identidade fornecida em headers/body) e expõe `/v1/control-plane/consents` e
+`/v1/control-plane/memory`. Consentimento ausente/inativo/incorreto retorna 409;
+outro principal/contexto retorna 403. Preferências multiusuário e comandos CLI
+estendidos não fazem parte desta entrega. Os módulos de execução não importam
+`MemoryStore`; snapshots e admissão já recusam consentimento revogado/expirado.
+
+Testes devem comprovar zero escrita sem consentimento, revogação imediata,
+expiração, isolamento de principal/escopo/checkpoints, atualização concorrente,
+auditoria atômica e redaction na persistência/HTTP. Redaction reconhece padrões
+conhecidos de segredo e identificadores pessoais comuns; não constitui detecção
+universal de PII em texto livre. O operador deve aprovar apenas conteúdo adequado.
+
+### Superfície T17 entregue
+
+- `POST /v1/control-plane/consents`: solicita com `scope_type` e `scope_id`.
+- `GET /v1/control-plane/consents`: lista solicitações do escopo/principal.
+- `POST /v1/control-plane/consents/{id}`: decisão explícita com
+  `action=granted|denied|revoked|expired`; `/revoke` é atalho para revogação.
+- `POST /v1/control-plane/memory`: recebe `scope_type`, `scope_id`, `content`,
+  `consent_id` e `retention_policy=day|month` (1 ou 30 dias).
+- `GET /v1/control-plane/memory`: consulta ativa por escopo e texto opcional.
+- `PUT /v1/control-plane/memory/{id}?expected_version=N`: atualiza conteúdo e
+  retenção; preserva escopo/consentimento. Versão desatualizada retorna 409.
+- `POST /v1/control-plane/memory/{id}/revoke`: revoga a entrada individual.
+
+As tabelas da migração 0002 são suficientes; nenhum script já aplicado é alterado.
+Auditoria em `commands(scope=consent_memory)` contém ação, ator, ID, versões e
+hash do conteúdo sanitizado. Não replica o texto da memória em logs de auditoria.
+Consultas não devolvem conteúdos expirados/revogados nem autorizam coleta de
+checkpoints, mesmo quando o consentimento do escopo está ativo.
