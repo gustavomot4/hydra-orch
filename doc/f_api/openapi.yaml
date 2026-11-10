@@ -919,7 +919,7 @@ components:
             attempt.provider_selected, attempt.rate_limited, attempt.handoff_created,
             artifact.created, check.finished, merge.completed, merge.conflicted,
             budget.alerted, budget.frozen, budget.exhausted,
-            heartbeat, profile.snapshot_created, session.created, session.state_changed, thread.created, thread.state_changed, thread.message, metric.sampled, hitl.requested, hitl.resolved
+            heartbeat, profile.snapshot_created, session.created, session.state_changed, thread.created, thread.state_changed, thread.message, metric.sampled, hitl.requested, hitl.resolved, route.selected, route.rejected
           ]
         task_id:
           type: string

@@ -34,6 +34,8 @@ from hydra_orch.core.run_service import RunService
 from hydra_orch.core.session_service import SessionService, SessionState
 from hydra_orch.core.metrics import MetricsService, MetricScope
 from hydra_orch.core.hitl import HITLService, HitlKind, HitlRequest
+from hydra_orch.core.agent_registry import AgentRegistry
+from hydra_orch.core.route_selector import RouteSelector
 from hydra_orch.core.ssh_tunnel import SshTunnelManager
 from hydra_orch.model import (
     BudgetPolicy,
@@ -705,6 +707,12 @@ async def run_metrics_endpoint(run_id: str, scope: MetricScope = Query(default="
 @app.get("/v1/control-plane/runs/{run_id}/metrics/usage")
 async def run_usage_metrics_endpoint(run_id: str):
     return await MetricsService(get_run_service().store).aggregate_usage(run_id)
+
+
+@app.get("/v1/control-plane/runs/{run_id}/route-decisions")
+async def list_route_decisions_endpoint(run_id: str):
+    store = get_run_service().store
+    return await RouteSelector(store, AgentRegistry(store), MetricsService(store)).list_decisions(run_id)
 
 
 class ThreadCreatePayload(BaseModel):

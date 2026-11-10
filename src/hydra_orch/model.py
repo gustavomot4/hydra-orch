@@ -509,6 +509,7 @@ class RunEvent(ExecutionModel):
         "session.created", "session.state_changed", "thread.created", "thread.state_changed", "thread.message",
         "metric.sampled",
         "hitl.requested", "hitl.resolved",
+        "route.selected", "route.rejected",
     ]
     redacted_payload: dict[str, JsonValue] = Field(default_factory=dict)
 

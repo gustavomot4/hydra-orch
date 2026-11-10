@@ -89,3 +89,29 @@ GET /v1/control-plane/runs/{run_id}/metrics aceita scope/scope_id/max_age_second
 GET no sufixo /metrics/usage fornece agregações com cobertura. HTTP exige Bearer e
 recusa escopo de outra run. Os testes cobrem zero explícito, ausência, staleness,
 reinicialização, rollback do lote, fontes, limites e captura após subprocesso real.
+
+## T16 — Seleção adaptativa auditável
+
+`RouteSelector` valida candidatos explícitos contra certificado/capabilities/CLI,
+modo de conexão e quota. disabled não chama gateway; optional aceita fallback
+direto se o gateway falhar; required não permite bypass por rota direta. Quota
+observed=0 recusa a rota. Quota unknown/stale segue a política explícita allow/reject,
+sem converter ausência em disponibilidade observada.
+
+Elegíveis são ordenados por prioridade declarada, custo e duração observados e
+ID estável. Métricas só entram no ranking se a tentativa pertencer à mesma run,
+modelo e executor. Unknown/stale não vira custo zero nem latência estimada. O
+registro persiste candidatos, razões, fontes, timestamps, valores usados,
+certificado, escolha e fallback; falha sem elegíveis emite route.rejected sem
+inventar um selected_route. O read model autenticado está em
+GET /v1/control-plane/runs/{run_id}/route-decisions.
+
+OmniRouteClient normaliza o subset de quota (percentual numérico 0–100 e reset
+não negativo), retorna unknown para respostas inválidas e stale para último valor
+conhecido quando a conexão cai. Disabled não faz requests, inclusive geração.
+O timestamp indica coleta do gateway; isso não certifica um protocolo externo
+ou disponibilidade real da conta. Relatórios/HTTP de testes são simulados.
+
+Selecionar uma rota não inicia execução. O coordenador T25 deve revalidar as
+permissões e o certificado no despacho, usar a decisão/modelo na invocação e
+registrar mudanças de rota; a auditoria não substitui prova de execução do worker.
