@@ -115,3 +115,63 @@ ou disponibilidade real da conta. Relatórios/HTTP de testes são simulados.
 Selecionar uma rota não inicia execução. O coordenador T25 deve revalidar as
 permissões e o certificado no despacho, usar a decisão/modelo na invocação e
 registrar mudanças de rota; a auditoria não substitui prova de execução do worker.
+
+## Contrato de implementação T25 — decomposição anterior ao código (13 SP)
+
+1. **T25.1 — plano e admissão:** DAG estruturado e validado; uma tarefa Wave 0 com checks de fundação e Wave 1 com propriedade explícita sem colisão; perfil/certificado/grants e decisão de rota revalidados antes de cada despacho. Sem decomposição textual fixa no caminho operacional.
+2. **T25.2 — Wave 0/1 e integração:** fundação executada, revisada explicitamente e integrada em branch isolada antes da Wave 1. Tentativas Wave 1 nascem do SHA consolidado, preservando RunSpec original; somente bases de integrações verificadas do mesmo run são permitidas. Semáforo respeita orçamento e limite de worktrees; manifestos ficam proibidos na Wave 1. Integração final exige aceite e checks combinados.
+3. **T25.3 — relay/persist e handoff:** scheduler sequencial nos modos relay/persistent; checkpoint Git/diff/checks durável após interrupção, nova tentativa restaura estado permitido em worktree nova e preserva a original. Retry de turno de inferência descarta buffer incompleto, sem costurar código. Espera persistente tem deadline/orçamento e não ocupa worker durante quota.
+4. **T25.4 — reparação e prova:** tentativas de reparação reais limitadas por TaskSpec/RunSpec, com mesmos gates de escopo/check/revisão, sem sucesso por texto. Dublês reais de subprocesso em Git temporário provam fundação, concorrência, falha/retomada, proteção de manifestos e preservação do checkout.
+
+Revisão e integração dependem de autorização explícita por execução: o chamador pode fornecer um reviewer delegado; sem ele o scheduler para em needs_review. Autorizações de desenvolvimento deste checkout não são política global do produto. Fallback de modelo mantém o executor atribuído; trocar driver em uma tentativa requer novo contrato/tarefa, sem mentir sobre TaskAttempt.executor_id. Worktrees não são sandbox de filesystem/rede.
+
+### T25 — superfície operacional e limites
+
+`engine/orchestration.py` recebe `OrchestrationPlan` com `RunSpec` já submetido,
+perfil, repositório registrado, rotas, argumentos CLI e propriedade dos arquivos.
+O binário vem da certificação corrente; os argumentos devem incluir o modelo
+escolhido. Os wrappers `MultiSessionSwarmEngine`, `RelayPipelineEngine` e
+`PersistentEngine` recebem o coordenador por injeção. O antigo macro-prompt que
+criava quatro workers fixos e fazia merge no checkout do operador foi removido.
+
+O caller usa `execute(plan, principal_id=..., reviewer=..., integrate=True)`.
+`reviewer` é uma delegação explícita por chamada, devolvendo `ReviewDecision`
+com resultado e revisão corretos. Sem essa delegação o relatório fica em
+`needs_review`. `integrate=False` permite parar em `ready_to_integrate`. Esses
+métodos Python ainda não constituem novos comandos CLI/rotas HTTP (T23).
+
+- Swarm exige exatamente uma fundação e workers independentes que dependem dela.
+  A fundação passa por execução, checks, aceite e consolidação isolada antes de
+  liberar a Wave 1. Workers usam o SHA dessa consolidação, sem modificar o
+  `RunSpec` original. Propriedade aceita arquivos literais ou diretórios `/**`;
+  raízes dos workers não podem colidir. Manifestos de dependências ficam travados
+  inclusive em subpastas. O semáforo aplica o menor limite do run e do perfil.
+- Relay/persistent consolidam cada prefixo aceito antes da próxima tarefa. As
+  bases intermediárias precisam de prova SQL do mesmo run e ancestralidade Git.
+  Cada integração preserva branch/worktree próprias, inclusive em falhas.
+- Plano, início do orçamento temporal e lease do coordenador ficam no SQLite.
+  Plano alterado ou lease ainda pendente bloqueiam outro coordenador. Queda do
+  processo exige reconciliação explícita; não existe retomada cega de workers
+  que ainda constam ativos. Cancelamento encerra subprocessos/checks e preserva
+  evidências; metadados interrompidos precisam ser reconciliados.
+- Reparação tem teto mínimo entre limites do task/run/perfil e executa processo,
+  escopo e checks reais. Handoff grava objetivo/contrato completo, HEAD/status,
+  hash dos bytes alterados, arquivos, referências de patch/checks e efeitos
+  conhecidos/desconhecidos. `handoff_reconciler(checkpoint)` precisa autorizar
+  a retomada após reconciliar efeitos externos desconhecidos. A origem é
+  preservada e o patch binário/arquivos novos são restaurados em outra worktree.
+  Mudança posterior na origem ou violação de escopo bloqueia essa restauração.
+- `retry_atomic_turn` devolve apenas a geração cuja iteração terminou sem erro;
+  o callback deve sinalizar truncamento/interrupção por exceção. Buffers de
+  tentativas interrompidas são descartados. Esse helper de inferência não aplica
+  código nem comprova execução de ferramentas.
+- Persistent pode aguardar disponibilidade por uma janela limitada, sem ocupar
+  worktree/semáforo durante a espera. Quota direta não reportada continua
+  desconhecida; não se inventa horário de reset. O transporte de inferência do
+  gateway não executa workspaces, portanto planos operacionais aceitam rotas
+  diretas certificadas. Budget financeiro/tokens e reparação de conflitos de
+  integração são entregas T28/T27, respectivamente.
+
+Os testes usam subprocessos Python locais, Git e SQLite temporários com
+atestados sintéticos. Não certificam CLIs de terceiros nem isolamento do SO;
+worktree não é sandbox de filesystem/rede.

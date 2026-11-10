@@ -202,6 +202,11 @@ class CheckRunner:
                     timeout=effective_timeout,
                 )
                 exit_code = int(proc.returncode if proc.returncode is not None else 1)
+            except asyncio.CancelledError:
+                if proc is not None and proc.pid:
+                    await cancel_process_tree(proc.pid)
+                    await proc.wait()
+                raise
             except asyncio.TimeoutError:
                 if proc is not None and proc.pid:
                     await cancel_process_tree(proc.pid)
@@ -521,6 +526,11 @@ class RunService:
         if task_rec is None or task_rec["run_id"] != run_id:
             raise StorageIntegrityError(f"Task '{task_id}' not found in run '{run_id}'")
 
+        for dependency_id in task_rec["spec"].dependencies:
+            dependency = await self.store.get_task(dependency_id)
+            if dependency is None or dependency["status"] != TaskStatus.ACCEPTED.value:
+                raise ContractViolation("dependency_not_accepted", "Dependencies require explicit acceptance before dispatch")
+
         current_status = TaskStatus(task_rec["status"])
         current_rev = int(task_rec["revision"])
 
@@ -590,6 +600,8 @@ class RunService:
         forbidden_paths: Sequence[str] = (),
         allowed_env: Optional[Mapping[str, str]] = None,
         allow_retry_from_terminal: bool = False,
+        execution_base_sha: Optional[str] = None,
+        resume_from_attempt_id: Optional[str] = None,
         correlation_id: Optional[str] = None,
     ) -> TaskExecutionOutcome:
         """
@@ -599,6 +611,19 @@ class RunService:
         await HITLService(self.store).assert_dispatchable(run_id)
         run_rec = await self._ensure_run_running(run_id, correlation_id=correlation_id)
         run_spec: RunSpec = run_rec["spec"]
+        effective_base = execution_base_sha or run_spec.base_sha
+        if effective_base != run_spec.base_sha:
+            async with self.store._connect() as db:
+                proof = await (await db.execute("SELECT 1 FROM integrations WHERE run_id=? AND result_sha=? AND status='integrated'", (run_id, effective_base))).fetchone()
+            if proof is None:
+                raise ContractViolation("base_sha_mismatch", "Task base must be an integrated checkpoint of this run")
+        resume_attempt = None
+        if resume_from_attempt_id:
+            resume_attempt = await self.store.get_attempt(resume_from_attempt_id)
+            if (resume_attempt is None or resume_attempt.run_id != run_id or resume_attempt.task_id != task_id
+                    or resume_attempt.process_status in {ProcessStatus.QUEUED, ProcessStatus.RUNNING}
+                    or resume_attempt.base_sha != effective_base or not resume_attempt.workspace_path):
+                raise ContractViolation("handoff_invalid", "Handoff requires a terminal attempt of the same task and base")
 
         task_rec = await self._prepare_task_running(
             run_id=run_id,
@@ -630,9 +655,12 @@ class RunService:
             run_id=run_id,
             task_id=task_id,
             attempt_id=attempt_id,
-            base_sha=run_spec.base_sha,
+            base_sha=effective_base,
         )
 
+        if resume_attempt is not None:
+            git_ws.restore_attempt_state(Path(resume_attempt.workspace_path), ws_record,
+                allowed_paths=task_spec.allowed_paths, forbidden_paths=forbidden_paths)
         started_dt = datetime.now(timezone.utc)
         running_attempt = TaskAttempt(
             attempt_id=attempt_id,
@@ -642,7 +670,7 @@ class RunService:
             executor_id=task_spec.assigned_executor,
             provider=provider,
             model=model,
-            base_sha=run_spec.base_sha,
+            base_sha=effective_base,
             workspace_path=str(ws_record.canonical_path),
             process_status=ProcessStatus.RUNNING,
             started_at=started_dt,
@@ -673,7 +701,7 @@ class RunService:
             ordinal=ordinal,
             provider=provider,
             model=model,
-            base_sha=run_spec.base_sha,
+            base_sha=effective_base,
             custom_command=custom_command,
             extra_args=extra_args,
             allowed_env=allowed_env,
@@ -691,7 +719,7 @@ class RunService:
             executor_id=task_spec.assigned_executor,
             provider=provider,
             model=model,
-            base_sha=run_spec.base_sha,
+            base_sha=effective_base,
             workspace_path=str(ws_record.canonical_path),
             provider_session=raw_attempt.provider_session,
             process_status=raw_attempt.process_status,
@@ -711,7 +739,7 @@ class RunService:
                 result_id=result_id,
                 attempt_id=attempt_id,
                 run_id=run_id,
-                base_sha=run_spec.base_sha,
+                base_sha=effective_base,
                 process_status=finished_attempt.process_status,
                 exit_code=finished_attempt.exit_code,
                 task_status=TaskStatus.FAILED,
@@ -743,7 +771,7 @@ class RunService:
                 result_id=result_id,
                 attempt_id=attempt_id,
                 run_id=run_id,
-                base_sha=run_spec.base_sha,
+                base_sha=effective_base,
                 process_status=finished_attempt.process_status,
                 exit_code=finished_attempt.exit_code,
                 task_status=target_task_status,
@@ -768,7 +796,7 @@ class RunService:
                     result_id=result_id,
                     attempt_id=attempt_id,
                     run_id=run_id,
-                    base_sha=run_spec.base_sha,
+                    base_sha=effective_base,
                     process_status=finished_attempt.process_status,
                     exit_code=finished_attempt.exit_code,
                     task_status=TaskStatus.FAILED,
@@ -785,7 +813,7 @@ class RunService:
                         result_id=result_id,
                         attempt_id=attempt_id,
                         run_id=run_id,
-                        base_sha=run_spec.base_sha,
+                        base_sha=effective_base,
                         process_status=finished_attempt.process_status,
                         exit_code=finished_attempt.exit_code,
                         task_status=TaskStatus.FAILED,
@@ -850,7 +878,7 @@ class RunService:
                             result_id=result_id,
                             attempt_id=attempt_id,
                             run_id=run_id,
-                            base_sha=run_spec.base_sha,
+                            base_sha=effective_base,
                             process_status=finished_attempt.process_status,
                             exit_code=finished_attempt.exit_code,
                             task_status=TaskStatus.FAILED,
@@ -874,7 +902,7 @@ class RunService:
                             result_id=result_id,
                             attempt_id=attempt_id,
                             run_id=run_id,
-                            base_sha=run_spec.base_sha,
+                            base_sha=effective_base,
                             process_status=finished_attempt.process_status,
                             exit_code=finished_attempt.exit_code,
                             task_status=TaskStatus.READY_FOR_REVIEW,
@@ -927,14 +955,23 @@ class RunService:
 
         if statuses and statuses.issubset({TaskStatus.READY_FOR_REVIEW, TaskStatus.ACCEPTED}):
             if current_run_status == RunStatus.RUNNING:
-                return await self.store.update_run_status_atomic(
-                    run_id=run_id,
-                    new_status=RunStatus.REVIEWING,
-                    expected_revision=int(run_rec["revision"]),
-                    event_type="run.waiting",
-                    event_payload={"reason": "ready_for_review"},
-                    correlation_id=correlation_id,
-                )
+                try:
+                    return await self.store.update_run_status_atomic(
+                        run_id=run_id,
+                        new_status=RunStatus.REVIEWING,
+                        expected_revision=int(run_rec["revision"]),
+                        event_type="run.waiting",
+                        event_payload={"reason": "ready_for_review"},
+                        correlation_id=correlation_id,
+                    )
+                except OptimisticLockError:
+                    # A sibling may have reconciled the same canonical results.
+                    refreshed = await self.store.get_run(run_id)
+                    if refreshed is not None and refreshed["status"] in {
+                        RunStatus.REVIEWING.value, RunStatus.FAILED.value, RunStatus.CANCELLED.value
+                    }:
+                        return refreshed
+                    raise
         return run_rec
 
     async def review_task_result(
@@ -1051,6 +1088,11 @@ class RunService:
                 scope_prefix=f"integrate_{_sanitize_token(run_id)}",
             )
 
+        async with self.store._connect() as db:
+            stage_bases = tuple(row[0] for row in await (await db.execute(
+                "SELECT DISTINCT result_sha FROM integrations WHERE run_id=? AND status='integrated' AND result_sha IS NOT NULL",
+                (run_id,),
+            )).fetchall())
         outcome = await git_ws.integrate_results(
             run_id=run_id,
             expected_base_sha=run_spec.base_sha,
@@ -1058,6 +1100,7 @@ class RunService:
             target_branch=target_branch,
             post_merge_checks=tuple(combined_checks),
             check_runner=_combined_check_runner,
+            verified_base_shas=stage_bases,
         )
 
         refreshed_run = await self.store.get_run(run_id)

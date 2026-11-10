@@ -6,6 +6,7 @@ from hydra_orch.engine.checkpointer import EngineCheckpointer, stitch_code_block
 from hydra_orch.engine.relay import RelayPipelineEngine
 from hydra_orch.engine.healer import SelfHealer
 from hydra_orch.engine.swarm import MultiSessionSwarmEngine
+from hydra_orch.engine.persist import PersistentEngine
 
 __all__ = [
     "TaskDecomposer",
@@ -16,4 +17,5 @@ __all__ = [
     "RelayPipelineEngine",
     "SelfHealer",
     "MultiSessionSwarmEngine",
+    "PersistentEngine",
 ]

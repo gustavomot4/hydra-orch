@@ -950,12 +950,44 @@ class GitWorkspaceService:
         self._run_git(["worktree", "prune"], cwd=self.repo_root)
         return tuple(removed)
 
+    def restore_attempt_state(self, source: Path, target: WorkspaceRecord, *,
+                              allowed_paths: Sequence[str], forbidden_paths: Sequence[str] = ()) -> None:
+        """Copy verified tracked/untracked changes to a new worktree; keep the source intact."""
+        source = self.resolve_repo_root(source)
+        scope = self.validate_worktree_scope(source, base_sha=target.base_sha,
+            allowed_paths=allowed_paths, forbidden_paths=forbidden_paths)
+        if not scope.valid:
+            raise ContractViolation("handoff_scope_violation", "Unsafe source state requires manual reconciliation")
+        patch = subprocess.run(["git", "diff", "--binary", "--no-ext-diff", target.base_sha],
+            cwd=source, capture_output=True, check=True).stdout
+        if patch:
+            applied = subprocess.run(["git", "apply", "--binary", "-"], cwd=target.canonical_path,
+                input=patch, capture_output=True)
+            if applied.returncode:
+                raise ContractViolation("handoff_conflict", "Cannot restore partial patch; both worktrees are preserved")
+        untracked = subprocess.run(["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=source, capture_output=True, check=True).stdout
+        for raw in untracked.split(b"\0"):
+            if not raw:
+                continue
+            relative = raw.decode("utf-8")
+            src, dest = source / relative, target.canonical_path / relative
+            if src.is_symlink() or not src.is_file() or dest.exists():
+                raise ContractViolation("handoff_conflict", "Untracked state cannot be restored safely")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+        restored = self.validate_worktree_scope(target.canonical_path, base_sha=target.base_sha,
+            allowed_paths=allowed_paths, forbidden_paths=forbidden_paths)
+        if not restored.valid:
+            raise ContractViolation("handoff_scope_violation", "Restored state is outside the task scope")
+
     @staticmethod
     def _validate_integrable_result(
         result: TaskResult,
         expected_base_sha: str,
         task_spec: Optional[TaskSpec] = None,
         attempt: Optional[TaskAttempt] = None,
+        verified_base_shas: Sequence[str] = (),
     ) -> None:
         if task_spec is not None and attempt is not None:
             assert_integrable(task_spec, attempt, result)
@@ -964,7 +996,7 @@ class GitWorkspaceService:
                 "result_not_accepted",
                 f"Result '{result.result_id}' must be accepted and non-simulated before integration",
             )
-        if result.base_sha != expected_base_sha:
+        if result.base_sha not in {expected_base_sha, *verified_base_shas}:
             raise ContractViolation(
                 "base_sha_mismatch",
                 f"Result '{result.result_id}' base_sha '{result.base_sha}' does not match expected '{expected_base_sha}'",
@@ -983,6 +1015,7 @@ class GitWorkspaceService:
         target_branch: Optional[str] = None,
         integration_id: Optional[str] = None,
         post_merge_checks: Sequence[CheckSpec] = (),
+        verified_base_shas: Sequence[str] = (),
         check_runner: Optional[Callable[[Path, str, Sequence[CheckSpec]], Tuple[CheckResult, ...]]] = None,
     ) -> IntegrationOutcome:
         """
@@ -1003,6 +1036,7 @@ class GitWorkspaceService:
                     integration_id=integration_id,
                     post_merge_checks=post_merge_checks,
                     check_runner=check_runner,
+                    verified_base_shas=verified_base_shas,
                 )
             finally:
                 try:
@@ -1019,25 +1053,32 @@ class GitWorkspaceService:
         target_branch: Optional[str] = None,
         integration_id: Optional[str] = None,
         post_merge_checks: Sequence[CheckSpec] = (),
+        verified_base_shas: Sequence[str] = (),
         check_runner: Optional[Callable[[Path, str, Sequence[CheckSpec]], Tuple[CheckResult, ...]]] = None,
     ) -> IntegrationOutcome:
         verified_base = self.resolve_commit_sha(expected_base_sha, cwd=self.repo_root)
         safe_run = _sanitize_token(run_id)
         int_id = integration_id or f"int_{safe_run}"
-        branch = target_branch or f"integrate/{safe_run}"
-        int_wt_path = self.worktree_base_dir / f"integrate_{safe_run}"
+        branch = target_branch or (f"integrate/{safe_run}-{_sanitize_token(int_id)}" if integration_id else f"integrate/{safe_run}")
+        int_wt_path = self.worktree_base_dir / f"integrate_{safe_run[:32]}_{hashlib.sha256(int_id.encode()).hexdigest()[:12]}"
 
+        for allowed_base in verified_base_shas:
+            if self.store is None:
+                raise ContractViolation("base_sha_mismatch", "Nonoriginal bases require a canonical integration record")
+            async with self.store._connect() as db:
+                proof = await (await db.execute("SELECT 1 FROM integrations WHERE run_id=? AND result_sha=? AND status='integrated'", (run_id, allowed_base))).fetchone()
+            ancestor = self._run_git(["merge-base", "--is-ancestor", verified_base, allowed_base])
+            if not proof or ancestor.returncode != 0:
+                raise ContractViolation("base_sha_mismatch", "Execution base is not a verified integration of this run")
         for result in results:
-            self._validate_integrable_result(result, expected_base_sha=verified_base)
+            self._validate_integrable_result(result, expected_base_sha=verified_base, verified_base_shas=verified_base_shas)
 
         self.worktree_base_dir.mkdir(parents=True, exist_ok=True)
         if int_wt_path.exists():
-            self._run_git(["worktree", "remove", "--force", str(int_wt_path)], cwd=self.repo_root)
-            self._run_git(["worktree", "prune"], cwd=self.repo_root)
-            if int_wt_path.exists():
-                shutil.rmtree(int_wt_path, ignore_errors=True)
-
-        self._run_git(["branch", "-D", branch], cwd=self.repo_root)
+            raise ContractViolation("integration_workspace_exists", "Prior integration evidence is preserved; choose a new integration ID")
+        existing_branch = self._run_git(["show-ref", "--verify", f"refs/heads/{branch}"])
+        if existing_branch.returncode == 0:
+            raise ContractViolation("integration_branch_exists", "Integration branch already exists; never overwrite it implicitly")
         add_res = self._run_git(
             ["worktree", "add", "-b", branch, str(int_wt_path), verified_base],
             cwd=self.repo_root,

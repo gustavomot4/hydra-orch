@@ -848,6 +848,11 @@ class WorkerRunner:
                 "artifacts": artifacts,
             }
 
+        except asyncio.CancelledError:
+            if process is not None:
+                await self.cancel_process_tree(process.pid)
+                await process.wait()
+            raise
         except asyncio.TimeoutError:
             tree_killed = True
             pid_val = process.pid if process else None

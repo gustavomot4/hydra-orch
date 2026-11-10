@@ -203,6 +203,14 @@ async def test_integrate_accepted_results(temp_git_repo: Path) -> None:
             "import pathlib; pathlib.Path('src/adder.py').write_text('def plus(a, b):\\n    return a + b\\n')",
         ),
     )
+    rev_a = await service.review_task_result(
+        "run_int_ok_01",
+        out_a.result.result_id,
+        actor="lead-reviewer",
+        decision="accepted",
+        reason="Adder verified",
+        expected_revision=1,
+    )
     out_b = await service.execute_task_attempt(
         "run_int_ok_01",
         "task_mul_mod",
@@ -220,14 +228,6 @@ async def test_integrate_accepted_results(temp_git_repo: Path) -> None:
         await service.integrate_run("run_int_ok_01")
     assert exc_unaccepted.value.code == "result_not_accepted"
 
-    rev_a = await service.review_task_result(
-        "run_int_ok_01",
-        out_a.result.result_id,
-        actor="lead-reviewer",
-        decision="accepted",
-        reason="Adder verified",
-        expected_revision=1,
-    )
     rev_b = await service.review_task_result(
         "run_int_ok_01",
         out_b.result.result_id,
