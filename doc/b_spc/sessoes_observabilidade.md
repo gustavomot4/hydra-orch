@@ -60,5 +60,5 @@ também funciona após restart. Não remova o último evento/cursor de um run at
 ordem: accept(event) serializa a atualização do cursor e recusa seq repetido ou
 regressivo. O cliente deve persistir last_seq entre processos e reenviá-lo em
 Last-Event-ID. Isso não implementa a futura UI nem promete exactly-once de efeitos
-externos. Tests cobrem dedup concorrente, restart, mensagens idempotentes, escopo,
+externos. Testes cobrem dedup concorrente, restart, mensagens idempotentes, escopo,
 rollback, replay filtrado, SSE contínuo e desconexão sem serviço de rede externo.

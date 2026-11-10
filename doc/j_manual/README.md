@@ -3,7 +3,7 @@
 **Identificador Formal:** `j_manual`
 **Caminho Canônico:** `doc/j_manual/`
 **Versão:** `v01_02_0000`
-**Status:** `OPERACIONAL M1 + T09/T10 / SERVIÇOS T11–T28 PROPOSTOS`
+**Status:** `OPERACIONAL M1 + T09–T14 / EXPANSÃO T15–T28 PROPOSTA`
 **Autoridade:** Arquitetura do hydra-orch, complementando [`../b_spc/prd_funcional.md`](../b_spc/prd_funcional.md), [`../b_spc/prd_tecnico.md`](../b_spc/prd_tecnico.md), [`../b_spc/api_control_plane.md`](../b_spc/api_control_plane.md), [`../b_spc/entrega_operacao.md`](../b_spc/entrega_operacao.md) e [`../i_infra/README.md`](../i_infra/README.md).
 **Escopo:** Manual operacional verificado do Marco M1 (V0) e referência para os horizontes de expansão (M2–M4 / V1–V4).
 
@@ -11,7 +11,7 @@
 
 ## 0. Manual Operacional M1 (Núcleo Verificável Local — Validado em T01–T08)
 
-Esta seção documenta a superfície **100% implementada e validada** no Marco **M1 (Gate G-M1)**. As seções 1 a 11 mais abaixo preservam a visão completa do produto incluindo comandos propostos para as ondas de expansão (`T11–T28`); a segurança HTTP T09 está documentada na seção 0.4 e a migração T10 na seção 0.5.
+Esta seção documenta a superfície **100% implementada e validada** no Marco **M1 (Gate G-M1)**. As seções 1 a 11 mais abaixo preservam a visão completa do produto incluindo comandos propostos para as ondas de expansão (`T15–T28`); a segurança HTTP T09 está documentada na seção 0.4 e a migração T10 na seção 0.5.
 
 ### 0.1. Escopo Operacional M1 vs. Expansão (M2–M4)
 

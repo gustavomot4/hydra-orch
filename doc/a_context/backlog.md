@@ -128,7 +128,7 @@ Todas as 28 tasks normativas detalhadas com seus contratos formais, dependência
 | **T11** | Registry áreas/repos | EP03 / V2 | P1 | 5 | T10 | RF16 / RT13 | `core/workspace_registry.py`, `tests/test_workspace_registry.py` | Hierarquia Area/Workspace/Project/Repo persistida; path traversal bloqueado | concluido |
 | **T12** | Catálogo agentes/capabilities | EP03 / V2 | P1 | 5 | T02, T04, T10 | RF17, RF14 / RT14 | `core/agent_registry.py`, `config.yaml`, `tests/test_agent_registry.py` | Capabilities declaradas; driver não certificado bloqueado; CLI ausente gera erro claro | concluido |
 | **T13** | Perfis e snapshots | EP03 / V2 | P1 | 5 | T11, T12 | RF17, RF23 / RT15 | `core/profile_service.py`, `tests/test_profile.py` | Validação pré-execução; ProfileSnapshot imutável com hash SHA-256 por run | concluido |
-| **T14** | Sessões, threads, SSE replay | EP04 / V3 | P1 | 8 | T03, T07, T10 | RF18, RF05 / RT16 | `core/session_service.py`, `server.py`, `tests/test_sse_replay.py` | Árvore hierárquica sessões/threads; SSE com Last-Event-ID, replay e dedup | em_andamento |
+| **T14** | Sessões, threads, SSE replay | EP04 / V3 | P1 | 8 | T03, T07, T10 | RF18, RF05 / RT16 | `core/session_service.py`, `server.py`, `tests/test_sse_replay.py` | Árvore hierárquica sessões/threads; SSE com Last-Event-ID, replay e dedup | em_revisao |
 | **T15** | Métricas observabilidade | EP04 / V3 | P1 | 5 | T03, T10, T14 | RF19 / RT17 | `core/metrics.py`, `tests/test_metrics.py` | Fila, duração, tokens, custo com status observed/stale/unknown; zero não inventado | pendente |
 | **T16** | Seleção adaptativa rotas | EP04 / V3 | P1 | 8 | T12, T15 | RF20, RF11 / RT18 | `core/route_selector.py`, `bridge/omniroute_client.py`, `tests/test_route_selector.py` | RouteDecision auditável; modo direto sem gateway testado; quota unknown | pendente |
 | **T17** | Consentimento e memória | EP05 / V4 | P2 | 8 | T09, T10 | RF21 / RT19 | `core/consent.py`, `core/memory_store.py`, `tests/test_memory.py` | Escrita exige ConsentRecord; revogação funcional; isolamento de checkpoints | pendente |
@@ -355,3 +355,10 @@ T12 integrada por fast-forward: `dfad3e4`. T13 pronta; próxima entrega do ciclo
 - **366 testes aprovados**, **100% de cobertura de profile_service.py e model.py**, Linux/Python 3.14.9. Fixtures Git/SQLite e relatórios sintéticos; nenhuma certificação externa ou execução LLM. `git diff --check` aprovado. Próxima entrega: **T14 — sessões, threads e SSE**.
 
 T13 integrada por fast-forward: `4ea61ae`. Próxima tarefa do ciclo: T14. T25 tem dependências técnicas satisfeitas e exige decomposição antes de iniciar.
+
+## Evidência da T14 — sessões, threads e SSE
+
+- `SessionService` persiste árvores por run/sessão, transições com expected_state, mensagens com cursor/idempotência e eventos atômicos sanitizados. Escopo cruzado é recusado; falha/cancelamento preserva estados terminais e cancela filhos não iniciados.
+- API autenticada sob `/v1/control-plane/runs/{run_id}/sessions`. SSE aceita filtros e follow opt-in, mantém replay finito M1, consulta SQLite após reconexão, emite heartbeat e encerra na desconexão. EventCursor demonstra dedup concorrente em cliente Python; não implementa UI nem exactly-once de efeitos externos.
+- **382 testes aprovados**, **99% de cobertura em session_service.py**, **100% em model.py**, Linux/Python 3.14.9. Testes offline com Git/SQLite temporários, sem LLM. `git diff --check`, links e referências OpenAPI verificados. Contrato em [S15](../b_spc/sessoes_observabilidade.md).
+- Próxima entrega: **T15 — métricas com proveniência**; T26 também tem as dependências técnicas satisfeitas.
