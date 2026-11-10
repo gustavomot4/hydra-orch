@@ -178,6 +178,7 @@ class Orchestrator:
             decision=decision.decision, reason=decision.reason, expected_revision=decision.expected_revision)
 
     async def _admit(self, plan, profile, principal_id):
+        await self.profiles.verify_discovered_components(profile, principal_id=principal_id)
         repository = await self.profiles.workspaces.resolve_repository(plan.repository_id, principal_id=principal_id, scope='execute')
         grants = json.loads(repository['allowed_paths_json'])
         if any(not any(_covers(grant, path) for grant in grants) for task in plan.run.tasks for path in task.allowed_paths):

@@ -125,3 +125,5 @@ Cada requisito deve ter:
 - [T26 — intervenção humana durável](intervencao_humana.md)
 
 - [T17 — consentimento e memória](seguranca_proveniencia.md#contrato-t17--consentimento-e-memória-antes-da-implementação)
+
+- [T18 — discovery local e proveniência](seguranca_proveniencia.md#contrato-t18--discovery-local-antes-da-implementação)

@@ -161,15 +161,20 @@ async def test_snapshot_conflict_tampering_and_event_atomicity(profiles, monkeyp
 @pytest.mark.asyncio
 async def test_component_trust_relational_refs_and_memory_consent(profiles):
     service, definition, repository, run = profiles
+    from hydra_orch.core.discovery import DiscoveryService
+    root = service.workspaces.allowed_roots[0] / 'discovery'
+    root.mkdir()
+    manifest = root / 'SKILL.md'
+    manifest.write_text('Fixture skill')
+    service.discovery = DiscoveryService(service.store, allowed_roots=[root], enabled=True)
+    discovered = (await service.discovery.scan(root, principal_id="operator"))[0]
     async with service.store._connect() as db:
-        await db.execute("INSERT INTO discovered_resources(id,resource_type,source_canonical_path,content_hash) VALUES ('discovered','skill','/fixture',?)", ("a" * 64,))
-        await db.execute("INSERT INTO skill_definitions(id,name,version,manifest_ref,checksum,discovered_resource_id) VALUES ('skill','fixture','1','fixture.json',?,'discovered')", ("a" * 64,))
+        await db.execute("INSERT INTO skill_definitions(id,name,version,manifest_ref,checksum,discovered_resource_id) VALUES ('skill','fixture','1',?,?,?)", (str(manifest), discovered.content_hash, discovered.discovery_id))
     with_skill = ProfileDefinition.model_validate({**definition.model_dump(mode="json"), "skills_refs": ["skill"]})
     await service.update_profile(with_skill, expected_revision=1)
     with pytest.raises(ContractViolation, match="not approved"):
         await service.resolve_effective(definition.profile_id, repository["id"], principal_id="operator")
-    async with service.store._connect() as db:
-        await db.execute("UPDATE discovered_resources SET trust_status='approved'")
+    await service.discovery.approve(discovered.discovery_id, discovered.content_hash, principal_id="operator")
     assert (await service.resolve_effective(definition.profile_id, repository["id"], principal_id="operator"))["components"]["skills"]
     async with service.store._connect() as db:
         await db.execute("DELETE FROM profile_skills WHERE profile_id=?", (definition.profile_id,))

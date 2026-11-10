@@ -132,7 +132,7 @@ Todas as 28 tasks normativas detalhadas com seus contratos formais, dependência
 | **T15** | Métricas observabilidade | EP04 / V3 | P1 | 5 | T03, T10, T14 | RF19 / RT17 | `core/metrics.py`, `tests/test_metrics.py` | Fila, duração, tokens, custo com status observed/stale/unknown; zero não inventado | concluido |
 | **T16** | Seleção adaptativa rotas | EP04 / V3 | P1 | 8 | T12, T15 | RF20, RF11 / RT18 | `core/route_selector.py`, `bridge/omniroute_client.py`, `tests/test_route_selector.py` | RouteDecision auditável; modo direto sem gateway testado; quota unknown | concluido |
 | **T17** | Consentimento e memória | EP05 / V4 | P2 | 8 | T09, T10 | RF21 / RT19 | `core/consent.py`, `core/memory_store.py`, `tests/test_memory.py` | Escrita exige ConsentRecord; revogação funcional; isolamento de checkpoints | concluido |
-| **T18** | Discovery local controlado | EP05 / V4 | P2 | 5 | T09, T11 | RF22 / RT20 | `core/discovery.py`, `tests/test_discovery.py` | Varredura opt-in restrita a allowlist; hash SHA-256 + untrusted; sem auto-ativação | pendente |
+| **T18** | Discovery local controlado | EP05 / V4 | P2 | 5 | T09, T11 | RF22 / RT20 | `core/discovery.py`, `tests/test_discovery.py` | Varredura opt-in restrita a allowlist; hash SHA-256 + untrusted; sem auto-ativação | em_revisao |
 | **T19** | Skills, MCPs, secret refs | EP05 / V4 | P2 | 8 | T12, T17, T18 | RF17, RF22 / RT21 | `core/skill_registry.py`, `bridge/mcp_client.py`, `tests/test_secrets.py` | Segredos como referências externas; resolução no spawn com env filtrado | pendente |
 | **T20** | Isolamento extensões/plugins | EP05 / V4 | P2 | 13 | T18, T19 | RF24 / RT22 | `core/extension_host.py`, `tests/test_extension.py` | Manifesto versionado; processo isolado sem acesso ao DB core; revogação imediata | pendente |
 | **T21** | Preferências e acessibilidade | EP06 / V4 | P2 | 5 | T13 | RF23 / RT23 | `core/preferences.py`, `tests/test_preferences.py`, `doc/h_test/README.md` | Preferências escopadas e reversíveis; checklist a11y WCAG AA (teclado, foco, contraste) | pendente |
@@ -411,3 +411,11 @@ T25 integrada por fast-forward: `66eb365`. Próxima entrega do ciclo: **T17 — 
 - Contrato e limites em [S16](../b_spc/seguranca_proveniencia.md): heurísticas não garantem detectar toda PII em texto livre. Nenhuma certificação global de G-SEG; discovery e extensões permanecem T18–T20.
 
 T17 integrada por fast-forward: `3d60711`. Próxima entrega do ciclo: **T18 — discovery local e proveniência**.
+
+### Evidências T18 — discovery local e proveniência
+
+- Scan opt-in em raízes absolutas explícitas, limitado por entradas/profundidade/tamanho, com symlinks/runtime/dependências ignorados. Descoberta registra hash/capabilities como `untrusted`; não executa manifestos nem importa memórias/sessões.
+- Aprovação exige o hash revisado e capabilities conhecidas; ativação revalida o arquivo. Hash alterado, fonte ausente ou raiz removida invalidam aprovação; rescan preserva identidade e não revive recursos rejeitados/revogados. Dono/proveniência e decisões têm auditoria transacional.
+- Perfis exigem verificador de descoberta e persistem invalidações mesmo quando o snapshot é recusado; scheduler revalida componentes do perfil fixado antes de cada despacho. Contrato/limites em [S16](../b_spc/seguranca_proveniencia.md). CLI/HTTP estendidos seguem para T23.
+- **454 testes na suíte completa**, depois **8 testes de discovery aprovados** após endurecimento final contra resource_type malformado. Cobertura: **94% discovery.py**, **99% profile_service.py**, **100% model.py**; Linux/Python 3.14.9. Arquivos/Git/SQLite reais temporários e sem LLM externo; `git diff --check` aprovado.
+- POSIX usa descritores relativos/O_NOFOLLOW; fallback portátil verifica caminhos/identidades antes/depois. A entrega não certifica isolamento contra mutação hostil concorrente em todos os sistemas nem fecha o gate de extensões T20.

@@ -89,10 +89,11 @@ class ProfileSnapshot(ExecutionModel):
 
 
 class ProfileService:
-    def __init__(self, store: ExecutionStore, agents: AgentRegistry, workspaces: WorkspaceRegistry):
-        if agents.store is not store or workspaces.store is not store:
+    def __init__(self, store: ExecutionStore, agents: AgentRegistry, workspaces: WorkspaceRegistry, *, discovery=None):
+        if agents.store is not store or workspaces.store is not store or discovery is not None and discovery.store is not store:
             raise ValueError("Profile services must share the same canonical store")
         self.store, self.agents, self.workspaces = store, agents, workspaces
+        self.discovery = discovery
 
     async def _components(self, db, definition: ProfileDefinition):
         for reference in (definition.agent_ref, definition.executor_ref):
@@ -169,9 +170,24 @@ class ProfileService:
                 await self._links(db, updated)
         return updated
 
-    async def resolve_effective(self, profile_id: str, repository_id: str, *, principal_id: str):
+    async def verify_discovered_components(self, profile: ProfileDefinition, *, principal_id: str):
+        refs = []
+        async with self.store._connect() as db:
+            for table, ids in (("skill_definitions", profile.skills_refs), ("mcp_definitions", profile.mcp_refs)):
+                for ref in ids:
+                    row = await (await db.execute(f"SELECT discovered_resource_id FROM {table} WHERE id=?", (ref,))).fetchone()
+                    if row is not None and row[0]:
+                        refs.append(row[0])
+        for resource_id in refs:
+            if self.discovery is None:
+                raise ContractViolation("component_untrusted", "Discovered components require an explicit provenance verifier")
+            await self.discovery.require_approved(resource_id, principal_id=principal_id)
+
+    async def resolve_effective(self, profile_id: str, repository_id: str, *, principal_id: str, _verify_discovery=True):
         profile = await self.get_profile(profile_id)
         repository = await self.workspaces.resolve_repository(repository_id, principal_id=principal_id, scope="execute")
+        if _verify_discovery:
+            await self.verify_discovered_components(profile, principal_id=principal_id)
         agent = await self.agents.resolve_capabilities(profile.agent_ref)
         executor = await self.agents.resolve_capabilities(profile.executor_ref, required=profile.required_capabilities)
         components = {"skills": [], "mcps": []}
@@ -208,6 +224,12 @@ class ProfileService:
 
     async def snapshot(self, profile_id: str, run_id: str, repository_id: str, *, principal_id: str) -> ProfileSnapshot:
         await self.store.initialize()
+        # Persist invalidations before entering the snapshot's writer transaction.
+        async with self.store._connect() as db:
+            pinned = await (await db.execute("SELECT * FROM profile_snapshots WHERE run_id=?", (run_id,))).fetchone()
+        preflight_profile = (ProfileDefinition.model_validate(self._snapshot(pinned).effective_config["profile"])
+            if pinned is not None else await self.get_profile(profile_id))
+        await self.verify_discovered_components(preflight_profile, principal_id=principal_id)
         async with self.store._connect() as db:
             async with self.store._transaction(db):
                 run = await (await db.execute("SELECT * FROM runs WHERE id=?", (run_id,))).fetchone()
@@ -227,7 +249,9 @@ class ProfileService:
                 dispatching = await (await db.execute("SELECT 1 FROM tasks WHERE run_id=? AND status='running' LIMIT 1", (run_id,))).fetchone()
                 if run["status"] not in {"queued", "running", "waiting"} or has_attempt or dispatching:
                     raise ContractViolation("profile_snapshot_late", "Profile must be pinned before starting any attempt")
-                effective = await self.resolve_effective(profile_id, repository_id, principal_id=principal_id)
+                effective = await self.resolve_effective(profile_id, repository_id, principal_id=principal_id, _verify_discovery=False)
+                if effective["profile"]["revision"] != preflight_profile.revision:
+                    raise OptimisticLockError("Profile changed during provenance preflight")
                 data = canonical_json(effective)
                 snapshot_id, created_at = new_id(), datetime.now(timezone.utc).isoformat()
                 digest = hashlib.sha256(data.encode()).hexdigest()

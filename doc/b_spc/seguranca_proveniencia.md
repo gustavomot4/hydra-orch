@@ -107,3 +107,47 @@ Auditoria em `commands(scope=consent_memory)` contém ação, ator, ID, versões
 hash do conteúdo sanitizado. Não replica o texto da memória em logs de auditoria.
 Consultas não devolvem conteúdos expirados/revogados nem autorizam coleta de
 checkpoints, mesmo quando o consentimento do escopo está ativo.
+
+## Contrato T18 — discovery local (antes da implementação)
+
+Discovery é opt-in e usa raízes absolutas explícitas do operador, sem procurar
+automaticamente no HOME. O scan é limitado em entradas/profundidade/tamanho,
+ignora symlinks e diretórios de runtime/dependências e reconhece `SKILL.md`,
+`skill.json`, `mcp.json`, `memory.json`, `session.json` e `hydra-resource.json`.
+Manifestações JSON/YAML são dados: nada é importado, executado ou ativado.
+
+O SQLite recebe proveniência, hash SHA-256 e capabilities declaradas, sempre
+`untrusted` no primeiro encontro. Aprovação explícita exige o hash visto pelo
+operador e capabilities conhecidas. Ativação exige aprovação e nova verificação
+do arquivo; hash alterado, origem ausente ou raiz revogada bloqueiam o uso e
+invalidam aprovação. Estado e auditoria são transacionais; dono/origem são
+registrados em comandos imutáveis e impedem acesso por outro principal.
+
+Perfis com recursos descobertos exigem o verificador de discovery compartilhado.
+Snapshot faz preflight antes de sua transação, e o scheduler revalida os recursos
+do perfil fixado a cada despacho. Não há importação automática de memórias ou
+sessões descobertas; autorização de uso/segredos e protocolos ficam na T19.
+
+No POSIX, leitura usa descritores relativos, O_NOFOLLOW e identidade da raiz;
+no fallback portátil, caminhos/identidades são conferidos antes/depois da leitura.
+Isso não certifica uma sandbox contra mutação hostil concorrente em todos os SOs.
+A suíte prova arquivos/symlinks reais temporários, alteração de hash, revogação,
+aprovação exata, limites e recusa de componentes alterados antes do uso.
+
+### Superfície T18 entregue
+
+`DiscoveryService(store, allowed_roots=[...], enabled=True)` configura raízes de um
+operador local. `scan(root, principal_id=...)` retorna metadados `untrusted`;
+`approve(id, expected_hash, principal_id=...)` confirma exatamente o hash
+revisado. `decide(id, 'active'|'rejected'|'revoked', ...)`, `get`, `list` e
+`require_approved` revalidam o arquivo antes de responder/usar. Recurso revogado
+ou rejeitado não é reativado por novo scan nem por mudança de conteúdo.
+
+`ProfileService(..., discovery=service)` exige o mesmo store e recusa recurso
+descoberto sem verificador explícito. Pré-validação do snapshot preserva a
+invalidação no SQLite mesmo quando a criação do snapshot é recusada. A admissão
+da orquestração também verifica os componentes do perfil fixado. A tabela 0002
+permanece intacta; `commands(scope=discovery_owner)` fixa o dono/proveniência e
+`commands(scope=discovery)` audita descoberta, decisões e invalidações sem copiar
+conteúdo dos arquivos. Novas superfícies CLI/HTTP pertencem à integração T23;
+esta entrega disponibiliza o serviço Python e o gate de uso em perfis.
