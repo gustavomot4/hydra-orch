@@ -119,3 +119,5 @@ Cada requisito deve ter:
 - [S16 — Segurança local e proveniência (T09)](seguranca_proveniencia.md)
 
 - [S14 — Base relacional, workspaces e perfis (T10)](workspaces_perfis.md)
+
+- [S15 — Sessões, observabilidade e modos (T14)](sessoes_observabilidade.md)

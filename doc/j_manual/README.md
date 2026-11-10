@@ -142,6 +142,20 @@ Um novo store inicializado pelo checkout atual reaplica 0002; use código
 compatível para operar na versão antiga. Contrato e limites em
 [S14](../b_spc/workspaces_perfis.md).
 
+
+### Sessões e acompanhamento de eventos (T14)
+
+A API autenticada expõe sessões e threads sob `/v1/control-plane/runs/{run_id}/sessions`.
+Transições exigem expected_state; mensagens exigem expected_last_seq e
+Idempotency-Key. IDs de outra run/sessão são recusados. Esses estados representam
+conversas; cancelamento de processos continua pelos comandos de RunService.
+
+`GET /v1/control-plane/runs/{run_id}/events` aceita session_id/thread_id, limite de
+até 1000 eventos e Last-Event-ID. O padrão é replay finito; `follow=true` acompanha
+novos eventos com heartbeat de 15 s e encerra na desconexão. O consumidor deve
+salvar o cursor e deduplicar; existe o helper Python EventCursor. Contrato em
+[S15](../b_spc/sessoes_observabilidade.md).
+
 ---
 
 Este diretório concentra os manuais operacionais do **hydra-orch** para usuários, operadores e administradores.

@@ -535,7 +535,19 @@ class ExecutionStore:
         correlation_id: Optional[str] = None,
         task_id: Optional[str] = None,
         attempt_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
     ) -> RunEvent:
+        if thread_id and not session_id:
+            raise StorageIntegrityError("Thread events require a session")
+        if session_id:
+            session = await (await db.execute("SELECT run_id FROM sessions WHERE id=?", (session_id,))).fetchone()
+            if session is None or session["run_id"] != run_id:
+                raise StorageIntegrityError("Event session must belong to its run")
+        if thread_id:
+            thread = await (await db.execute("SELECT session_id FROM threads WHERE id=?", (thread_id,))).fetchone()
+            if thread is None or thread["session_id"] != session_id:
+                raise StorageIntegrityError("Event thread must belong to its session")
         seq_cur = await db.execute(
             "SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM events WHERE run_id = ?",
             (run_id,),
@@ -551,6 +563,8 @@ class ExecutionStore:
             correlation_id=corr_id,
             task_id=task_id,
             attempt_id=attempt_id,
+            session_id=session_id,
+            thread_id=thread_id,
             event_type=event_type,  # type: ignore[arg-type]
             redacted_payload=safe_payload,
         )
@@ -558,6 +572,13 @@ class ExecutionStore:
         payload_json = json.dumps(event.redacted_payload, sort_keys=True)
         created_at = event.timestamp.isoformat()
 
+        # Keep the M1-only migration fixtures readable without expansion columns.
+        if session_id:
+            await db.execute("""INSERT INTO events
+                (id,run_id,seq,correlation_id,task_id,attempt_id,type,payload_json,created_at,session_id,thread_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (event_id, event.run_id, event.seq, event.correlation_id,
+                event.task_id, event.attempt_id, event.event_type, payload_json, created_at, session_id, thread_id))
+            return event
         await db.execute(
             """
             INSERT INTO events (id, run_id, seq, correlation_id, task_id, attempt_id, type, payload_json, created_at)
@@ -837,6 +858,8 @@ class ExecutionStore:
         correlation_id: Optional[str] = None,
         task_id: Optional[str] = None,
         attempt_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
     ) -> RunEvent:
         """Allocate next monotonic sequence number for run_id and persist RunEvent in a transaction."""
         await self.initialize()
@@ -850,6 +873,8 @@ class ExecutionStore:
                     correlation_id=correlation_id,
                     task_id=task_id,
                     attempt_id=attempt_id,
+                    session_id=session_id,
+                    thread_id=thread_id,
                 )
 
     async def update_run_status_atomic(
@@ -1825,15 +1850,23 @@ class ExecutionStore:
         run_id: str,
         after_seq: Optional[int] = None,
         limit: Optional[int] = None,
+        *,
+        session_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
     ) -> List[RunEvent]:
         """Replay RunEvents in strict monotonic sequence order (for SSE Last-Event-ID or audit)."""
         await self.initialize()
         min_seq = after_seq if after_seq is not None else 0
         query = (
-            "SELECT seq, run_id, correlation_id, task_id, attempt_id, type, payload_json, created_at "
-            "FROM events WHERE run_id = ? AND seq > ? ORDER BY seq ASC"
+            "SELECT * "
+            "FROM events WHERE run_id = ? AND seq > ?"
         )
         params: List[Any] = [run_id, min_seq]
+        for column, value in (("session_id", session_id), ("thread_id", thread_id)):
+            if value is not None:
+                query += f" AND {column} = ?"
+                params.append(value)
+        query += " ORDER BY seq ASC"
         if limit is not None:
             query += " LIMIT ?"
             params.append(int(limit))
@@ -1857,6 +1890,8 @@ class ExecutionStore:
                         correlation_id=r["correlation_id"] or f"corr-{r['run_id']}-{r['seq']}",
                         task_id=r["task_id"],
                         attempt_id=r["attempt_id"],
+                        session_id=r["session_id"] if "session_id" in r.keys() else None,
+                        thread_id=r["thread_id"] if "thread_id" in r.keys() else None,
                         timestamp=ts,
                         event_type=r["type"],
                         redacted_payload=redact(json.loads(r["payload_json"])),

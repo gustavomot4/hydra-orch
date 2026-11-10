@@ -496,6 +496,8 @@ class RunEvent(ExecutionModel):
     correlation_id: Identifier
     task_id: Optional[Identifier] = None
     attempt_id: Optional[Identifier] = None
+    session_id: Optional[Identifier] = None
+    thread_id: Optional[Identifier] = None
     timestamp: UtcTimestamp = Field(default_factory=lambda: datetime.now(timezone.utc))
     event_type: Literal[
         "run.created", "run.started", "run.waiting", "run.resumed", "run.finished", "run.cancelled",
@@ -504,6 +506,7 @@ class RunEvent(ExecutionModel):
         "attempt.started", "attempt.provider_selected", "attempt.rate_limited", "attempt.handoff_created", "attempt.finished",
         "artifact.created", "check.started", "check.finished", "merge.started", "merge.completed", "merge.conflicted",
         "heartbeat", "budget.alerted", "budget.frozen", "profile.snapshot_created",
+        "session.created", "session.state_changed", "thread.created", "thread.state_changed", "thread.message",
     ]
     redacted_payload: dict[str, JsonValue] = Field(default_factory=dict)
 

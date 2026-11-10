@@ -31,6 +31,7 @@ from hydra_orch.core.checkpointer import (
 from hydra_orch.core.git_workspace import GitWorkspaceError
 from hydra_orch.core.router import HydraRouter
 from hydra_orch.core.run_service import RunService
+from hydra_orch.core.session_service import SessionService, SessionState
 from hydra_orch.core.ssh_tunnel import SshTunnelManager
 from hydra_orch.model import (
     BudgetPolicy,
@@ -675,12 +676,85 @@ async def list_run_artifacts_endpoint(
     ]
 
 
+class SessionCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    origin_ref: Optional[str] = Field(default=None, max_length=256)
+    agent_ref: Optional[str] = Field(default=None, max_length=128)
+
+
+class ThreadCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    parent_thread_id: Optional[str] = Field(default=None, max_length=128)
+    agent_ref: Optional[str] = Field(default=None, max_length=128)
+
+
+class SessionTransitionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: SessionState
+    expected_state: SessionState
+
+
+class ThreadMessagePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    content: str = Field(min_length=1, max_length=100_000)
+    expected_last_seq: int = Field(ge=0, strict=True)
+
+
+@app.post("/v1/control-plane/runs/{run_id}/sessions", status_code=201)
+async def create_session_endpoint(run_id: str, payload: SessionCreatePayload):
+    return await SessionService(get_run_service().store).create_session(run_id, **payload.model_dump())
+
+
+@app.get("/v1/control-plane/runs/{run_id}/sessions")
+async def list_sessions_endpoint(run_id: str):
+    return await SessionService(get_run_service().store).list_sessions(run_id)
+
+
+@app.get("/v1/control-plane/runs/{run_id}/sessions/{session_id}")
+async def get_session_endpoint(run_id: str, session_id: str):
+    return await SessionService(get_run_service().store).get_session(run_id, session_id)
+
+
+@app.post("/v1/control-plane/runs/{run_id}/sessions/{session_id}/state")
+async def transition_session_endpoint(run_id: str, session_id: str, payload: SessionTransitionPayload):
+    return await SessionService(get_run_service().store).transition_session(run_id, session_id,
+        payload.state, expected_state=payload.expected_state)
+
+
+@app.post("/v1/control-plane/runs/{run_id}/sessions/{session_id}/threads", status_code=201)
+async def create_thread_endpoint(run_id: str, session_id: str, payload: ThreadCreatePayload):
+    return await SessionService(get_run_service().store).create_thread(run_id, session_id, **payload.model_dump())
+
+
+@app.get("/v1/control-plane/runs/{run_id}/sessions/{session_id}/threads")
+async def list_threads_endpoint(run_id: str, session_id: str):
+    return await SessionService(get_run_service().store).list_threads(run_id, session_id)
+
+
+@app.post("/v1/control-plane/runs/{run_id}/sessions/{session_id}/threads/{thread_id}/state")
+async def transition_thread_endpoint(run_id: str, session_id: str, thread_id: str, payload: SessionTransitionPayload):
+    return await SessionService(get_run_service().store).transition_thread(run_id, session_id, thread_id,
+        payload.state, expected_state=payload.expected_state)
+
+
+@app.post("/v1/control-plane/runs/{run_id}/sessions/{session_id}/threads/{thread_id}/messages")
+async def append_thread_message_endpoint(run_id: str, session_id: str, thread_id: str, payload: ThreadMessagePayload,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=16, max_length=64)):
+    return await SessionService(get_run_service().store).append_message(run_id, session_id, thread_id,
+        payload.content, idempotency_key=idempotency_key, expected_last_seq=payload.expected_last_seq)
+
+
 @app.get("/v1/control-plane/runs/{run_id}/events")
 @app.get("/runs/{run_id}/events")
 async def stream_run_events_endpoint(
+    request: Request,
     run_id: str,
     last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
     after_seq: Optional[int] = Query(default=None, ge=0),
+    session_id: Optional[str] = Query(default=None),
+    thread_id: Optional[str] = Query(default=None),
+    follow: bool = Query(default=False),
+    limit: int = Query(default=1000, ge=1, le=1000),
 ) -> Any:
     svc = get_run_service()
     run_rec = await svc.store.get_run(run_id)
@@ -716,33 +790,32 @@ async def stream_run_events_endpoint(
             run_id=run_id,
         )
 
-    events = await svc.store.get_events(run_id, after_seq=cursor_seq)
+    sessions = SessionService(svc.store)
+    events = await sessions.replay(run_id, after_seq=cursor_seq, session_id=session_id, thread_id=thread_id, limit=limit)
 
     async def sse_generator() -> AsyncIterator[str]:
-        for ev in events:
-            payload_obj = {
-                "run_id": ev.run_id,
-                "seq": ev.seq,
-                "type": ev.event_type,
-                "correlation_id": ev.correlation_id,
-                "task_id": ev.task_id,
-                "attempt_id": ev.attempt_id,
-                "payload": redact(ev.redacted_payload),
-                "timestamp": ev.timestamp.isoformat(),
-            }
-            yield (
-                f"id: {ev.seq}\n"
-                f"event: {ev.event_type}\n"
-                f"retry: 15000\n"
-                f"data: {json.dumps(payload_obj, sort_keys=True)}\n\n"
-            )
-        heartbeat_obj = {
-            "run_id": run_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        yield f"event: heartbeat\ndata: {json.dumps(heartbeat_obj)}\n\n"
+        cursor, batch = cursor_seq, events
+        heartbeat_at = asyncio.get_running_loop().time() + 15
+        while True:
+            for ev in batch:
+                cursor = ev.seq
+                payload_obj = {"run_id": ev.run_id, "seq": ev.seq, "type": ev.event_type,
+                    "correlation_id": ev.correlation_id, "task_id": ev.task_id, "attempt_id": ev.attempt_id,
+                    "session_id": ev.session_id, "thread_id": ev.thread_id,
+                    "payload": redact(ev.redacted_payload), "timestamp": ev.timestamp.isoformat()}
+                yield f"id: {ev.seq}\nevent: {ev.event_type}\nretry: 15000\ndata: {json.dumps(payload_obj, sort_keys=True)}\n\n"
+            now = asyncio.get_running_loop().time()
+            if not follow or now >= heartbeat_at:
+                heartbeat_obj = {"run_id": run_id, "timestamp": datetime.now(timezone.utc).isoformat()}
+                yield f"event: heartbeat\ndata: {json.dumps(heartbeat_obj)}\n\n"
+                heartbeat_at = now + 15
+            if not follow or await request.is_disconnected():
+                break
+            # Poll SQLite rather than relying on an in-memory queue lost on restart.
+            await asyncio.sleep(0.25)
+            batch = await sessions.replay(run_id, after_seq=cursor, session_id=session_id, thread_id=thread_id, limit=limit)
 
-    return StreamingResponse(sse_generator(), media_type="text/event-stream")
+    return StreamingResponse(sse_generator(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
 @app.post("/v1/control-plane/runs/{run_id}/cancel")
@@ -1002,7 +1075,16 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         "git_command_failed",
         "scope_violation",
     }
-    if exc.code in conflict_codes:
+    conflict_codes |= {"session_state_conflict", "thread_state_conflict"}
+    if exc.code in {"authorization_denied", "session_scope_mismatch", "thread_scope_mismatch"}:
+        status_code = 403
+    elif exc.code == "resource_not_found":
+        status_code = 404
+    elif exc.code == "cursor_expired":
+        status_code = 410
+    elif exc.code == "invalid_cursor":
+        status_code = 400
+    elif exc.code in conflict_codes:
         status_code = 409
     elif exc.code in bad_request_codes:
         status_code = 400

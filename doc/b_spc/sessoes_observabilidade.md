@@ -1,0 +1,64 @@
+# S15 — Sessões, observabilidade e modos de orquestração
+
+## T14 — Sessões, threads e replay
+
+`SessionService` persiste sessões por run e árvores de threads por sessão.
+Os IDs são UUIDv7; pais devem pertencer à mesma sessão. Não há operação para
+reatribuir um pai, de modo que a criação não introduz ciclos. As mutações de
+estado e seus eventos são atômicos no ExecutionStore canônico.
+
+Estados: created → running/cancelled; running e waiting podem alternar entre si
+e terminar em completed/failed/cancelled. Estados terminais não reabrem. O comando
+de transição exige expected_state, e mensagens exigem expected_last_seq. Concluir
+uma sessão/thread com descendentes ativos é recusado; cancelamento/falha fecha
+descendentes ativos atomicamente. Filhos criados que nunca iniciaram passam a
+cancelled na falha do pai. Esses estados descrevem a conversa; encerramento
+de processos de worker continua sendo responsabilidade de RunService.
+
+`append_message` exige chave de idempotência de 16–64 caracteres e conteúdo
+limitado a 100.000 caracteres. Mensagem, evento, cursor da thread e resposta do
+comando são uma transação. Repetição com o mesmo payload retorna o mesmo seq;
+payload diferente com a mesma chave retorna conflito. O conteúdo é sanitizado
+antes do evento entrar no banco; isso não inicia inferência nem ferramentas.
+
+Eventos incluem session_id/thread_id opcionais, validados contra a run e sessão.
+M1 e fixtures com somente migração 0001 continuam compatíveis. IDs de outra
+run/sessão são recusados; a superfície HTTP permanece no modo local de um
+operador autenticado por Bearer, sem alegação de multi-tenancy por usuário.
+
+### Superfície HTTP implementada
+
+Prefixo: `/v1/control-plane/runs/{run_id}`.
+
+| Método | Caminho | Operação |
+|---|---|---|
+| POST/GET | `/sessions` | Criar/listar sessões |
+| GET | `/sessions/{session_id}` | Inspecionar sessão |
+| POST | `/sessions/{session_id}/state` | Transição com state/expected_state |
+| POST/GET | `/sessions/{session_id}/threads` | Criar/listar árvore de threads |
+| POST | `/sessions/{session_id}/threads/{thread_id}/state` | Transição de thread |
+| POST | `/sessions/{session_id}/threads/{thread_id}/messages` | Mensagem com Idempotency-Key e expected_last_seq |
+| GET | `/events` | Replay por Last-Event-ID ou after_seq, filtros session_id/thread_id |
+
+Falta de token retorna 401; escopo cruzado 403; ID inexistente 404; conflito de
+estado/idempotência 409; prefixo de cursor não mais retido 410; validação 422.
+
+### SSE e consumidor de referência
+
+O seq é global por run; filtros de sessão/thread podem apresentar saltos legítimos.
+Replay tem páginas de até 1.000 eventos e lê estado persistido, sem depender de
+fila em memória. O modo padrão mantém o replay finito do M1, encerrando com
+heartbeat. `follow=true` acompanha novas linhas do SQLite a cada 250 ms,
+com heartbeat a cada 15 s e encerramento na desconexão do cliente.
+
+Não há purga automática nesta entrega. Quando o prefixo confirmado do run tiver
+sido removido por retenção externa, after_seq anterior ao prefixo é recusado.
+O mapa de expiração M1 permanece compatível, mas a checagem de prefixo mínimo
+também funciona após restart. Não remova o último evento/cursor de um run ativo.
+
+`EventCursor` é um consumidor Python de referência para eventos entregues em
+ordem: accept(event) serializa a atualização do cursor e recusa seq repetido ou
+regressivo. O cliente deve persistir last_seq entre processos e reenviá-lo em
+Last-Event-ID. Isso não implementa a futura UI nem promete exactly-once de efeitos
+externos. Tests cobrem dedup concorrente, restart, mensagens idempotentes, escopo,
+rollback, replay filtrado, SSE contínuo e desconexão sem serviço de rede externo.

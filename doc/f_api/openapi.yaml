@@ -7,7 +7,7 @@ info:
 
     **Autenticação:** Token local via header `Authorization: Bearer <token>`
 
-    **CORS:** Allowlist estrita configurada em `server.cors_allow_origins`. Wildcard `["*"]` com credenciais é rejeitado.
+    **CORS:** Allowlist estrita configurada em `HYDRA_CORS_ALLOW_ORIGINS`. Wildcard `["*"]` com credenciais é rejeitado.
 
     **Idempotência:** Operações de criação (`POST /runs`, `POST /projects`, etc.) aceitam header `Idempotency-Key` + hash do payload (SHA-256). Mesma chave + mesmo payload = mesmo resultado. Chave reutilizada com payload diferente = 409 Conflict.
 
@@ -22,9 +22,9 @@ info:
     ```
     Códigos: 400 (validação), 401 (auth), 403 (escopo), 404 (recurso), 409 (conflito/idempotência), 410 (cursor expirado), 422 (schema/compatibilidade), 503 (dependência indisponível).
 
-    **SSE:** `GET /runs/{id}/events` e `GET /sessions/{id}/events` entregam Server-Sent Events com:
+    **SSE:** `GET /runs/{id}/events` aceita filtros `session_id`/`thread_id` e `follow=true` para acompanhamento contínuo:
     - `event:` tipo do evento
-    - `id:` sequência monotônica por run/sessão
+    - `id:` sequência monotônica por run, inclusive nos filtros de sessão/thread
     - `retry:` 15000 (heartbeat 15s)
     - `data:` JSON payload redigido
     - Replay via header `Last-Event-ID`. Cursor expirado → 410 Gone.
@@ -98,6 +98,116 @@ components:
       bearerFormat: opaque local token (PBKDF2-SHA256 verifier)
 
   schemas:
+    SessionCreatePayload:
+      properties:
+        origin_ref:
+          title: Origin Ref
+          nullable: true
+          type: string
+          maxLength: 256
+        agent_ref:
+          title: Agent Ref
+          nullable: true
+          type: string
+          maxLength: 128
+      additionalProperties: false
+      type: object
+      title: SessionCreatePayload
+    ThreadCreatePayload:
+      properties:
+        parent_thread_id:
+          title: Parent Thread Id
+          nullable: true
+          type: string
+          maxLength: 128
+        agent_ref:
+          title: Agent Ref
+          nullable: true
+          type: string
+          maxLength: 128
+      additionalProperties: false
+      type: object
+      title: ThreadCreatePayload
+    SessionTransitionPayload:
+      properties:
+        state:
+          type: string
+          enum:
+          - created
+          - running
+          - waiting
+          - completed
+          - failed
+          - cancelled
+          title: State
+        expected_state:
+          type: string
+          enum:
+          - created
+          - running
+          - waiting
+          - completed
+          - failed
+          - cancelled
+          title: Expected State
+      additionalProperties: false
+      type: object
+      required:
+      - state
+      - expected_state
+      title: SessionTransitionPayload
+    ThreadMessagePayload:
+      properties:
+        content:
+          type: string
+          maxLength: 100000
+          minLength: 1
+          title: Content
+        expected_last_seq:
+          type: integer
+          minimum: 0.0
+          title: Expected Last Seq
+      additionalProperties: false
+      type: object
+      required:
+      - content
+      - expected_last_seq
+      title: ThreadMessagePayload
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
     # ============ COMUNS ============
     ErrorResponse:
       type: object
@@ -657,6 +767,12 @@ components:
       type: object
       required: [run_id, seq, type, payload, timestamp]
       properties:
+        session_id:
+          type: string
+          nullable: true
+        thread_id:
+          type: string
+          nullable: true
         run_id:
           type: string
           format: uuid
@@ -670,7 +786,7 @@ components:
             attempt.provider_selected, attempt.rate_limited, attempt.handoff_created,
             artifact.created, check.finished, merge.completed, merge.conflicted,
             budget.alerted, budget.frozen, budget.exhausted,
-            heartbeat, profile.snapshot_created
+            heartbeat, profile.snapshot_created, session.created, session.state_changed, thread.created, thread.state_changed, thread.message
           ]
         task_id:
           type: string
@@ -1939,6 +2055,18 @@ paths:
           schema:
             type: string
             description: Cursor para replay (sequência monotônica)
+        - name: session_id
+          in: query
+          schema: {type: string}
+        - name: thread_id
+          in: query
+          schema: {type: string}
+        - name: follow
+          in: query
+          schema: {type: boolean, default: false}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 1000, default: 1000}
       responses:
         '200':
           description: Stream SSE
@@ -3050,3 +3178,272 @@ paths:
           description: Run não encontrada ou pacote não gerado
         '409':
           description: Política de publicação não autorizada
+
+  /runs/{run_id}/sessions:
+    post:
+      summary: Create Session Endpoint
+      operationId: create_session_endpoint_v1_control_plane_runs__run_id__sessions_post
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreatePayload'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      summary: List Sessions Endpoint
+      operationId: list_sessions_endpoint_v1_control_plane_runs__run_id__sessions_get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /runs/{run_id}/sessions/{session_id}:
+    get:
+      summary: Get Session Endpoint
+      operationId: get_session_endpoint_v1_control_plane_runs__run_id__sessions__session_id__get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /runs/{run_id}/sessions/{session_id}/state:
+    post:
+      summary: Transition Session Endpoint
+      operationId: transition_session_endpoint_v1_control_plane_runs__run_id__sessions__session_id__state_post
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionTransitionPayload'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /runs/{run_id}/sessions/{session_id}/threads:
+    post:
+      summary: Create Thread Endpoint
+      operationId: create_thread_endpoint_v1_control_plane_runs__run_id__sessions__session_id__threads_post
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadCreatePayload'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      summary: List Threads Endpoint
+      operationId: list_threads_endpoint_v1_control_plane_runs__run_id__sessions__session_id__threads_get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /runs/{run_id}/sessions/{session_id}/threads/{thread_id}/state:
+    post:
+      summary: Transition Thread Endpoint
+      operationId: transition_thread_endpoint_v1_control_plane_runs__run_id__sessions__session_id__threads__thread_id__state_post
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: thread_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Thread Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionTransitionPayload'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /runs/{run_id}/sessions/{session_id}/threads/{thread_id}/messages:
+    post:
+      summary: Append Thread Message Endpoint
+      operationId: append_thread_message_endpoint_v1_control_plane_runs__run_id__sessions__session_id__threads__thread_id__messages_post
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: thread_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Thread Id
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 64
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadMessagePayload'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
