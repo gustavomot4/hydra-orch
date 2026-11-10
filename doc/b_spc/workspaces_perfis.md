@@ -99,3 +99,25 @@ no schema, preservação de streaming, backup WAL, restart, inicialização conc
 up/down/up, recusa de perda de dados, scripts alterados/ausentes, falhas de SQL e
 de FK com rollback atômico, defaults sem confiança implícita e isolamento das
 relações. A suíte não usa modelos externos nem serviços de rede.
+
+## Entrega T11 — WorkspaceRegistry
+
+O serviço `core/workspace_registry.py` persiste áreas, workspaces, projetos,
+repositórios e concessões, com IDs UUIDv7 compatíveis com Python 3.10+. Cada chamada
+recebe o principal autenticado do adaptador; o registry não autentica identidade
+por conta própria. `allowed_roots` é obrigatório, sem descoberta ou concessão
+implícita. A propriedade de área permite administrar a hierarquia; o uso de
+qualquer repositório, inclusive secundário, exige autorização própria e vigente
+para read/write/execute/integrate.
+
+Traversal é recusado antes de Git; realpath é conferido contra a allowlist.
+`resolve_path` também valida globs e symlinks contra a raiz registrada. Branch e
+SHA são resolvidos por Git sem fallback silencioso. Permissões são relidas depois
+da inspeção de Git para respeitar revogações concorrentes. Essas verificações
+não constituem sandbox contra mutações externas posteriores; o executor deve
+revalidar no uso. Arquivar um workspace bloqueia novas resoluções.
+
+Adoção de projeto legado exige comando explícito e revision vigente, sem criar
+permissão de repositório. Mutações e auditoria em `commands(scope=registry)` são
+atômicas. As superfícies CLI/API estendidas pertencem a T23; a API M1 não passa a
+usar o registry automaticamente. Testes usam Git e SQLite em diretórios temporários.
