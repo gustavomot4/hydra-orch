@@ -125,7 +125,7 @@ Todas as 28 tasks normativas detalhadas com seus contratos formais, dependência
 | **T08** | CI e manual M1 | EP01 / V0 | P0 | 5 | T07 | RF15 / RT12 | `.github/workflows/ci.yml`, `doc/j_manual/README.md`, `pyproject.toml` | Suíte offline hermética no CI (Linux, Windows, macOS); manual operacional de M1 | concluido |
 | **T09** | Auth e CORS estrito | EP02 / V1 | P1 | 5 | T07 | RF15, RF24 / RT25 | `server.py`, `core/auth.py`, `core/redaction.py`, `tests/test_auth.py` | Token local obrigatório; CORS allowlist estrita; redaction de segredos validada | concluido |
 | **T10** | Migrações control plane | EP03 / V2 | P1 | 8 | T03, T09 | RF16–RF30 / RT03, RT25 | `core/checkpointer.py`, `migration/`, `tests/test_migration.py` | Tabelas de expansão versionadas em `migration/`; rollback auditável; FKs ativas | concluido |
-| **T11** | Registry áreas/repos | EP03 / V2 | P1 | 5 | T10 | RF16 / RT13 | `core/workspace_registry.py`, `tests/test_workspace_registry.py` | Hierarquia Area/Workspace/Project/Repo persistida; path traversal bloqueado | em_revisao |
+| **T11** | Registry áreas/repos | EP03 / V2 | P1 | 5 | T10 | RF16 / RT13 | `core/workspace_registry.py`, `tests/test_workspace_registry.py` | Hierarquia Area/Workspace/Project/Repo persistida; path traversal bloqueado | concluido |
 | **T12** | Catálogo agentes/capabilities | EP03 / V2 | P1 | 5 | T02, T04, T10 | RF17, RF14 / RT14 | `core/agent_registry.py`, `config.yaml`, `tests/test_agent_registry.py` | Capabilities declaradas; driver não certificado bloqueado; CLI ausente gera erro claro | pronto |
 | **T13** | Perfis e snapshots | EP03 / V2 | P1 | 5 | T11, T12 | RF17, RF23 / RT15 | `core/profile_service.py`, `tests/test_profile.py` | Validação pré-execução; ProfileSnapshot imutável com hash SHA-256 por run | pendente |
 | **T14** | Sessões, threads, SSE replay | EP04 / V3 | P1 | 8 | T03, T07, T10 | RF18, RF05 / RT16 | `core/session_service.py`, `server.py`, `tests/test_sse_replay.py` | Árvore hierárquica sessões/threads; SSE com Last-Event-ID, replay e dedup | pronto |
@@ -337,3 +337,5 @@ Documentos formais de especificação que devem ser revisados e validados antes 
 - Mutações e auditoria `commands(scope=registry)` são atômicas. IDs UUIDv7 têm fallback compatível com Python 3.10. As superfícies estendidas pertencem à T23; a API M1 não foi migrada silenciosamente.
 - **343 testes aprovados** no Linux/Python 3.14.9; **99% de cobertura no registry**, 100% no helper de IDs. Git/SQLite em diretórios temporários; sem provedores externos. `git diff --check` aprovado.
 - Contrato e limites: [S14](../b_spc/workspaces_perfis.md). Próxima entrega: **T12 — catálogo de agentes e capabilities**.
+
+T11 integrada por fast-forward: `0f2624b`. Próxima tarefa pronta: T12.
