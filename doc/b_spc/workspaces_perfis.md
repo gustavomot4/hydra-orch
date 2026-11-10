@@ -121,3 +121,32 @@ Adoção de projeto legado exige comando explícito e revision vigente, sem cria
 permissão de repositório. Mutações e auditoria em `commands(scope=registry)` são
 atômicas. As superfícies CLI/API estendidas pertencem a T23; a API M1 não passa a
 usar o registry automaticamente. Testes usam Git e SQLite em diretórios temporários.
+
+## Entrega T12 — AgentRegistry
+
+`AgentDefinition` é um contrato congelado com driver, versão, capabilities e
+limitações. `AgentRegistry.register_agent` grava definições e declarações
+atomicamente, sempre sem certificação. As capabilities suportadas pelo runner
+são um teto técnico; não comprovam suporte efetivo de um provedor externo.
+O alias de configuração `claude-code` usa a invocação real de `claude_code`.
+
+`resolve_capabilities` exige capabilities compatíveis, CLI disponível e certificado
+para o SO atual. Nenhum subprocesso é iniciado pelo catálogo. A certificação
+é importada explicitamente por um operador de um relatório localizado sob
+`certification_root`; não é inferida da instalação da CLI ou da existência do
+arquivo. O relatório deve declarar driver, versão, SO, capabilities, checks
+(cwd/scope/timeout/cancel_process_tree/artifact_hash), ausência de simulação,
+data e hash do executável. O catálogo valida estrutura, associação e hashes;
+a veracidade dos checks é responsabilidade do job emissor e da aprovação do
+operador. Não há certificação real de Codex/Claude entregue pelos testes sintéticos.
+
+Cada certificado atual usa um registro auxiliar em `capability_declarations`
+com name=certification, version=SO e certified_on=data; o documento e seus hashes
+ficam na auditoria imutável `commands(scope=agent_certificate)`, vinculada pelo ID
+da declaração. A importação substitui apenas o certificado atual do mesmo SO;
+revogação remove a referência ativa e preserva a auditoria. `is_certified` é
+um indicador de apresentação; a seleção sempre relê o certificado específico.
+Relatório ou executável alterado/inacessível invalida a seleção. Não é permitido
+usar certificação de outro SO para execução local. Dependências transitivas do
+executável e a integridade do host permanecem responsabilidade da certificação
+externa e dos transportes T22.

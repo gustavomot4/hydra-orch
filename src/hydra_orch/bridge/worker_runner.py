@@ -247,6 +247,7 @@ def build_invocation(
 ) -> InvocationPlan:
     """Construct a deterministic shell-free argv + stdin plan for a CLI agent driver."""
     norm_driver = (driver or "").strip().lower()
+    norm_driver = {"claude-code": "claude_code"}.get(norm_driver, norm_driver)
     if not norm_driver or "\x00" in norm_driver:
         raise ContractViolation("invalid_driver_invocation", "Driver name must be a non-empty string without NUL")
     if "\x00" in prompt:

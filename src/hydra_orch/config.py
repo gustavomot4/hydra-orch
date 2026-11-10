@@ -169,7 +169,7 @@ class ResolvedTarget(BaseModel):
 
 
 class ExecutionConfig(StrictConfig):
-    """Configuration only; driver execution/certification belongs to T04."""
+    """Driver configuration; capability/certification validation belongs to AgentRegistry (T12)."""
 
     driver: Literal["codex", "claude-code", "gemini", "opencode", "aider"] = "codex"
     model: Optional[str] = Field(default=None, min_length=1)

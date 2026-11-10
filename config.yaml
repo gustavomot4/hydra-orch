@@ -11,7 +11,7 @@ hydra:
   auto_heal_build_errors: true
   max_heal_attempts: 2
 
-# Configuração do primeiro driver; execução/certificação pertencem à T04.
+# Driver de execução; instalar a CLI não certifica capabilities. Catálogo/gate em T12.
 execution:
   driver: "codex"
   model: null # Selecionar explicitamente na certificação; não presume modelo disponível.
