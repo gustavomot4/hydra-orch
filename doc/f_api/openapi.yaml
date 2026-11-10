@@ -786,7 +786,7 @@ components:
             attempt.provider_selected, attempt.rate_limited, attempt.handoff_created,
             artifact.created, check.finished, merge.completed, merge.conflicted,
             budget.alerted, budget.frozen, budget.exhausted,
-            heartbeat, profile.snapshot_created, session.created, session.state_changed, thread.created, thread.state_changed, thread.message
+            heartbeat, profile.snapshot_created, session.created, session.state_changed, thread.created, thread.state_changed, thread.message, metric.sampled
           ]
         task_id:
           type: string
@@ -1214,11 +1214,10 @@ components:
     # ============ EXPANSÃO: METRICS ============
     MetricSampleResponse:
       type: object
-      required: [id, run_id, scope, scope_id, kind, unit, source, observed_at, status]
+      required: [sample_id, run_id, scope, scope_id, kind, unit, source, observed_at, status]
       properties:
-        id:
+        sample_id:
           type: string
-          format: uuid
         run_id:
           type: string
           format: uuid
@@ -2570,6 +2569,15 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: scope
+          in: query
+          schema: {type: string, enum: [run, attempt, session, thread], default: run}
+        - name: scope_id
+          in: query
+          schema: {type: string}
+        - name: max_age_seconds
+          in: query
+          schema: {type: number, minimum: 0, maximum: 86400, default: 300}
       responses:
         '200':
           description: Amostras de métricas
@@ -2579,6 +2587,38 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/MetricSampleResponse'
+
+  /runs/{id}/metrics/usage:
+    get:
+      tags: [Metrics]
+      summary: Agregar uso com cobertura parcial explícita
+      operationId: getRunUsageMetrics
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Totais, subtotais conhecidos e quantidades observed/stale/unknown por tipo
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [kind, value, known_subtotal, unit, status, scope_count, observed_count, stale_count, unknown_count, sources]
+                  properties:
+                    kind: {type: string, enum: [tokens_in, tokens_out, cost]}
+                    value: {type: number, nullable: true}
+                    known_subtotal: {type: number, nullable: true}
+                    unit: {type: string}
+                    status: {type: string, enum: [observed, stale, unknown]}
+                    scope_count: {type: integer}
+                    observed_count: {type: integer}
+                    stale_count: {type: integer}
+                    unknown_count: {type: integer}
+                    sources: {type: array, items: {type: string}}
 
   # ============ EXPANSÃO: ROUTING ============
   /runs/{id}/route-decisions:

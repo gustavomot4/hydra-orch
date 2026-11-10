@@ -62,3 +62,30 @@ regressivo. O cliente deve persistir last_seq entre processos e reenviá-lo em
 Last-Event-ID. Isso não implementa a futura UI nem promete exactly-once de efeitos
 externos. Testes cobrem dedup concorrente, restart, mensagens idempotentes, escopo,
 rollback, replay filtrado, SSE contínuo e desconexão sem serviço de rede externo.
+
+## T15 — Métricas com proveniência
+
+`MetricsService` grava MetricSample e evento metric.sampled atomicamente, validando
+run e escopo (run/attempt/session/thread). Valores ausentes são NULL/unknown;
+zero só é observed quando fornecido explicitamente ou medido. Unidades canônicas:
+queue/duration em seconds, tokens_in/out em tokens, cost em USD. Valores negativos,
+NaN, tokens fracionários, unidade incorreta, origem com credenciais ou timestamp
+futuro são recusados. Não há estimativa de preço nem extração de uso por texto.
+
+query retorna a última amostra por tipo; sem evidência, retorna unknown com origem
+not_reported. TTL padrão de 300 s muda a apresentação observed para stale,
+retendo valor/proveniência sem reescrever histórico. Empates de observed_at usam
+ordem de inserção. aggregate_usage soma tentativas, inclusive retries; se faltar
+uma parcela, o total é unknown e known_subtotal/contadores expõem a cobertura.
+Sem amostras, subtotal também é NULL.
+
+RunService registra duração a partir dos timestamps reais da tentativa e tokens/
+custo como unknown enquanto a CLI não fornecer telemetria estruturada certificada.
+created_at legado com precisão de segundos não comprova atraso de despacho:
+queue permanece unknown nesse caso. O serviço também aceita medições explícitas
+via record_batch/record_usage; não muda o resultado de execução com texto inferido.
+
+GET /v1/control-plane/runs/{run_id}/metrics aceita scope/scope_id/max_age_seconds;
+GET no sufixo /metrics/usage fornece agregações com cobertura. HTTP exige Bearer e
+recusa escopo de outra run. Os testes cobrem zero explícito, ausência, staleness,
+reinicialização, rollback do lote, fontes, limites e captura após subprocesso real.

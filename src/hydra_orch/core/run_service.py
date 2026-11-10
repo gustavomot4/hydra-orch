@@ -32,6 +32,7 @@ from hydra_orch.core.git_workspace import (
     WorkspaceRecord,
 )
 from hydra_orch.core.redaction import redact_text
+from hydra_orch.core.metrics import MetricsService
 from hydra_orch.model import (
     Artifact,
     CheckResult,
@@ -885,6 +886,11 @@ class RunService:
             result=result,
             correlation_id=correlation_id,
         )
+        metrics = MetricsService(self.store)
+        await metrics.record_local_timing(run_id, attempt_id)
+        # The CLI transport currently has no certified structured usage data.
+        await metrics.record_usage(run_id, attempt_id, source="worker:not_reported",
+            observed_at=datetime.now(timezone.utc))
         await self._reconcile_run_status_after_task(run_id, correlation_id=correlation_id)
 
         return TaskExecutionOutcome(

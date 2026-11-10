@@ -507,6 +507,7 @@ class RunEvent(ExecutionModel):
         "artifact.created", "check.started", "check.finished", "merge.started", "merge.completed", "merge.conflicted",
         "heartbeat", "budget.alerted", "budget.frozen", "profile.snapshot_created",
         "session.created", "session.state_changed", "thread.created", "thread.state_changed", "thread.message",
+        "metric.sampled",
     ]
     redacted_payload: dict[str, JsonValue] = Field(default_factory=dict)
 

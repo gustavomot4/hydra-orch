@@ -125,6 +125,13 @@ async def test_executor_real_subprocess(temp_git_repo: Path) -> None:
     assert outcome.result.checks_executed[0].exit_code == 0
     assert outcome.result.checks_executed[0].tested_sha == outcome.result.patch_commit_sha
 
+    from hydra_orch.core.metrics import MetricsService
+    metrics = {m.kind: m for m in await MetricsService(service.store).query(
+        "run_subproc_01", "attempt", outcome.attempt.attempt_id)}
+    assert metrics["duration"].status == "observed" and metrics["duration"].value >= 0
+    assert metrics["tokens_in"].value is None and metrics["cost"].value is None
+    assert metrics["cost"].source == "worker:not_reported"
+
     # Verify artifacts on disk match recorded SHA-256 digests
     for art in outcome.result.artifacts:
         art_path = temp_git_repo / art.relative_path

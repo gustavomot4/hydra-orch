@@ -32,6 +32,7 @@ from hydra_orch.core.git_workspace import GitWorkspaceError
 from hydra_orch.core.router import HydraRouter
 from hydra_orch.core.run_service import RunService
 from hydra_orch.core.session_service import SessionService, SessionState
+from hydra_orch.core.metrics import MetricsService, MetricScope
 from hydra_orch.core.ssh_tunnel import SshTunnelManager
 from hydra_orch.model import (
     BudgetPolicy,
@@ -682,6 +683,17 @@ class SessionCreatePayload(BaseModel):
     agent_ref: Optional[str] = Field(default=None, max_length=128)
 
 
+@app.get("/v1/control-plane/runs/{run_id}/metrics")
+async def run_metrics_endpoint(run_id: str, scope: MetricScope = Query(default="run"),
+    scope_id: Optional[str] = Query(default=None), max_age_seconds: float = Query(default=300, ge=0, le=86400)):
+    return await MetricsService(get_run_service().store).query(run_id, scope, scope_id or run_id, max_age_seconds=max_age_seconds)
+
+
+@app.get("/v1/control-plane/runs/{run_id}/metrics/usage")
+async def run_usage_metrics_endpoint(run_id: str):
+    return await MetricsService(get_run_service().store).aggregate_usage(run_id)
+
+
 class ThreadCreatePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     parent_thread_id: Optional[str] = Field(default=None, max_length=128)
@@ -1076,7 +1088,7 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         "scope_violation",
     }
     conflict_codes |= {"session_state_conflict", "thread_state_conflict"}
-    if exc.code in {"authorization_denied", "session_scope_mismatch", "thread_scope_mismatch"}:
+    if exc.code in {"authorization_denied", "session_scope_mismatch", "thread_scope_mismatch", "metric_scope_mismatch"}:
         status_code = 403
     elif exc.code == "resource_not_found":
         status_code = 404
