@@ -140,7 +140,7 @@ Todas as 28 tasks normativas detalhadas com seus contratos formais, dependência
 | **T23** | CLI control plane estendida | EP08 / V4 | P2 | 8 | T11, T12, T13, T17, T18, T20 | RF16–RF30 / RT13–RT25 | `cli.py`, `tests/test_cli.py` | Comandos completos para áreas, projetos, perfis, memória, discovery e extensões | pendente |
 | **T24** | CI estendido e runbooks | EP08 / V4 | P2 | 5 | T08, T23 | RF15, RF23, RF25 / RT12 | `.github/workflows/ci.yml`, `doc/j_manual/README.md` | Testes offline cobrindo regras negativas da expansão; runbooks operacionais | pendente |
 | **T25** | Orquestração Swarm/Relay/Persist | EP04 / V3 | P1 | 13 | T06, T13 | RF26 / RT26 | `engine/swarm.py`, `engine/relay.py`, `engine/persist.py`, `tests/test_orchestration.py` | Swarm em 2 Ondas (Wave 0 Fundação + Wave 1 Paralela com trava de deps); Handoff por Estado Git/Worktree e Retry de Turno Atômico | pronto |
-| **T26** | HITL (Humano-no-Loop) | EP02 / V1 | P1 | 8 | T07, T14 | RF27 / RT27 | `core/hitl.py`, `core/run_service.py`, `tests/test_hitl.py` | Pausa needs_context/needs_approval; timeout de expiração; retomada auditada | em_revisao |
+| **T26** | HITL (Humano-no-Loop) | EP02 / V1 | P1 | 8 | T07, T14 | RF27 / RT27 | `core/hitl.py`, `core/run_service.py`, `tests/test_hitl.py` | Pausa needs_context/needs_approval; timeout de expiração; retomada auditada | concluido |
 | **T27** | Resolução conflitos merge | EP07 / V4 | P2 | 8 | T06, T08 | RF28 / RT28 | `core/conflict_resolver.py`, `core/git_workspace.py`, `tests/test_conflict.py` | Relatório 3-way; merge_repair e *Contract Amendment* com teto de orçamento; opções manual/descarte | pendente |
 | **T28** | Budgeting e PR Packaging | EP07 / V4 | P2 | 8 | T07, T15 | RF29, RF30 / RT29, RT30 | `core/budget.py`, `core/packaging.py`, `tests/test_budget_packaging.py` | Tetos USD/tokens/tempo; alerta aos 80% e congelamento aos 100%; PR package auto | pendente |
 
@@ -380,3 +380,5 @@ T15 integrada por fast-forward: `56fbc13`. Próxima entrega da Onda 6: T26 (HITL
 - Barreiras transacionais de admissão bloqueiam run/task/attempt e retry pendentes. Resposta retoma o coordenador sem executar automaticamente; a próxima tentativa recebe contexto humano estruturado. Negação/expiração falha com reason e preserva evidências. Scheduler HTTP reconcilia deadlines a cada segundo e encerra no shutdown.
 - **409 testes aprovados**, **97% de cobertura em hitl.py**, **100% em model.py**, Linux/Python 3.14.9. Testes de corrida resposta/timeout, restart, duplicação, escopo e retomada com subprocesso real de fixture; sem LLM. Referências OpenAPI e `git diff --check` aprovados. Contrato: [intervenção humana](../b_spc/intervencao_humana.md).
 - Próxima entrega: **T16 — seleção adaptativa de rotas**; depois T25, com decomposição obrigatória antes de iniciar.
+
+T26 integrada por fast-forward: `e3ad256`. Próxima entrega do ciclo: T16; T25 segue depois, com decomposição prévia.
