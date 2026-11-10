@@ -168,7 +168,7 @@ e execução pertencem às tarefas posteriores; ProfileService não spawna proce
 
 `resource_limits_json` contém BudgetPolicy e required_capabilities. `snapshot`
 verifica project/root do run e fixa uma configuração por run antes da primeira
-tentativa. O JSON canônico UTF-8 tem SHA-256; persistência e evento
+tentativa, inclusive após uma aprovação humana de preparação. O JSON canônico UTF-8 tem SHA-256; persistência e evento
 `profile.snapshot_created` são atômicos. Mudanças futuras do perfil não alteram
 snapshots antigos, e repetição para o mesmo perfil/run retorna o original.
 Outro perfil no mesmo run é conflito. A leitura verifica integridade e exige

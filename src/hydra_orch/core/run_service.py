@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import json
 import logging
 import os
 from pathlib import Path
@@ -33,6 +34,7 @@ from hydra_orch.core.git_workspace import (
 )
 from hydra_orch.core.redaction import redact_text
 from hydra_orch.core.metrics import MetricsService
+from hydra_orch.core.hitl import HITLService
 from hydra_orch.model import (
     Artifact,
     CheckResult,
@@ -541,6 +543,7 @@ class RunService:
         }:
             async with self.store._connect() as db:
                 async with self.store._transaction(db):
+                    await self.store._assert_no_pending_hitl_in_tx(db, run_id)
                     upd = await db.execute(
                         """
                         UPDATE tasks
@@ -593,6 +596,7 @@ class RunService:
         Execute a single task attempt inside an isolated Git worktree, validate scope, commit patch,
         run acceptance checks on the resulting commit SHA, and persist TaskResult atomically.
         """
+        await HITLService(self.store).assert_dispatchable(run_id)
         run_rec = await self._ensure_run_running(run_id, correlation_id=correlation_id)
         run_spec: RunSpec = run_rec["spec"]
 
@@ -603,6 +607,10 @@ class RunService:
             correlation_id=correlation_id,
         )
         task_spec: TaskSpec = task_rec["spec"]
+
+        human_context = await HITLService(self.store).context_for_task(run_id, task_id)
+        if human_context:
+            prompt = (prompt or task_spec.objective) + "\n\nOperator responses (JSON):\n" + json.dumps(human_context, sort_keys=True)
 
         prior_attempts = await self.store.list_attempts(task_id)
         if len(prior_attempts) >= run_spec.budget_policy.max_attempts:
@@ -983,6 +991,7 @@ class RunService:
         Integrate all accepted task results for a run in topological/task order into `integrate/<run_id>`,
         re-running all combined acceptance checks on the merged tree before marking the run SUCCEEDED.
         """
+        await HITLService(self.store).assert_dispatchable(run_id)
         run_rec = await self.store.get_run(run_id)
         if run_rec is None:
             raise StorageIntegrityError(f"Run '{run_id}' does not exist")

@@ -98,6 +98,139 @@ components:
       bearerFormat: opaque local token (PBKDF2-SHA256 verifier)
 
   schemas:
+    HitlCreatePayload:
+      properties:
+        kind:
+          type: string
+          enum:
+          - needs_context
+          - needs_approval
+          title: Kind
+        question:
+          type: string
+          maxLength: 100000
+          minLength: 1
+          title: Question
+        task_id:
+          title: Task Id
+          nullable: true
+          type: string
+        timeout_seconds:
+          type: integer
+          maximum: 86400.0
+          minimum: 1.0
+          title: Timeout Seconds
+          default: 300
+      additionalProperties: false
+      type: object
+      required:
+      - kind
+      - question
+      title: HitlCreatePayload
+    HitlResponsePayload:
+      properties:
+        response:
+          type: string
+          maxLength: 100000
+          minLength: 1
+          title: Response
+        actor:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Actor
+        expected_revision:
+          type: integer
+          minimum: 1.0
+          title: Expected Revision
+        approved:
+          type: boolean
+          title: Approved
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - response
+      - actor
+      - expected_revision
+      title: HitlResponsePayload
+    HitlRequest:
+      properties:
+        schema_version:
+          type: string
+          title: Schema Version
+          default: '1.0'
+          enum:
+          - '1.0'
+        request_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$
+          title: Request Id
+        run_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$
+          title: Run Id
+        task_id:
+          title: Task Id
+          nullable: true
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$
+        kind:
+          type: string
+          enum:
+          - needs_context
+          - needs_approval
+          title: Kind
+        question:
+          type: string
+          minLength: 1
+          title: Question
+        state:
+          type: string
+          enum:
+          - pending
+          - answered
+          - denied
+          - expired
+          - cancelled
+          title: State
+          default: pending
+        revision:
+          type: integer
+          minimum: 1.0
+          title: Revision
+          default: 1
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        deadline:
+          type: string
+          format: date-time
+          title: Deadline
+        response:
+          title: Response
+          nullable: true
+          type: string
+        actor:
+          title: Actor
+          nullable: true
+          type: string
+        resolved_at:
+          title: Resolved At
+          nullable: true
+          type: string
+          format: date-time
+      additionalProperties: false
+      type: object
+      required:
+      - request_id
+      - run_id
+      - kind
+      - question
+      - created_at
+      - deadline
+      title: HitlRequest
     SessionCreatePayload:
       properties:
         origin_ref:
@@ -786,7 +919,7 @@ components:
             attempt.provider_selected, attempt.rate_limited, attempt.handoff_created,
             artifact.created, check.finished, merge.completed, merge.conflicted,
             budget.alerted, budget.frozen, budget.exhausted,
-            heartbeat, profile.snapshot_created, session.created, session.state_changed, thread.created, thread.state_changed, thread.message, metric.sampled
+            heartbeat, profile.snapshot_created, session.created, session.state_changed, thread.created, thread.state_changed, thread.message, metric.sampled, hitl.requested, hitl.resolved
           ]
         task_id:
           type: string
@@ -3481,6 +3614,146 @@ paths:
           content:
             application/json:
               schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /runs/{run_id}/interventions:
+    post:
+      summary: Request Intervention Endpoint
+      operationId: request_intervention_endpoint_v1_control_plane_runs__run_id__interventions_post
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 64
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HitlCreatePayload'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HitlRequest'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      summary: List Interventions Endpoint
+      operationId: list_interventions_endpoint_v1_control_plane_runs__run_id__interventions_get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HitlRequest'
+                title: Response List Interventions Endpoint V1 Control Plane Runs  Run
+                  Id  Interventions Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /runs/{run_id}/interventions/{request_id}:
+    get:
+      summary: Get Intervention Endpoint
+      operationId: get_intervention_endpoint_v1_control_plane_runs__run_id__interventions__request_id__get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HitlRequest'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /runs/{run_id}/interventions/{request_id}/response:
+    post:
+      summary: Respond Intervention Endpoint
+      operationId: respond_intervention_endpoint_v1_control_plane_runs__run_id__interventions__request_id__response_post
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 64
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HitlResponsePayload'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HitlRequest'
         '422':
           description: Validation Error
           content:

@@ -131,6 +131,8 @@ async def test_scope_and_late_snapshot_blocked(profiles):
         await service.snapshot(definition.profile_id, run.run_id, repository["id"], principal_id="operator")
     async with service.store._connect() as db:
         await db.execute("UPDATE runs SET spec_json=?,status='running' WHERE id=?", (run.model_dump_json(), run.run_id))
+    task = await service.store.get_task(run.tasks[0].task_id)
+    await service.store.update_task_status_atomic(run.tasks[0].task_id, 'running', task['revision'], 'task.started')
     with pytest.raises(ContractViolation, match="before starting"):
         await service.snapshot(definition.profile_id, run.run_id, repository["id"], principal_id="operator")
 
@@ -205,3 +207,16 @@ async def test_component_raw_credentials_rejected_without_snapshot(profiles):
         await service.snapshot(definition.profile_id, run.run_id, repository["id"], principal_id="operator")
     with pytest.raises(ContractViolation, match="snapshot does not exist"):
         await service.get_snapshot(run.run_id, principal_id="operator")
+
+
+@pytest.mark.asyncio
+async def test_profile_can_pin_after_pre_execution_human_approval(profiles):
+    from hydra_orch.core.hitl import HITLService
+    service, definition, repository, run = profiles
+    hitl = HITLService(service.store)
+    pending = await hitl.request(run.run_id, 'needs_approval', 'Approve preparation',
+        idempotency_key='profile-preflight-request-001', task_id=run.tasks[0].task_id)
+    await hitl.respond(run.run_id, pending.request_id, 'Approved', actor='operator', expected_revision=1,
+        idempotency_key='profile-preflight-response-001')
+    snapshot = await service.snapshot(definition.profile_id, run.run_id, repository['id'], principal_id='operator')
+    assert snapshot.run_id == run.run_id

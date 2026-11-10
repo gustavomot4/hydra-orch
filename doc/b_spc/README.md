@@ -121,3 +121,5 @@ Cada requisito deve ter:
 - [S14 — Base relacional, workspaces e perfis (T10)](workspaces_perfis.md)
 
 - [S15 — Sessões, observabilidade e modos (T14)](sessoes_observabilidade.md)
+
+- [T26 — intervenção humana durável](intervencao_humana.md)

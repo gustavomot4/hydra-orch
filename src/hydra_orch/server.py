@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 import asyncio
 import json
@@ -33,6 +33,7 @@ from hydra_orch.core.router import HydraRouter
 from hydra_orch.core.run_service import RunService
 from hydra_orch.core.session_service import SessionService, SessionState
 from hydra_orch.core.metrics import MetricsService, MetricScope
+from hydra_orch.core.hitl import HITLService, HitlKind, HitlRequest
 from hydra_orch.core.ssh_tunnel import SshTunnelManager
 from hydra_orch.model import (
     BudgetPolicy,
@@ -121,9 +122,21 @@ def shutdown_event() -> None:
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await startup_event()
+    async def reconcile_deadlines():
+        while True:
+            await asyncio.sleep(1)
+            try:
+                store = _run_service.store if _run_service is not None else router.checkpointer
+                await HITLService(store).expire_due()
+            except Exception:
+                logger.exception("Human intervention deadline reconciliation failed")
+    deadline_task = asyncio.create_task(reconcile_deadlines(), name="hydra-hitl-deadlines")
     try:
         yield
     finally:
+        deadline_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await deadline_task
         shutdown_event()
 
 
@@ -700,6 +713,45 @@ class ThreadCreatePayload(BaseModel):
     agent_ref: Optional[str] = Field(default=None, max_length=128)
 
 
+class HitlCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: HitlKind
+    question: str = Field(min_length=1, max_length=100_000)
+    task_id: Optional[str] = None
+    timeout_seconds: int = Field(default=300, ge=1, le=86400, strict=True)
+
+
+class HitlResponsePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    response: str = Field(min_length=1, max_length=100_000)
+    actor: str = Field(min_length=1, max_length=256)
+    expected_revision: int = Field(ge=1, strict=True)
+    approved: bool = True
+
+
+@app.post("/v1/control-plane/runs/{run_id}/interventions", status_code=201)
+async def request_intervention_endpoint(run_id: str, payload: HitlCreatePayload,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=16, max_length=64)) -> HitlRequest:
+    return await HITLService(get_run_service().store).request(run_id, idempotency_key=idempotency_key, **payload.model_dump())
+
+
+@app.get("/v1/control-plane/runs/{run_id}/interventions")
+async def list_interventions_endpoint(run_id: str) -> tuple[HitlRequest, ...]:
+    return await HITLService(get_run_service().store).list_requests(run_id)
+
+
+@app.get("/v1/control-plane/runs/{run_id}/interventions/{request_id}")
+async def get_intervention_endpoint(run_id: str, request_id: str) -> HitlRequest:
+    return await HITLService(get_run_service().store).get_request(run_id, request_id)
+
+
+@app.post("/v1/control-plane/runs/{run_id}/interventions/{request_id}/response")
+async def respond_intervention_endpoint(run_id: str, request_id: str, payload: HitlResponsePayload,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=16, max_length=64)) -> HitlRequest:
+    return await HITLService(get_run_service().store).respond(run_id, request_id,
+        idempotency_key=idempotency_key, **payload.model_dump())
+
+
 class SessionTransitionPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     state: SessionState
@@ -1087,7 +1139,7 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         "git_command_failed",
         "scope_violation",
     }
-    conflict_codes |= {"session_state_conflict", "thread_state_conflict"}
+    conflict_codes |= {"session_state_conflict", "thread_state_conflict", "hitl_pending", "hitl_busy", "hitl_conflict"}
     if exc.code in {"authorization_denied", "session_scope_mismatch", "thread_scope_mismatch", "metric_scope_mismatch"}:
         status_code = 403
     elif exc.code == "resource_not_found":

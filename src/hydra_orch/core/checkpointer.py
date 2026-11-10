@@ -877,6 +877,14 @@ class ExecutionStore:
                     thread_id=thread_id,
                 )
 
+    async def _assert_no_pending_hitl_in_tx(self, db: aiosqlite.Connection, run_id: str) -> None:
+        pending = await (await db.execute(
+            "SELECT 1 FROM commands WHERE scope='hitl' AND status='pending' AND run_id=? LIMIT 1",
+            (run_id,),
+        )).fetchone()
+        if pending:
+            raise ContractViolation("hitl_pending", "Human intervention must be resolved before dispatch")
+
     async def update_run_status_atomic(
         self,
         run_id: str,
@@ -906,6 +914,8 @@ class ExecutionStore:
                         f"Optimistic lock failed for run '{run_id}': expected revision {expected_revision}, found {current_revision}"
                     )
 
+                if target_status == RunStatus.RUNNING:
+                    await self._assert_no_pending_hitl_in_tx(db, run_id)
                 current_status = RunStatus(row["status"])
                 transition_status(current_status, target_status)
 
@@ -968,6 +978,8 @@ class ExecutionStore:
                         f"Optimistic lock failed for task '{task_id}': expected revision {expected_revision}, found {current_revision}"
                     )
 
+                if target_status == TaskStatus.RUNNING:
+                    await self._assert_no_pending_hitl_in_tx(db, row["run_id"])
                 current_status = TaskStatus(row["status"])
                 transition_status(current_status, target_status)
 
@@ -1025,6 +1037,9 @@ class ExecutionStore:
                     raise StorageIntegrityError(
                         f"Attempt run_id '{attempt.run_id}' does not match task run_id '{task_row['run_id']}'"
                     )
+
+                if attempt.process_status in {ProcessStatus.QUEUED, ProcessStatus.RUNNING}:
+                    await self._assert_no_pending_hitl_in_tx(db, attempt.run_id)
 
                 existing_cur = await db.execute(
                     "SELECT process_status FROM attempts WHERE id = ?",

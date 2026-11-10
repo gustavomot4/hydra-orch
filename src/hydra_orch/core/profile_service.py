@@ -224,7 +224,8 @@ class ProfileService:
                     return self._snapshot(existing)
                 has_attempt = await (await db.execute("""SELECT 1 FROM attempts a JOIN tasks t ON t.id=a.task_id
                     WHERE t.run_id=? LIMIT 1""", (run_id,))).fetchone()
-                if run["status"] != "queued" or has_attempt:
+                dispatching = await (await db.execute("SELECT 1 FROM tasks WHERE run_id=? AND status='running' LIMIT 1", (run_id,))).fetchone()
+                if run["status"] not in {"queued", "running", "waiting"} or has_attempt or dispatching:
                     raise ContractViolation("profile_snapshot_late", "Profile must be pinned before starting any attempt")
                 effective = await self.resolve_effective(profile_id, repository_id, principal_id=principal_id)
                 data = canonical_json(effective)
