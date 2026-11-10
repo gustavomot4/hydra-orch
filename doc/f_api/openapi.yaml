@@ -670,7 +670,7 @@ components:
             attempt.provider_selected, attempt.rate_limited, attempt.handoff_created,
             artifact.created, check.finished, merge.completed, merge.conflicted,
             budget.alerted, budget.frozen, budget.exhausted,
-            heartbeat
+            heartbeat, profile.snapshot_created
           ]
         task_id:
           type: string

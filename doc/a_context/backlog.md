@@ -127,7 +127,7 @@ Todas as 28 tasks normativas detalhadas com seus contratos formais, dependência
 | **T10** | Migrações control plane | EP03 / V2 | P1 | 8 | T03, T09 | RF16–RF30 / RT03, RT25 | `core/checkpointer.py`, `migration/`, `tests/test_migration.py` | Tabelas de expansão versionadas em `migration/`; rollback auditável; FKs ativas | concluido |
 | **T11** | Registry áreas/repos | EP03 / V2 | P1 | 5 | T10 | RF16 / RT13 | `core/workspace_registry.py`, `tests/test_workspace_registry.py` | Hierarquia Area/Workspace/Project/Repo persistida; path traversal bloqueado | concluido |
 | **T12** | Catálogo agentes/capabilities | EP03 / V2 | P1 | 5 | T02, T04, T10 | RF17, RF14 / RT14 | `core/agent_registry.py`, `config.yaml`, `tests/test_agent_registry.py` | Capabilities declaradas; driver não certificado bloqueado; CLI ausente gera erro claro | concluido |
-| **T13** | Perfis e snapshots | EP03 / V2 | P1 | 5 | T11, T12 | RF17, RF23 / RT15 | `core/profile_service.py`, `tests/test_profile.py` | Validação pré-execução; ProfileSnapshot imutável com hash SHA-256 por run | pronto |
+| **T13** | Perfis e snapshots | EP03 / V2 | P1 | 5 | T11, T12 | RF17, RF23 / RT15 | `core/profile_service.py`, `tests/test_profile.py` | Validação pré-execução; ProfileSnapshot imutável com hash SHA-256 por run | em_revisao |
 | **T14** | Sessões, threads, SSE replay | EP04 / V3 | P1 | 8 | T03, T07, T10 | RF18, RF05 / RT16 | `core/session_service.py`, `server.py`, `tests/test_sse_replay.py` | Árvore hierárquica sessões/threads; SSE com Last-Event-ID, replay e dedup | pronto |
 | **T15** | Métricas observabilidade | EP04 / V3 | P1 | 5 | T03, T10, T14 | RF19 / RT17 | `core/metrics.py`, `tests/test_metrics.py` | Fila, duração, tokens, custo com status observed/stale/unknown; zero não inventado | pendente |
 | **T16** | Seleção adaptativa rotas | EP04 / V3 | P1 | 8 | T12, T15 | RF20, RF11 / RT18 | `core/route_selector.py`, `bridge/omniroute_client.py`, `tests/test_route_selector.py` | RouteDecision auditável; modo direto sem gateway testado; quota unknown | pendente |
@@ -347,3 +347,9 @@ T11 integrada por fast-forward: `0f2624b`. Próxima tarefa pronta: T12.
 - Alias `claude-code` alinhado ao runner `claude_code`. **358 testes aprovados**, **99% de cobertura em agent_registry.py**, Linux/Python 3.14.9; `git diff --check` aprovado. Próxima entrega após integração: **T13 — perfis e snapshots**.
 
 T12 integrada por fast-forward: `dfad3e4`. T13 pronta; próxima entrega do ciclo.
+
+## Evidência da T13 — perfis e snapshots
+
+- `ProfileService` valida componentes, orçamento, grants e capabilities/certificados; mantém referências relacionais e JSON coerentes, com revision otimista. Memória exige consentimento vigente do principal/projeto; componentes descobertos não aprovados e credenciais brutas são recusados.
+- Um snapshot por run, fixado antes de qualquer tentativa, com JSON canônico e SHA-256; criação e evento `profile.snapshot_created` atômicos. Edições futuras não alteram snapshots existentes; leitura detecta corrupção. Integração ao despacho dos modos pertence à T25; superfícies estendidas à T23.
+- **366 testes aprovados**, **100% de cobertura de profile_service.py e model.py**, Linux/Python 3.14.9. Fixtures Git/SQLite e relatórios sintéticos; nenhuma certificação externa ou execução LLM. `git diff --check` aprovado. Próxima entrega: **T14 — sessões, threads e SSE**.

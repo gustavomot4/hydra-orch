@@ -3,8 +3,8 @@
 ## Entrega T10
 
 T10 entrega o schema SQLite e o ciclo de migração. Os serviços de registry,
-catálogo e resolução de perfis são entregas posteriores (T11–T13); a presença
-de tabelas não certifica esses serviços nem ativa agentes, plugins ou recursos.
+catálogo e resolução de perfis são descritos nas entregas T11–T13 abaixo; a presença
+de tabelas por si só não ativa agentes, plugins ou recursos.
 
 `0001_initial_core.sql` é imutável. A migração aditiva
 `migration/0002_control_plane.sql` preserva as tabelas e linhas do núcleo e do
@@ -150,3 +150,28 @@ Relatório ou executável alterado/inacessível invalida a seleção. Não é pe
 usar certificação de outro SO para execução local. Dependências transitivas do
 executável e a integridade do host permanecem responsabilidade da certificação
 externa e dos transportes T22.
+
+## Entrega T13 — perfis e snapshots
+
+`ProfileDefinition` é congelado e valida orçamento, referências sem duplicação,
+modo e capabilities exigidas. Criação/atualização mantém JSON e associações
+relacionais na mesma transação, com auditoria e revision otimista. O catálogo
+de agentes, registry de repositórios e ProfileService compartilham a mesma
+instância do ExecutionStore, evitando inicializações aninhadas sob writer lock.
+
+Antes de produzir a configuração efetiva, o serviço exige grant execute no
+repositório e certificação atual de agente/executor. Componentes descobertos
+precisam estar aprovados. Memória habilitada exige consentimento granted, sem
+revogação, do mesmo principal, purpose=memory e scope=project:<id>. Credenciais
+brutas em componentes são recusadas. Resolução de segredos, ativação de skills/MCPs
+e execução pertencem às tarefas posteriores; ProfileService não spawna processos.
+
+`resource_limits_json` contém BudgetPolicy e required_capabilities. `snapshot`
+verifica project/root do run e fixa uma configuração por run antes da primeira
+tentativa. O JSON canônico UTF-8 tem SHA-256; persistência e evento
+`profile.snapshot_created` são atômicos. Mudanças futuras do perfil não alteram
+snapshots antigos, e repetição para o mesmo perfil/run retorna o original.
+Outro perfil no mesmo run é conflito. A leitura verifica integridade e exige
+autorização atual; configurações aninhadas são cópias, sem mutação do DTO.
+Integrar a seleção do perfil ao despacho dos modos é responsabilidade da T25;
+a API/CLI estendida permanece em T23.

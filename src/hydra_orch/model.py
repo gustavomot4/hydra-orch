@@ -503,7 +503,7 @@ class RunEvent(ExecutionModel):
         "task.accepted", "task.rejected", "task.completed", "task.failed", "task.cancelled",
         "attempt.started", "attempt.provider_selected", "attempt.rate_limited", "attempt.handoff_created", "attempt.finished",
         "artifact.created", "check.started", "check.finished", "merge.started", "merge.completed", "merge.conflicted",
-        "heartbeat", "budget.alerted", "budget.frozen",
+        "heartbeat", "budget.alerted", "budget.frozen", "profile.snapshot_created",
     ]
     redacted_payload: dict[str, JsonValue] = Field(default_factory=dict)
 

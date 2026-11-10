@@ -170,7 +170,7 @@ Os eventos emitidos via SSE possuem sequência monotônica (`id: <seq>`) e redac
 - **Ciclo de Tarefa:** `task.queued`, `task.started`, `task.needs_context`, `task.needs_approval`, `task.ready_for_review`, `task.accepted`, `task.rejected`, `task.completed`, `task.failed`, `task.cancelled`.
 - **Tentativas e Handoff:** `attempt.started`, `attempt.provider_selected`, `attempt.rate_limited`, `attempt.handoff_created`, `attempt.finished`.
 - **Artefatos e Integração:** `artifact.created`, `check.started`, `check.finished`, `merge.started`, `merge.completed`, `merge.conflicted`.
-- **Infraestrutura e Sessão:** `heartbeat`, `budget.alerted`, `budget.frozen`.
+- **Infraestrutura, Sessão e Perfil:** `heartbeat`, `budget.alerted`, `budget.frozen`, `profile.snapshot_created`.
 
 ---
 
