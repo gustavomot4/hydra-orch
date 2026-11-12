@@ -1,4 +1,4 @@
-"""T17 explicit, scoped and auditable memory consent."""
+"""T17/T20 explicit, scoped and auditable memory and extension consent."""
 
 from datetime import datetime, timezone
 from typing import Literal, Optional
@@ -9,7 +9,8 @@ from hydra_orch.core.redaction import redact
 from hydra_orch.core.workspace_registry import WorkspaceRegistry
 from hydra_orch.model import ContractViolation, ExecutionModel, Identifier, UtcTimestamp
 
-ScopeType = Literal['principal', 'area', 'workspace', 'project']
+ScopeType = Literal['principal', 'area', 'workspace', 'project', 'extension']
+ConsentPurpose = Literal['memory', 'extension']
 
 
 class MemoryScope(ExecutionModel):
@@ -24,7 +25,7 @@ class MemoryScope(ExecutionModel):
 class ConsentRecord(ExecutionModel):
     consent_id: Identifier
     principal_id: Identifier
-    purpose: Literal['memory']
+    purpose: ConsentPurpose
     scope: str
     status: Literal['requested', 'granted', 'denied', 'revoked', 'expired']
     granted_at: Optional[UtcTimestamp] = None
@@ -32,8 +33,8 @@ class ConsentRecord(ExecutionModel):
 
 
 class ConsentService:
-    def __init__(self, store: ExecutionStore, workspaces: WorkspaceRegistry):
-        if workspaces.store is not store:
+    def __init__(self, store: ExecutionStore, workspaces: Optional[WorkspaceRegistry] = None):
+        if workspaces is not None and workspaces.store is not store:
             raise ValueError('Consent and registry must share the canonical store')
         self.store, self.workspaces = store, workspaces
 
@@ -43,12 +44,18 @@ class ConsentService:
         if scope.scope_type == 'principal':
             if scope.scope_id != principal_id:
                 raise ContractViolation('authorization_denied', 'Principal scope belongs to another operator')
-        elif scope.scope_type == 'area':
-            await self.workspaces._area(db, scope.scope_id, principal_id)
-        elif scope.scope_type == 'workspace':
-            await self.workspaces._workspace(db, scope.scope_id, principal_id)
+        elif scope.scope_type == 'extension':
+            if '..' in scope.scope_id or any(c.isspace() for c in scope.scope_id) or redact(scope.scope_id) != scope.scope_id:
+                raise ContractViolation('authorization_denied', 'Invalid extension consent scope identifier')
         else:
-            await self.workspaces._project(db, scope.scope_id, principal_id)
+            if self.workspaces is None:
+                raise ContractViolation('authorization_denied', 'WorkspaceRegistry is required for workspace scopes')
+            if scope.scope_type == 'area':
+                await self.workspaces._area(db, scope.scope_id, principal_id)
+            elif scope.scope_type == 'workspace':
+                await self.workspaces._workspace(db, scope.scope_id, principal_id)
+            else:
+                await self.workspaces._project(db, scope.scope_id, principal_id)
 
     async def audit(self, db, event, principal_id, resource_id, **detail):
         data = {'event': event, 'principal_id': principal_id, 'resource_id': resource_id, **detail}
@@ -71,24 +78,26 @@ class ConsentService:
         await self.authorize_scope(db, scope, principal_id)
         return row
 
-    async def require_active(self, db, consent_id, scope, principal_id):
+    async def require_active(self, db, consent_id, scope, principal_id, *, purpose: ConsentPurpose = 'memory'):
         row = await (await db.execute('SELECT * FROM consent_records WHERE id=?', (consent_id,))).fetchone()
         if row is None or row['status'] != 'granted' or row['revoked_at'] is not None:
-            raise ContractViolation('consent_required', 'An active consent is required for memory')
-        if row['principal_id'] != principal_id or row['purpose'] != 'memory' or row['scope'] != scope.key:
-            raise ContractViolation('consent_required', 'Consent principal, purpose and scope must match memory')
+            raise ContractViolation('consent_required', f'An active consent is required for {purpose}')
+        if row['principal_id'] != principal_id or row['purpose'] != purpose or row['scope'] != scope.key:
+            raise ContractViolation('consent_required', f'Consent principal, purpose and scope must match {purpose}')
         await self.authorize_scope(db, scope, principal_id)
         return row
 
-    async def request(self, scope: MemoryScope, *, principal_id: str):
+    async def request(self, scope: MemoryScope, *, principal_id: str, purpose: ConsentPurpose = 'memory'):
+        if purpose == 'memory' and scope.scope_type == 'extension':
+            raise ContractViolation('consent_required', 'Memory consent cannot target extension scope')
         await self.store.initialize()
         consent_id = new_id()
         async with self.store._connect() as db:
             async with self.store._transaction(db):
                 await self.authorize_scope(db, scope, principal_id)
-                await db.execute("INSERT INTO consent_records(id,principal_id,purpose,scope) VALUES (?,?,'memory',?)",
-                    (consent_id, principal_id, scope.key))
-                await self.audit(db, 'consent.requested', principal_id, consent_id, scope=scope.key)
+                await db.execute('INSERT INTO consent_records(id,principal_id,purpose,scope) VALUES (?,?,?,?)',
+                    (consent_id, principal_id, purpose, scope.key))
+                await self.audit(db, 'consent.requested', principal_id, consent_id, purpose=purpose, scope=scope.key)
                 return self._record(await self._owned(db, consent_id, principal_id))
 
     async def get(self, consent_id: str, *, principal_id: str):
@@ -96,11 +105,11 @@ class ConsentService:
         async with self.store._connect() as db:
             return self._record(await self._owned(db, consent_id, principal_id))
 
-    async def list(self, scope: MemoryScope, *, principal_id: str):
+    async def list(self, scope: MemoryScope, *, principal_id: str, purpose: ConsentPurpose = 'memory'):
         await self.store.initialize()
         async with self.store._connect() as db:
             await self.authorize_scope(db, scope, principal_id)
-            rows = await (await db.execute("SELECT * FROM consent_records WHERE principal_id=? AND purpose='memory' AND scope=? ORDER BY id", (principal_id, scope.key))).fetchall()
+            rows = await (await db.execute('SELECT * FROM consent_records WHERE principal_id=? AND purpose=? AND scope=? ORDER BY id', (principal_id, purpose, scope.key))).fetchall()
             return tuple(self._record(r) for r in rows)
 
     async def decide(self, consent_id: str, action: Literal['granted', 'denied', 'revoked', 'expired'], *, principal_id: str):
@@ -118,5 +127,10 @@ class ConsentService:
                     (action, now if action == 'granted' else None, now if action == 'revoked' else None, consent_id))
                 if action in {'revoked', 'expired'}:
                     await db.execute("UPDATE memory_entries SET status=? WHERE consent_id=? AND status='active'", (action, consent_id))
-                await self.audit(db, f'consent.{action}', principal_id, consent_id, previous_status=row['status'])
+                    await db.execute(
+                        "UPDATE extension_installs SET status='revoked', revoked_at=COALESCE(revoked_at, ?) "
+                        "WHERE consent_record_id=? AND status IN ('proposed','consented','installed','active','disabled','quarantined')",
+                        (now, consent_id),
+                    )
+                await self.audit(db, f'consent.{action}', principal_id, consent_id, previous_status=row['status'], purpose=row['purpose'])
                 return self._record(await self._owned(db, consent_id, principal_id))

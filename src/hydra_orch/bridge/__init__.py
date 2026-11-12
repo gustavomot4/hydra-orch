@@ -12,6 +12,11 @@ from hydra_orch.bridge.worker_runner import (
 )
 from hydra_orch.bridge.cdp_fallback import CdpFallbackBridge
 from hydra_orch.bridge.mcp_client import McpClient
+from hydra_orch.bridge.extension_runner import (
+    ExtensionAnomalyError,
+    ExtensionPolicy,
+    ExtensionRunner,
+)
 
 __all__ = [
     "OmniRouteClient",
@@ -24,4 +29,7 @@ __all__ = [
     "is_process_alive",
     "CdpFallbackBridge",
     "McpClient",
+    "ExtensionAnomalyError",
+    "ExtensionPolicy",
+    "ExtensionRunner",
 ]

@@ -189,3 +189,46 @@ permissão por ferramenta (`mcp_permission_denied`), limite de bytes, timeout e
 redaction de respostas; `sse` e `websocket` são recusados com
 `mcp_transport_uncertified` (reservados à T22). Superfícies CLI/HTTP estendidas
 permanecem na T23.
+
+## Contrato T20 — isolamento de extensões e plugins (antes da implementação)
+
+Decomposição obrigatória (13 SP):
+- **T20.1**: Contrato normativo pré-código em S16.
+- **T20.2**: Extensão de `ConsentService` (`core/consent.py`) para `purpose='extension'` e
+  modelos/validação de manifesto e integridade em `core/extension_host.py`.
+- **T20.3**: Executor isolado em `bridge/extension_runner.py` com subprocesso separado,
+  `filter_worker_env`, IPC JSON-RPC 2.0 via pipes e guarda `sys.addaudithook`.
+- **T20.4**: `ExtensionHost` com máquina de estados `ExtensionInstall`, revogação
+  síncrona via `cancel_process_tree`, quarentena por anomalia e rollback para versão
+  anterior aprovada.
+- **T20.5**: Integração com `SecretResolver` (apenas no spawn) e `redaction_scope`.
+- **T20.6**: Suíte hermética `tests/test_extension.py` e rastreabilidade RT22.
+
+`ExtensionManifest` exige `name`, `version`, `entrypoint` validado contra `allowed_roots`
+(sem `..` nem symlink externo), `permissions_required` no vocabulário fechado
+(`fs:read`, `fs:write`, `net:loopback`, `net:external`, `process:spawn`, `secret:<ref_id>`),
+`compatible_api_version` compatível com `EXTENSION_API_VERSION = "1.0"` (mesmo major
+`1.x`, erro `extension_incompatible_api`), e `checksum` SHA-256 idêntico ao arquivo em
+disco (`extension_checksum_mismatch`). Credenciais brutas no manifesto ou payload são
+recusadas (`redact`).
+
+Instalação e ativação exigem `ConsentRecord` vigente com `purpose='extension'` e
+`principal_id` proprietário (`consent_required`). As transições permitidas de
+`ExtensionInstall` seguem estritamente `proposed -> consented -> installed -> active`;
+`active -> disabled -> active`; `active -> quarantined`; `{proposed, consented,
+installed, active, disabled, quarantined} -> revoked`; e `{active, disabled,
+quarantined} -> rolled_back`. Revogação do consentimento ou da instalação encerra o
+processo filho sincronamente via `cancel_process_tree`, bloqueia novas chamadas com
+`extension_revoked` e registra auditoria imutável em `commands(scope='extension')`.
+`rollback` restaura a versão anterior aprovada/não revogada do mesmo `name` ou falha
+com `rollback_unavailable`.
+
+Cada extensão roda em processo filho separado (`python -I`, `cwd` isolado em diretório
+próprio da instalação, grupo de processos isolado, `filter_worker_env` sem variáveis
+`HYDRA_*` ou caminhos do DB core). Para entrypoints Python, um bootstrapper instala
+`sys.addaudithook` antes de carregar a extensão para bloquear acesso ao arquivo SQLite
+do núcleo (`-wal`/`-shm`), escrita/leitura fora das raízes autorizadas pelas permissões,
+soquetes fora de `net:*` e `subprocess` sem `process:spawn`; violações reportam anomalia
+e colocam a instalação em `quarantined`. Limite explícito: entrypoints binários
+não-Python contam com isolamento de processo/env/diretório/tree-kill do SO, sem o hook
+de auditoria do interpretador Python. Superfícies HTTP/CLI estendidas permanecem na T23.

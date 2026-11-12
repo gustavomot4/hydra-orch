@@ -27,6 +27,12 @@ from hydra_orch.core.run_service import (
 from hydra_orch.core.ssh_tunnel import SshTunnelManager
 from hydra_orch.core.swarm import SwarmOrchestrator, SubTask
 from hydra_orch.core.router import HydraRouter
+from hydra_orch.core.extension_host import (
+    CallResult,
+    ExtensionHost,
+    ExtensionInstall,
+    ExtensionManifest,
+)
 from hydra_orch.core.skill_registry import (
     DeclaredTool,
     McpDefinition,
@@ -67,4 +73,8 @@ __all__ = [
     "SecretResolver",
     "SkillDefinition",
     "SkillRegistry",
+    "CallResult",
+    "ExtensionHost",
+    "ExtensionInstall",
+    "ExtensionManifest",
 ]
