@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -33,6 +34,7 @@ from hydra_orch.core.git_workspace import (
     WorkspaceRecord,
 )
 from hydra_orch.core.redaction import redact_text
+from hydra_orch.core.skill_registry import SecretBundle
 from hydra_orch.core.metrics import MetricsService
 from hydra_orch.core.hitl import HITLService
 from hydra_orch.model import (
@@ -599,7 +601,55 @@ class RunService:
         extra_args: Sequence[str] = (),
         forbidden_paths: Sequence[str] = (),
         allowed_env: Optional[Mapping[str, str]] = None,
+        secret_bundle: Optional[SecretBundle] = None,
         allow_retry_from_terminal: bool = False,
+        execution_base_sha: Optional[str] = None,
+        resume_from_attempt_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+    ) -> TaskExecutionOutcome:
+        """Execute a single task attempt inside an isolated Git worktree with optional SecretBundle."""
+        merged_env: Optional[Dict[str, str]] = None
+        if secret_bundle is not None or allowed_env is not None:
+            merged_env = {}
+            if secret_bundle is not None:
+                merged_env.update(secret_bundle.as_allowed_env())
+            if allowed_env is not None:
+                merged_env.update(allowed_env)
+        scope_cm = secret_bundle.redaction_scope() if secret_bundle is not None else nullcontext()
+        with scope_cm:
+            return await self._execute_task_attempt_inner(
+                run_id,
+                task_id,
+                prompt=prompt,
+                provider=provider,
+                model=model,
+                dry_run=dry_run,
+                custom_command=custom_command,
+                extra_args=extra_args,
+                forbidden_paths=forbidden_paths,
+                allowed_env=merged_env,
+                secret_bundle=secret_bundle,
+                allow_retry_from_terminal=allow_retry_from_terminal,
+                execution_base_sha=execution_base_sha,
+                resume_from_attempt_id=resume_from_attempt_id,
+                correlation_id=correlation_id,
+            )
+
+    async def _execute_task_attempt_inner(
+        self,
+        run_id: str,
+        task_id: str,
+        *,
+        prompt: Optional[str] = None,
+        provider: str = "local_cli",
+        model: str = "default",
+        dry_run: bool = False,
+        custom_command: Optional[Sequence[str]] = None,
+        extra_args: Sequence[str] = (),
+        forbidden_paths: Sequence[str] = (),
+        allowed_env: Optional[Mapping[str, str]] = None,
+        allow_retry_from_terminal: bool = False,
+        secret_bundle: Optional[SecretBundle] = None,
         execution_base_sha: Optional[str] = None,
         resume_from_attempt_id: Optional[str] = None,
         correlation_id: Optional[str] = None,
@@ -825,6 +875,29 @@ class RunService:
                                 code="empty_patch",
                                 message="Coding task requires attributable file changes; none were produced",
                                 retryable=True,
+                            ),
+                        ),
+                    )
+                elif secret_bundle is not None and diff_art.patch_path is not None and secret_bundle.contains_secret_in_text(diff_art.patch_path.read_text(encoding="utf-8", errors="replace")):
+
+                    ws_record.status = "preserved"
+                    await git_ws.save_workspace_record(ws_record)
+                    result = TaskResult(
+                        result_id=result_id,
+                        attempt_id=attempt_id,
+                        run_id=run_id,
+                        base_sha=effective_base,
+                        process_status=finished_attempt.process_status,
+                        exit_code=finished_attempt.exit_code,
+                        task_status=TaskStatus.FAILED,
+                        summary="Resolved secret literal detected in worktree patch",
+                        simulated=False,
+                        artifacts=tuple(worker_artifacts),
+                        failures=(
+                            FailureDetail(
+                                code="secret_in_patch",
+                                message="Resolved secret literal detected in worktree patch",
+                                retryable=False,
                             ),
                         ),
                     )

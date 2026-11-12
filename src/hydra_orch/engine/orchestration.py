@@ -19,6 +19,7 @@ from pydantic import Field, model_validator
 from hydra_orch.core.identifier import new_id
 from hydra_orch.core.profile_service import ProfileDefinition, ProfileService, canonical_json
 from hydra_orch.core.redaction import redact, redact_text
+from hydra_orch.core.skill_registry import validate_profile_component
 from hydra_orch.core.route_selector import RouteCandidate, RouteSelector
 from hydra_orch.core.run_service import RunService
 from hydra_orch.engine.decomposer import LOCKED_DEPENDENCY_MANIFESTS
@@ -195,11 +196,13 @@ class Orchestrator:
                     raise ContractViolation('consent_required', 'Pinned memory policy requires current matching consent')
             for table, refs in (('skill_definitions', profile.skills_refs), ('mcp_definitions', profile.mcp_refs)):
                 for ref in refs:
-                    row = await (await db.execute(f'SELECT discovered_resource_id FROM {table} WHERE id=?', (ref,))).fetchone()
+                    row = await (await db.execute(f'SELECT * FROM {table} WHERE id=?', (ref,))).fetchone()
+                    if row is not None:
+                        await validate_profile_component(db, kind='skill' if table == 'skill_definitions' else 'mcp', ref=ref, row=row, required_capabilities=profile.required_capabilities)
                     trust = None
-                    if row is not None and row[0]:
-                        trust = await (await db.execute('SELECT trust_status FROM discovered_resources WHERE id=?', (row[0],))).fetchone()
-                    if row is None or row[0] and (trust is None or trust[0] not in {'approved', 'active'}):
+                    if row is not None and row['discovered_resource_id']:
+                        trust = await (await db.execute('SELECT trust_status FROM discovered_resources WHERE id=?', (row['discovered_resource_id'],))).fetchone()
+                    if row is None or row['discovered_resource_id'] and (trust is None or trust[0] not in {'approved', 'active'}):
                         raise ContractViolation('component_untrusted', 'Pinned component is missing or no longer approved')
 
     async def _checkpoint(self, task: TaskSpec, attempt, result: TaskResult):

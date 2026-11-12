@@ -27,6 +27,15 @@ from hydra_orch.core.run_service import (
 from hydra_orch.core.ssh_tunnel import SshTunnelManager
 from hydra_orch.core.swarm import SwarmOrchestrator, SubTask
 from hydra_orch.core.router import HydraRouter
+from hydra_orch.core.skill_registry import (
+    DeclaredTool,
+    McpDefinition,
+    SecretBundle,
+    SecretRef,
+    SecretResolver,
+    SkillDefinition,
+    SkillRegistry,
+)
 
 __all__ = [
     "ExecutionStore",
@@ -51,4 +60,11 @@ __all__ = [
     "SwarmOrchestrator",
     "SubTask",
     "HydraRouter",
+    "DeclaredTool",
+    "McpDefinition",
+    "SecretBundle",
+    "SecretRef",
+    "SecretResolver",
+    "SkillDefinition",
+    "SkillRegistry",
 ]

@@ -11,6 +11,7 @@ from hydra_orch.bridge.worker_runner import (
     is_process_alive,
 )
 from hydra_orch.bridge.cdp_fallback import CdpFallbackBridge
+from hydra_orch.bridge.mcp_client import McpClient
 
 __all__ = [
     "OmniRouteClient",
@@ -22,4 +23,5 @@ __all__ = [
     "filter_worker_env",
     "is_process_alive",
     "CdpFallbackBridge",
+    "McpClient",
 ]

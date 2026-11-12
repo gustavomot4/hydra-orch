@@ -14,6 +14,7 @@ from hydra_orch.core.agent_registry import AgentRegistry
 from hydra_orch.core.checkpointer import ExecutionStore, OptimisticLockError
 from hydra_orch.core.identifier import new_id
 from hydra_orch.core.redaction import redact
+from hydra_orch.core.skill_registry import validate_profile_component
 from hydra_orch.core.workspace_registry import WorkspaceRegistry
 from hydra_orch.model import (
     BudgetPolicy, ContractViolation, ExecutionModel, ExecutorCapability,
@@ -195,6 +196,7 @@ class ProfileService:
             for table, refs, key in (("skill_definitions", profile.skills_refs, "skills"), ("mcp_definitions", profile.mcp_refs, "mcps")):
                 for ref in refs:
                     row = dict(await (await db.execute(f"SELECT * FROM {table} WHERE id=?", (ref,))).fetchone())
+                    await validate_profile_component(db, kind="skill" if key == "skills" else "mcp", ref=ref, row=row, required_capabilities=profile.required_capabilities)
                     resource_id = row.get("discovered_resource_id")
                     if resource_id:
                         resource = await (await db.execute("SELECT trust_status FROM discovered_resources WHERE id=?", (resource_id,))).fetchone()
@@ -210,7 +212,13 @@ class ProfileService:
         result = {"schema_version": "1.0", "profile": profile.model_dump(mode="json"),
             "repository": repository, "agent": agent.model_dump(mode="json"),
             "executor": executor.model_dump(mode="json"), "components": components}
-        if redact(result) != result:
+        sanitized_check = json.loads(json.dumps(result))
+        for key, col in (("skills", "permissions_declared_json"), ("mcps", "permissions_json")):
+            for item in sanitized_check["components"][key]:
+                if isinstance(item.get(col), str):
+                    perms = json.loads(item[col])
+                    item[col] = json.dumps(["secret_ref" if isinstance(p, str) and p.startswith("secret:") else p for p in perms])
+        if redact(sanitized_check) != sanitized_check:
             raise ContractViolation("secret_in_profile", "Profile components cannot embed raw credentials")
         return result
 

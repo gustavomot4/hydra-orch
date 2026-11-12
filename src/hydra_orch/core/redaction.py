@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import logging
 import re
-from typing import Any
+from typing import Any, Iterable, Iterator
 
 REDACTED = "[REDACTED]"
+_ACTIVE_LITERALS: ContextVar[tuple[str, ...]] = ContextVar("hydra_active_literals", default=())
 _SECRET_KEY = re.compile(
     r"^(?:authorization|(?:api[_-]?|access[_-]?|refresh[_-]?|id[_-]?)?token|"
     r"(?:api|client|private)[_-]?key|(?:client[_-]?)?secret|password|passwd|"
@@ -33,7 +36,26 @@ def redact_text(text: str) -> str:
     text = _PROVIDER_TOKEN.sub(REDACTED, text)
     text = _BEARER.sub("Bearer " + REDACTED, text)
     text = _ASSIGNMENT.sub(lambda m: m["label"] + REDACTED, text)
-    return _URL_CREDENTIAL.sub(lambda m: m[1] + REDACTED + "@", text)
+    text = _URL_CREDENTIAL.sub(lambda m: m[1] + REDACTED + "@", text)
+    for literal in _ACTIVE_LITERALS.get():
+        if literal in text:
+            text = text.replace(literal, REDACTED)
+    return text
+
+
+@contextmanager
+def redaction_scope(literals: Iterable[str]) -> Iterator[None]:
+    """Temporarily register resolved secret literals for scrubbing in the current context."""
+    current = set(_ACTIVE_LITERALS.get())
+    for item in literals:
+        if isinstance(item, str) and len(item) >= 4 and item != REDACTED:
+            current.add(item)
+    ordered = tuple(sorted(current, key=len, reverse=True))
+    token = _ACTIVE_LITERALS.set(ordered)
+    try:
+        yield
+    finally:
+        _ACTIVE_LITERALS.reset(token)
 
 
 def redact(value: Any) -> Any:

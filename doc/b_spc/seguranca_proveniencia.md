@@ -151,3 +151,41 @@ permanece intacta; `commands(scope=discovery_owner)` fixa o dono/proveniência e
 `commands(scope=discovery)` audita descoberta, decisões e invalidações sem copiar
 conteúdo dos arquivos. Novas superfícies CLI/HTTP pertencem à integração T23;
 esta entrega disponibiliza o serviço Python e o gate de uso em perfis.
+
+## Contrato T19 — skills, MCPs e referências de segredos (antes da implementação)
+
+`SkillRegistry` (`core/skill_registry.py`) gerencia `SecretRef`, `SkillDefinition` e
+`McpDefinition` nas tabelas da migração 0002 sem alterar scripts já aplicados.
+`SecretRef` aceita apenas identificadores de referência (`source_key` compatível com
+`^[A-Za-z_][A-Za-z0-9_.:-]{0,127}$`); literais com padrão de token, alta entropia ou
+alterados por `redact` são recusados com `secret_value_rejected`. O provedor `env`
+resolve variáveis apenas no momento do spawn; `vault` e `keyring` recusam
+explicitamente com `secret_provider_unavailable`, sem simulação nem fallback.
+
+`SkillDefinition` e `McpDefinition` declaram permissões em vocabulário fechado
+(`fs:read`, `fs:write`, `net:loopback`, `net:external`, `process:spawn`,
+`secret:<ref_id>`). Endpoints não podem conter `userinfo`, parâmetros de token nem
+segredos embutidos. Quando vinculados a `discovered_resource_id`, exigem recurso
+`approved` ou `active` via `DiscoveryService.require_approved`, com `resource_type`
+compatível e `checksum == content_hash`. Revogações de skill, MCP ou `SecretRef` são
+gravadas atomicamente em `commands(scope=skill_registry)` usando apenas IDs e hashes,
+nunca valores brutos.
+
+`SecretResolver` produz um `SecretBundle` restrito à memória (representação mascarada,
+sem serialização). Variável ausente bloqueia o spawn com `secret_unavailable`. Os
+segredos resolvidos entram apenas via `allowed_env` em `filter_worker_env` sob nomes
+que não colidem com `_SAFE_ENV_EXACT`, e são registrados em um scrubber de literais
+por tentativa em `core/redaction.py` para mascaramento (`[REDACTED]`) antes da
+gravação de stdout/stderr, eventos e artefatos; se um literal resolvido aparecer no
+diff do patch, a integração é recusada com `secret_in_patch`.
+
+`ProfileService` e a admissão da orquestração validam existência, ausência de
+revogação e compatibilidade de permissões antes do snapshot e antes de cada despacho;
+snapshots fixam somente IDs e hashes. `McpClient` (`bridge/mcp_client.py`) implementa
+transporte `stdio` isolado com `filter_worker_env`, grupo de processos próprio,
+`cancel_process_tree`, JSON-RPC 2.0 delimitado por linha (`initialize`, `tools/list`,
+`tools/call`), validação de `declared_tools` (`mcp_tools_mismatch`), checagem de
+permissão por ferramenta (`mcp_permission_denied`), limite de bytes, timeout e
+redaction de respostas; `sse` e `websocket` são recusados com
+`mcp_transport_uncertified` (reservados à T22). Superfícies CLI/HTTP estendidas
+permanecem na T23.
