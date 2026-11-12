@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -142,6 +143,30 @@ class WorktreeDiffArtifact:
 
 
 @dataclass(frozen=True)
+class ThreeWayFileConflict:
+    """Three-way content and conflict hunk snapshot for a single conflicted path."""
+
+    path: str
+    base_content: Optional[str] = None
+    ours_content: Optional[str] = None
+    theirs_content: Optional[str] = None
+    merged_preview: str = ""
+    hunks: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ThreeWayInspection:
+    """Non-destructive 3-way conflict inspection result computed without mutating checkouts."""
+
+    base_sha: str
+    ours_sha: str
+    theirs_sha: str
+    has_conflicts: bool
+    conflicted_files: Tuple[str, ...] = ()
+    file_conflicts: Tuple[ThreeWayFileConflict, ...] = ()
+
+
+@dataclass(frozen=True)
 class IntegrationOutcome:
     """Auditable outcome of a serialized integration over accepted task results."""
 
@@ -157,6 +182,8 @@ class IntegrationOutcome:
     checks_executed: Tuple[CheckResult, ...] = ()
     check_artifacts: Tuple[Artifact, ...] = ()
     failure: Optional[FailureDetail] = None
+    ours_sha: Optional[str] = None
+    theirs_sha: Optional[str] = None
 
 
 class GitWorkspaceService:
@@ -1122,6 +1149,7 @@ class GitWorkspaceService:
                 extra_env=git_env,
             )
             if merge_res.returncode != 0:
+                ours_head_sha = self.resolve_commit_sha("HEAD", cwd=int_wt_real)
                 conflict_res = self._run_git(
                     ["diff", "--name-only", "--diff-filter=U"],
                     cwd=int_wt_real,
@@ -1157,6 +1185,8 @@ class GitWorkspaceService:
                     merged_result_ids=tuple(merged_ids),
                     conflicted_files=conflicted_files,
                     failure=failure,
+                    ours_sha=ours_head_sha,
+                    theirs_sha=result.patch_commit_sha,
                 )
                 await self._persist_integration_outcome(outcome, results)
                 return outcome
@@ -1320,5 +1350,375 @@ class GitWorkspaceService:
                         "result_sha": outcome.result_sha,
                         "merged_result_ids": list(outcome.merged_result_ids),
                         "conflicted_files": list(outcome.conflicted_files),
+                        "ours_sha": outcome.ours_sha,
+                        "theirs_sha": outcome.theirs_sha,
                     },
                 )
+
+    def _read_blob_text(self, commit_sha: str, rel_path: str) -> Optional[str]:
+        norm = _normalize_rel_posix(rel_path)
+        res = self._run_git(["show", f"{commit_sha}:{norm}"], cwd=self.repo_root)
+        if res.returncode != 0:
+            return None
+        return res.stdout
+
+    @staticmethod
+    def _extract_conflict_hunks(merged_preview: str) -> Tuple[str, ...]:
+        hunks: List[str] = []
+        active: Optional[List[str]] = None
+        for line in merged_preview.splitlines(keepends=True):
+            if line.startswith("<<<<<<<"):
+                active = [line]
+            elif active is not None:
+                active.append(line)
+                if line.startswith(">>>>>>>"):
+                    hunks.append("".join(active))
+                    active = None
+        if active is not None:
+            hunks.append("".join(active))
+        return tuple(hunks)
+
+    def inspect_three_way(
+        self,
+        ours_sha: str,
+        theirs_sha: str,
+        *,
+        base_sha: Optional[str] = None,
+    ) -> ThreeWayInspection:
+        """Inspect a 3-way merge between ours_sha and theirs_sha without mutating any checkout."""
+        ours_resolved = self.resolve_commit_sha(ours_sha, cwd=self.repo_root)
+        theirs_resolved = self.resolve_commit_sha(theirs_sha, cwd=self.repo_root)
+
+        used_explicit_base = base_sha is not None
+        if base_sha is not None:
+            base_resolved = self.resolve_commit_sha(base_sha, cwd=self.repo_root)
+        else:
+            mb_res = self._run_git(["merge-base", ours_resolved, theirs_resolved], cwd=self.repo_root)
+            base_resolved = (
+                self.resolve_commit_sha(mb_res.stdout.strip(), cwd=self.repo_root)
+                if mb_res.returncode == 0 and mb_res.stdout.strip()
+                else ours_resolved
+            )
+
+        mt_args = ["merge-tree", "--write-tree", "--name-only"]
+        if used_explicit_base or base_resolved != ours_resolved:
+            mt_args.append(f"--merge-base={base_resolved}")
+        mt_args.extend([ours_resolved, theirs_resolved])
+
+        mt_res = self._run_git(mt_args, cwd=self.repo_root)
+        if mt_res.returncode == 0:
+            return ThreeWayInspection(
+                base_sha=base_resolved,
+                ours_sha=ours_resolved,
+                theirs_sha=theirs_resolved,
+                has_conflicts=False,
+            )
+
+        lines = mt_res.stdout.splitlines()
+        conflicted: List[str] = []
+        for raw_line in lines[1:]:
+            if not raw_line.strip():
+                break
+            conflicted.append(_normalize_rel_posix(raw_line))
+        conflicted_files = tuple(sorted(set(p for p in conflicted if p)))
+
+        details: List[ThreeWayFileConflict] = []
+        with tempfile.TemporaryDirectory(prefix="hydra_3way_") as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            for idx, rel_path in enumerate(conflicted_files):
+                base_txt = self._read_blob_text(base_resolved, rel_path)
+                ours_txt = self._read_blob_text(ours_resolved, rel_path)
+                theirs_txt = self._read_blob_text(theirs_resolved, rel_path)
+
+                if ours_txt is None or theirs_txt is None:
+                    ours_view = ours_txt if ours_txt is not None else "[deleted in ours]\n"
+                    base_view = base_txt if base_txt is not None else "[absent in base]\n"
+                    theirs_view = theirs_txt if theirs_txt is not None else "[deleted in theirs]\n"
+                    merged_preview = (
+                        f"<<<<<<< ours\n{ours_view}"
+                        f"||||||| base\n{base_view}"
+                        f"=======\n{theirs_view}"
+                        f">>>>>>> theirs\n"
+                    )
+                else:
+                    ours_f = tmp_path / f"{idx}_ours.txt"
+                    base_f = tmp_path / f"{idx}_base.txt"
+                    theirs_f = tmp_path / f"{idx}_theirs.txt"
+                    ours_f.write_text(ours_txt, encoding="utf-8")
+                    base_f.write_text(base_txt or "", encoding="utf-8")
+                    theirs_f.write_text(theirs_txt, encoding="utf-8")
+                    mf_res = self._run_git(
+                        [
+                            "merge-file",
+                            "-p",
+                            "--diff3",
+                            "-L",
+                            "ours",
+                            "-L",
+                            "base",
+                            "-L",
+                            "theirs",
+                            str(ours_f),
+                            str(base_f),
+                            str(theirs_f),
+                        ],
+                        cwd=self.repo_root,
+                    )
+                    merged_preview = mf_res.stdout
+
+                hunks = self._extract_conflict_hunks(merged_preview)
+                if not hunks and merged_preview:
+                    hunks = (merged_preview,)
+
+                details.append(
+                    ThreeWayFileConflict(
+                        path=rel_path,
+                        base_content=base_txt,
+                        ours_content=ours_txt,
+                        theirs_content=theirs_txt,
+                        merged_preview=merged_preview,
+                        hunks=hunks,
+                    )
+                )
+
+        return ThreeWayInspection(
+            base_sha=base_resolved,
+            ours_sha=ours_resolved,
+            theirs_sha=theirs_resolved,
+            has_conflicts=bool(conflicted_files),
+            conflicted_files=conflicted_files,
+            file_conflicts=tuple(details),
+        )
+
+    def create_merge_repair_worktree(
+        self,
+        run_id: str,
+        conflict_id: str,
+        attempt_ordinal: int,
+        ours_sha: str,
+        theirs_sha: Optional[str] = None,
+        *,
+        populate_conflict: bool = True,
+        branch_name: Optional[str] = None,
+        prefix: str = "repair",
+    ) -> WorkspaceRecord:
+        """Create an isolated merge_repair worktree anchored at ours_sha without mutating operator checkout."""
+        ours_resolved = self.resolve_commit_sha(ours_sha, cwd=self.repo_root)
+        theirs_resolved = (
+            self.resolve_commit_sha(theirs_sha, cwd=self.repo_root)
+            if theirs_sha is not None
+            else None
+        )
+
+        safe_run = _sanitize_token(run_id)
+        safe_conflict = _sanitize_token(conflict_id)
+        safe_prefix = _sanitize_token(prefix)
+        digest = hashlib.sha256(
+            f"{run_id}:{conflict_id}:{attempt_ordinal}:{prefix}".encode("utf-8")
+        ).hexdigest()[:8]
+
+        wt_dir_name = f"{safe_prefix}_{safe_conflict[:12]}_{attempt_ordinal}_{digest}"
+        branch = branch_name or f"merge_repair/{safe_run[:16]}/{safe_conflict[:12]}/att_{attempt_ordinal}_{digest}"
+        attempt_id = f"{safe_prefix}_{safe_conflict[:16]}_{attempt_ordinal}_{digest}"
+        ws_id = f"ws_{wt_dir_name}"
+
+        if os.name == "nt":
+            self._run_git(["config", "core.longpaths", "true"], cwd=self.repo_root)
+
+        self.worktree_base_dir.mkdir(parents=True, exist_ok=True)
+        worktree_path = self.worktree_base_dir / wt_dir_name
+        if worktree_path.exists():
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="workspace_invalid",
+                    message=f"Repair worktree path '{worktree_path}' already exists",
+                    retryable=False,
+                ),
+                details={"worktree_path": str(worktree_path)},
+            )
+
+        res = self._run_git(
+            ["worktree", "add", "-b", branch, str(worktree_path), ours_resolved],
+            cwd=self.repo_root,
+        )
+        if res.returncode != 0:
+            if worktree_path.exists():
+                shutil.rmtree(worktree_path, ignore_errors=True)
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="workspace_invalid",
+                    message=f"Failed to create merge_repair worktree at '{worktree_path}': {res.stderr.strip()}",
+                    retryable=False,
+                ),
+                details={"worktree_path": str(worktree_path), "stderr": res.stderr.strip()},
+                stderr=res.stderr,
+            )
+
+        canonical_wt = Path(os.path.realpath(worktree_path))
+        ws_status: WorkspaceStatusLiteral = "ready"
+        if populate_conflict and theirs_resolved is not None:
+            git_env = {
+                "GIT_AUTHOR_NAME": self.git_author_name,
+                "GIT_AUTHOR_EMAIL": self.git_author_email,
+                "GIT_COMMITTER_NAME": self.git_author_name,
+                "GIT_COMMITTER_EMAIL": self.git_author_email,
+            }
+            merge_res = self._run_git(
+                ["merge", "--no-commit", "--no-ff", theirs_resolved],
+                cwd=canonical_wt,
+                extra_env=git_env,
+            )
+            if merge_res.returncode != 0:
+                ws_status = "conflicted"
+
+        record = WorkspaceRecord(
+            workspace_id=ws_id,
+            attempt_id=attempt_id,
+            run_id=run_id,
+            task_id=f"merge_repair_{safe_conflict}",
+            canonical_path=canonical_wt,
+            base_sha=ours_resolved,
+            branch=branch,
+            status=ws_status,
+        )
+        self._workspaces[attempt_id] = record
+        return record
+
+    def inspect_worktree_conflicts(
+        self,
+        worktree_path: Union[str, Path],
+        candidate_files: Sequence[str] = (),
+        *,
+        require_staged: bool = False,
+    ) -> Tuple[str, ...]:
+        """Return any paths still having unresolved conflict markers or unmerged index entries."""
+        wt_real = Path(os.path.realpath(worktree_path))
+        conflicted: set[str] = set()
+
+        unmerged_res = self._run_git(["diff", "--name-only", "--diff-filter=U"], cwd=wt_real)
+        unmerged_paths: set[str] = set()
+        if unmerged_res.returncode == 0:
+            for line in unmerged_res.stdout.splitlines():
+                norm = _normalize_rel_posix(line)
+                if norm:
+                    unmerged_paths.add(norm)
+
+        paths_to_check = unmerged_paths | {
+            _normalize_rel_posix(p) for p in candidate_files if _normalize_rel_posix(p)
+        }
+        for norm in paths_to_check:
+            target = wt_real / norm
+            has_markers = False
+            readable_text = False
+            if target.is_file():
+                try:
+                    raw_bytes = target.read_bytes()
+                    if b"\x00" not in raw_bytes:
+                        content = raw_bytes.decode("utf-8", errors="replace")
+                        readable_text = True
+                        lines = content.splitlines()
+                        has_left = any(ln.startswith("<<<<<<<") for ln in lines)
+                        has_mid = any(ln.startswith("=======") for ln in lines)
+                        has_right = any(ln.startswith(">>>>>>>") for ln in lines)
+                        has_markers = has_left and has_mid and has_right
+                except OSError:
+                    readable_text = False
+
+            if has_markers:
+                conflicted.add(norm)
+            elif norm in unmerged_paths and (require_staged or not readable_text):
+                conflicted.add(norm)
+
+        return tuple(sorted(conflicted))
+
+    def commit_resolved_worktree(
+        self,
+        worktree_path: Union[str, Path],
+        commit_message: str,
+        *,
+        candidate_files: Sequence[str] = (),
+    ) -> str:
+        """Verify conflicts are resolved, stage, commit in the isolated worktree, and return HEAD SHA."""
+        wt_real = Path(os.path.realpath(worktree_path))
+        remaining = self.inspect_worktree_conflicts(wt_real, candidate_files=candidate_files)
+        if remaining:
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="merge_conflict",
+                    message=f"Unresolved conflicts remain in worktree '{wt_real}': {', '.join(remaining)}",
+                    retryable=False,
+                ),
+                details={"conflicted_files": list(remaining)},
+            )
+
+        status_res = self._run_git(["status", "--porcelain=v1", "-uall"], cwd=wt_real)
+        merge_head_res = self._run_git(["rev-parse", "-q", "--verify", "MERGE_HEAD"], cwd=wt_real)
+        has_merge_head = merge_head_res.returncode == 0
+
+        if status_res.stdout.strip() or has_merge_head:
+            add_res = self._run_git(["add", "-A"], cwd=wt_real)
+            if add_res.returncode != 0:
+                raise GitWorkspaceError(
+                    FailureDetail(
+                        code="git_operation_failed",
+                        message=f"git add -A failed in '{wt_real}': {add_res.stderr.strip()}",
+                        retryable=False,
+                    ),
+                    details={"stderr": add_res.stderr.strip()},
+                    stderr=add_res.stderr,
+                )
+            git_env = {
+                "GIT_AUTHOR_NAME": self.git_author_name,
+                "GIT_AUTHOR_EMAIL": self.git_author_email,
+                "GIT_COMMITTER_NAME": self.git_author_name,
+                "GIT_COMMITTER_EMAIL": self.git_author_email,
+            }
+            commit_res = self._run_git(
+                ["commit", "-m", commit_message.strip() or "fix(merge): resolve conflict"],
+                cwd=wt_real,
+                extra_env=git_env,
+            )
+            if commit_res.returncode != 0:
+                raise GitWorkspaceError(
+                    FailureDetail(
+                        code="git_operation_failed",
+                        message=f"git commit failed in '{wt_real}': {commit_res.stderr.strip()}",
+                        retryable=False,
+                    ),
+                    details={"stderr": commit_res.stderr.strip()},
+                    stderr=commit_res.stderr,
+                )
+
+        return self.resolve_commit_sha("HEAD", cwd=wt_real)
+
+    def update_worktree_base(
+        self,
+        worktree_path: Union[str, Path],
+        new_base_sha: str,
+    ) -> Tuple[bool, str, Tuple[str, ...]]:
+        """Rebase an isolated worktree onto new_base_sha; aborts cleanly on conflict without mutating repo_root."""
+        wt_real = Path(os.path.realpath(worktree_path))
+        target_sha = self.resolve_commit_sha(new_base_sha, cwd=self.repo_root)
+        current_head = self.resolve_commit_sha("HEAD", cwd=wt_real)
+
+        git_env = {
+            "GIT_AUTHOR_NAME": self.git_author_name,
+            "GIT_AUTHOR_EMAIL": self.git_author_email,
+            "GIT_COMMITTER_NAME": self.git_author_name,
+            "GIT_COMMITTER_EMAIL": self.git_author_email,
+        }
+        rebase_res = self._run_git(["rebase", target_sha], cwd=wt_real, extra_env=git_env)
+        if rebase_res.returncode != 0:
+            conflict_res = self._run_git(["diff", "--name-only", "--diff-filter=U"], cwd=wt_real)
+            conflicted = tuple(
+                sorted(
+                    _normalize_rel_posix(line)
+                    for line in conflict_res.stdout.splitlines()
+                    if line.strip()
+                )
+            )
+            self._run_git(["rebase", "--abort"], cwd=wt_real)
+            return False, current_head, conflicted
+
+        new_head = self.resolve_commit_sha("HEAD", cwd=wt_real)
+        return True, new_head, ()

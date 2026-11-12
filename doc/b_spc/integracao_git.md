@@ -166,3 +166,159 @@ Quando duas tentativas aceitas modificam a mesma linha de `shared.py` a partir d
 | `integrate/<run_id>` | Branch dedicada criada em worktree própria para validação de merges serializados |
 | `patch_commit_sha` | Hash SHA-1 completo (40 hex) do commit gerado na worktree da tentativa |
 | Worktree | Árvore de trabalho adicional do Git vinculada ao repositório principal via `git worktree add` |
+
+---
+
+## 12. T27 — Resolução Assistida de Conflitos de Merge e Contract Amendment
+
+### 12.1 Escopo e Contrato do Módulo
+
+A Task **T27** estende a camada de integração Git ([`GitWorkspaceService`](../../src/hydra_orch/core/git_workspace.py)) com o serviço [`ConflictResolver`](../../src/hydra_orch/core/conflict_resolver.py) para inspecionar conflitos 3-way sem tocar o checkout ativo do operador, conduzir reparo isolado (`merge_repair`), suportar entrega manual ou descarte auditado e executar o protocolo de **Contract Amendment** (RT28 / PRD §3.6.3) quando um contrato da Wave 0 precisa evoluir durante a Wave 1.
+
+#### Modelos Principais (`conflict_resolver.py` & `git_workspace.py`)
+
+| Símbolo | Responsabilidade |
+|---|---|
+| `ThreeWayFileConflict` / `ThreeWayInspection` | Snapshot 3-way (`base_sha`, `ours_sha`, `theirs_sha`) com conteúdo `base`/`ours`/`theirs`, preview com marcadores e hunks extraídos via `git merge-tree --write-tree`. |
+| `ConflictReport` (`ConflictedFileDetail`) | Relatório persistido em `conflict_reports` contendo `conflict_id`, `integration_id`, SHAs 3-way, `conflicted_files`, `file_details`, `resolution_options = ("auto_repair", "manual", "discarded")`, `status`, `repair_attempts_used`, `max_repair_attempts`, caminho/branch isolados, `resolved_sha` e `resolved_at`. |
+| `RepairResult` | Resultado tipado de `auto_repair`, `resolve_manual`, `finalize_manual` e `discard`, com `checks_executed`, `artifacts`, `failures`, `resolved_sha` e `resolved_at`. |
+| `ContractAmendmentProposal` | Proposta e estado de aplicação de emenda de contrato da Wave 0 (`status: "proposed" | "applied" | "rejected"`), `base_sha_before/after`, `run_revision_after`, `affected_wave1_task_ids`, `revalidated_worktrees` e `conflicted_worktrees`. |
+
+#### API Pública de `ConflictResolver`
+
+- `analyze(integration_id, *, base_sha=None, ours_sha=None, theirs_sha=None, max_repair_attempts=None, idempotency_key=None, correlation_id=None) -> ConflictReport`
+- `get_report(conflict_id, *, include_details=True) -> ConflictReport` / `list_reports(*, integration_id=None, run_id=None) -> tuple[ConflictReport, ...]`
+- `build_repair_prompt(report) -> str`
+- `auto_repair(conflict_id, *, repairer=None, repair_command=None, checks=None, max_repair_attempts=None, actor="conflict_resolver", allowed_paths=None, forbidden_paths=(), idempotency_key=None, correlation_id=None) -> RepairResult`
+- `resolve_manual(conflict_id, *, actor="operator", finalize=False, worktree_path=None, checks=None, commit_message=None, idempotency_key=None, correlation_id=None) -> RepairResult`
+- `finalize_manual(...) -> RepairResult`
+- `discard(conflict_id, *, actor="operator", reason="operator_discarded", idempotency_key=None, correlation_id=None) -> RepairResult`
+- `propose_contract_amendment(run_id, wave0_task_id, *, reason, target_files, summary, actor, expected_run_revision, requested_by_task_id=None, authorized_actors=None, authorization_id=None, transition_requester_needs_context=False, idempotency_key=None, correlation_id=None) -> ContractAmendmentProposal`
+- `apply_contract_amendment(amendment_id, *, actor, expected_run_revision, amend_fn=None, patch_files=None, amend_command=None, checks=None, authorized_actors=None, authorization_id=None, active_worktrees=(), idempotency_key=None, correlation_id=None) -> ContractAmendmentProposal`
+- `get_pending_revalidations(run_id) -> tuple[str, ...]` / `mark_task_revalidated(run_id, task_id, *, tested_sha, actor="coordinator", idempotency_key=None, correlation_id=None) -> tuple[str, ...]`
+
+#### Helpers 3-way e `merge_repair` em `GitWorkspaceService`
+
+- `inspect_three_way(ours_sha, theirs_sha, *, base_sha=None)`: executa `git merge-tree --write-tree --name-only` (ou `--merge-base=<base>`) sem alterar index nem working tree do repositório raiz, extraindo versões `base`, `ours`, `theirs` e hunks com marcadores.
+- `create_merge_repair_worktree(run_id, conflict_id, attempt_ordinal, ours_sha, theirs_sha=None, *, populate_conflict=True, branch_name=None, prefix="repair")`: cria worktree isolado sob `.orchestrator/worktree/` com branch dedicada `merge_repair/...` (ou prefixo `manual`/`amend`) e, quando `populate_conflict=True`, inicializa o estado de conflito 3-way com `git merge --no-commit --no-ff <theirs>`.
+- `inspect_worktree_conflicts(worktree_path, candidate_files=(), *, require_staged=False)`: detecta marcadores residuais (`<<<<<<<`, `=======`, `>>>>>>>`) no disco e entradas não resolvidas em `--diff-filter=U` (bloqueando binários/deleções pendentes até resolução explícita).
+- `commit_resolved_worktree(worktree_path, commit_message, *, candidate_files=())`: exige ausência de conflitos residuais, executa `git add -A` + `git commit` exclusivamente no worktree isolado e retorna `HEAD` resultante.
+- `update_worktree_base(worktree_path, target_sha)`: reaplica alterações pendentes da task da Wave 1 sobre o novo `base_sha` da Wave 0 via `git rebase --onto` (abortando o rebase e reportando conflito sem corromper o worktree em caso de colisão).
+
+---
+
+### 12.2 Máquinas de Estado e Persistência SQLite
+
+#### Estados de `conflict_reports`
+
+A tabela `conflict_reports` (`migration/0002_control_plane.sql`) impõe `CHECK (status IN ('open','auto_repair','manual','discarded'))` e `resolved_at TEXT`. A distinção entre em-curso e concluído é governada pela combinação `(status, resolved_at)`:
+
+```text
+  [analyze(integration_id)]
+             |
+             v
+   (status='open', resolved_at=NULL)
+      |            |              \
+      |            |               \ [discard()]
+      v            v                v
+auto_repair     manual          discarded
+(res_at=NULL)  (res_at=NULL)    (res_at!=NULL)  [TERMINAL]
+  |       |      |       |
+  |       |      |       +--[discard()]--> discarded (res_at!=NULL)
+  |       |      |
+  |       |      +--[finalize_manual() + checks OK]--> manual (res_at!=NULL) [TERMINAL]
+  |       |
+  |       +--[falha / check != 0 / escopo / marcador residual]--> aborta MERGE_HEAD, volta p/ 'open' (res_at=NULL)
+  |
+  +--[marcadores OK + escopo OK + checks OK]--> auto_repair (res_at!=NULL) [TERMINAL]
+```
+
+Regras de consistência:
+- **Qualquer transição rejeitada** após `resolved_at IS NOT NULL` dispara `InvalidTransitionError` (ou `ContractViolation` em `invalid_conflict_state`).
+- Toda operação registra linha auditável em `commands(scope='conflict_resolver', idempotency_key, request_hash, response_json, status)` e evento tipado em `events` (`merge.conflict_analyzed`, `merge.conflict_repair_started`, `merge.conflict_repair_failed`, `merge.conflict_resolved`, `merge.conflict_discarded`).
+
+#### Estados de `ContractAmendmentProposal`
+
+```text
+  [propose_contract_amendment()]
+                 |
+                 v
+            "proposed"
+            /        \
+           |          \ [falha check Wave 0]
+           v           v
+       "applied"   (mantém run/base intactos; registra failure e check.finished)
+```
+
+---
+
+### 12.3 Pré-condições, Pós-condições e Invariantes
+
+1. **Preservação do Checkout do Operador (Invariante Absoluto):** Toda leitura e escrita ocorre no `Object Database` do Git ou em worktrees isolados sob `.orchestrator/worktree/`. Snapshot antes/depois (`snapshot_operator_checkout()` / `assert_operator_checkout_intact()`) garante que `HEAD`, branch atual, working tree e index do operador nunca são modificados.
+2. **Orçamento de Tentativas (`max_repair_attempts`):** `auto_repair` rejeita novas execuções com `ContractViolation("repair_budget_exhausted")` quando `repair_attempts_used >= max_repair_attempts`, mantendo o relatório em `status='open'` sem criar merge sujo.
+3. **Portão Obrigatório de Verificação:** Nem `auto_repair` nem `finalize_manual` podem concluir com `resolved_at != NULL` ou atualizar `integrations.status = 'integrated'` enquanto houver marcadores de conflito, violação de `allowed_paths`/`forbidden_paths`, ou qualquer `CheckSpec` com `exit_code != 0`. Em caso de falha no `auto_repair`, `git merge --abort` limpa `MERGE_HEAD`, preserva evidências/artefatos em `commands` e `events`, e retorna o registro para `'open'`.
+4. **Protocolo Contract Amendment (Wave 0 -> Wave 1):**
+   - **Pré-condições:** `wave0_task_id` deve ser uma task raiz (`dependencies == ()`), `actor` deve estar autorizado (`authorized_actors` e/ou `authorizations` ativa com escopo `'write'` ou `'integrate'`), e `expected_run_revision` deve coincidir com `runs.revision` (`OptimisticLockError` caso contrário).
+   - **Pós-condições de `apply_contract_amendment`:** A emenda é aplicada em worktree isolado sobre `base_sha_before`; checks obrigatórios da Wave 0 precisam passar antes de qualquer atualização de banco; a revisão do run avança atomicamente (`revision + 1`), `runs.base_sha` recebe `base_sha_after`, é criada uma integração auditável em `integrations`, worktrees ativos da Wave 1 são re-baseados (classificados em `revalidated_worktrees` ou `conflicted_worktrees`), todas as tasks transitivamente dependentes da Wave 1 têm seu estado invalidado para revalidação (`PENDING/RUNNING/NEEDS_CONTEXT -> BLOCKED`, `READY_FOR_REVIEW -> REJECTED`), e `get_pending_revalidations(run_id)` lista todas as pendentes até confirmação via `mark_task_revalidated(...)`.
+
+---
+
+### 12.4 Modos de Falha Tratados
+
+| Código / Exceção | Condição | Efeito Garantido |
+|---|---|---|
+| `ContractViolation("resource_not_found")` | `integration_id`, `conflict_id` ou `amendment_id` inexistente | Nenhuma mutação de estado ou worktree. |
+| `ContractViolation("conflict_not_applicable")` | Integração já está em `'integrated'` ou `'discarded'` | Análise recusada. |
+| `ContractViolation("repair_budget_exhausted")` | `repair_attempts_used >= max_repair_attempts` | Evento `merge.conflict_repair_failed` registrado; `conflict_reports` permanece `'open'`. |
+| `ContractViolation("unresolved_conflicts_remain")` | `finalize_manual` chamado com marcadores ou entradas não resolvidas | `conflict_reports` permanece `'manual'` com `resolved_at=NULL` e worktree preservado. |
+| `RepairResult(repaired=False, status='open')` | `scope_violation`, `unresolved_conflicts_remain`, `post_repair_check_failed` ou erro do reparador em `auto_repair` | `git merge --abort` no worktree isolado, `resolved_at=NULL`, tentativa contabilizada no orçamento. |
+| `ContractViolation("authorization_denied")` | Ator não autorizado ou `authorization_id` revogado/sem escopo | Proposta/aplicação de emenda recusada antes de tocar Git. |
+| `OptimisticLockError` | `expected_run_revision` divergente de `runs.revision` | Emenda rejeitada sem mutar `base_sha`. |
+| `ContractViolation("amendment_check_failed")` | Check da Wave 0 falha ao aplicar emenda | Emenda abortada, `runs.base_sha` e `runs.revision` preservados, tarefas Wave 1 inalteradas. |
+| `IdempotencyConflictError` | Mesma `idempotency_key` reutilizada com payload diferente | Rejeição antes de executar efeitos colaterais. |
+
+---
+
+### 12.5 Exemplos de Uso
+
+```python
+resolver = ConflictResolver(store, git_workspace, repo_root=repo_root)
+
+# 1. Inspeção 3-way sem tocar o checkout do operador
+report = await resolver.analyze(outcome.integration_id, max_repair_attempts=2)
+
+# 2. Tentativa isolada de merge_repair + validação por checks
+res = await resolver.auto_repair(
+    report.conflict_id,
+    repairer=my_merge_repairer,
+    checks=mandatory_checks,
+    allowed_paths=("src/shared.py",),
+)
+if not res.repaired:
+    # Escalona para resolução manual preservando worktree isolado
+    manual = await resolver.resolve_manual(report.conflict_id, actor="dev-alice", finalize=False)
+    # ... operador resolve no caminho manual.repair_worktree_path ...
+    res = await resolver.finalize_manual(report.conflict_id, actor="dev-alice", checks=mandatory_checks)
+
+# 3. Contract Amendment na Wave 0 com invalidação de dependentes da Wave 1
+proposal = await resolver.propose_contract_amendment(
+    run_id,
+    wave0_task_id,
+    reason="Adicionar campo tenant_id ao payload compartilhado",
+    target_files=("contracts/api.py",),
+    summary="Contrato v2 com tenant_id",
+    actor="lead-architect",
+    expected_run_revision=1,
+    authorization_id=auth_id,
+)
+applied = await resolver.apply_contract_amendment(
+    proposal.amendment_id,
+    actor="lead-architect",
+    expected_run_revision=1,
+    patch_files={"contracts/api.py": new_contract_source},
+    checks=wave0_checks,
+    authorization_id=auth_id,
+    active_worktrees=active_wave1_worktrees,
+)
+pending_ids = await resolver.get_pending_revalidations(run_id)
+```

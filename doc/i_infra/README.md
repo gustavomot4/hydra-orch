@@ -41,9 +41,9 @@ Este diretório concentra as especificações de infraestrutura do **hydra-orch*
 - **Tipo:** SSH reverso (`ssh -R 11434:localhost:11434 user@remote`)
 - **Autenticação:** Chave SSH (Ed25519), sem senha. `ssh-agent` recomendado.
 - **Healthcheck:** Ping a cada 30s (`ssh -O check` + TCP connect na porta tunelada).
-- **Host Key Verification:** `StrictHostKeyChecking=yes`, `UserKnownHostsFile` conhecido. Falha se host key divergir (RT24).
+- **Host Key Verification:** `StrictHostKeyChecking=yes`, `UserKnownHostsFile` conhecido (`known_hosts_file` / `expected_host_key_fingerprint`). Políticas `no`, `off` ou `accept-new` são recusadas com erro tipado e falha se host key divergir ou estiver ausente/revogada (RT24).
 - **Auto-reconnect:** `autossh` ou loop com backoff exponencial (1s, 2s, 4s, max 60s).
-- **Isolamento:** Cada sessão concorrente usa porta local efêmera distinta no lado remoto.
+- **Isolamento:** Cada sessão concorrente aloca porta local loopback distinta (`allocate_session_port` / `SessionTunnelHandle`) e mantém buffers `stdout`/`stderr` separados por `session_id` com redaction.
 
 ### 2.3 Configuração (`config.yaml`)
 ```yaml
@@ -60,10 +60,12 @@ ssh_tunnel:
   reconnect_backoff_max_sec: 60
 ```
 
-### 2.4 Certificação de Transporte (RT24)
-- `TransportDefinition` com `type: ssh`, `target_identity` (fingerprint SHA-256 da host key).
-- `TransportHealth` verificado antes de cada uso: TCP connect + SSH banner + host key match.
-- Falha observável: aborta conexão, não faz bypass silencioso.
+### 2.4 Certificação de Transporte (RF25 / RT24 — T22)
+- `TransportRegistry` (`src/hydra_orch/bridge/transport_registry.py`) persiste `TransportDefinition` (`type ∈ {local, ssh, ide, cdp, remote}`), sempre iniciando com `is_certified=False`, recusando segredos ou userinfo em `target_identity`.
+- Certificação explícita (`certify_transport` / `revoke_certification`) exige relatório validado (tipo, OS, versão, alvo/fingerprint SHA-256, checks obrigatórios, `simulated=False`) com auditoria em `commands(scope='transport')`; modo produção/estrito bloqueia transporte não certificado (`transport_uncertified`).
+- `assert_target` e `select_cdp_target` validam estritamente o alvo observado (`transport_target_mismatch`), inclusive impedindo que CDP escolha página aleatória quando o alvo não corresponde.
+- `check_health` persiste amostras tipadas em `transport_health` (`unknown|healthy|degraded|unreachable`, `last_check_at`, `error_detail` redigido).
+- `SshTunnelManager` (`src/hydra_orch/bridge/ssh_tunnel.py`) impõe `StrictHostKeyChecking=yes`, verificação offline via `known_hosts_file`/`expected_host_key_fingerprint`/`verify_host_key` e isolamento de portas/buffers por `session_id` sem bypass silencioso. Especificação completa em [`S18b — transportes_certificados.md`](../b_spc/transportes_certificados.md).
 
 ---
 

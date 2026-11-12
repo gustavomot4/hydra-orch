@@ -35,6 +35,7 @@ from hydra_orch.core.git_workspace import (
 )
 from hydra_orch.core.redaction import redact_text
 from hydra_orch.core.skill_registry import SecretBundle
+from hydra_orch.core.budget import BudgetGovernor
 from hydra_orch.core.metrics import MetricsService
 from hydra_orch.core.hitl import HITLService
 from hydra_orch.model import (
@@ -287,6 +288,7 @@ class RunService:
         worker_runner: Optional[WorkerRunner] = None,
         check_runner: Optional[CheckRunner] = None,
         runtime_dir: Union[str, Path] = ".orchestrator",
+        budget_governor: Optional[BudgetGovernor] = None,
     ):
         self.repo_root = GitWorkspaceService.resolve_repo_root(repo_root)
         rt_candidate = Path(runtime_dir)
@@ -316,6 +318,7 @@ class RunService:
             os.path.normcase(str(self.repo_root)): self.check_runner
         }
         self._project_meta: Dict[str, Dict[str, str]] = {}
+        self.budget_governor = budget_governor or BudgetGovernor(self.store)
 
     def _get_git_workspace(self, repo_root: Union[str, Path]) -> GitWorkspaceService:
         resolved = GitWorkspaceService.resolve_repo_root(repo_root)
@@ -659,6 +662,8 @@ class RunService:
         run acceptance checks on the resulting commit SHA, and persist TaskResult atomically.
         """
         await HITLService(self.store).assert_dispatchable(run_id)
+        if await self.store.get_run(run_id) is not None:
+            await self.budget_governor.assert_dispatchable(run_id, correlation_id=correlation_id)
         run_rec = await self._ensure_run_running(run_id, correlation_id=correlation_id)
         run_spec: RunSpec = run_rec["spec"]
         effective_base = execution_base_sha or run_spec.base_sha
@@ -1001,6 +1006,7 @@ class RunService:
         await metrics.record_usage(run_id, attempt_id, source="worker:not_reported",
             observed_at=datetime.now(timezone.utc))
         await self._reconcile_run_status_after_task(run_id, correlation_id=correlation_id)
+        await self.budget_governor.check(run_id, correlation_id=correlation_id)
 
         return TaskExecutionOutcome(
             run_id=run_id,
@@ -1539,13 +1545,7 @@ class RunService:
             return None
         spec: RunSpec = run_rec["spec"]
         tasks = await self.list_run_tasks(run_id)
-        bp = spec.budget_policy
-        budget_status = "active"
-        async with self.store._connect() as db:
-            cur = await db.execute("SELECT status FROM budget_policies WHERE run_id = ?", (run_id,))
-            brow = await cur.fetchone()
-            if brow is not None:
-                budget_status = brow["status"]
+        b_status = await self.budget_governor.get_status(run_id)
 
         return {
             "id": run_id,
@@ -1559,15 +1559,15 @@ class RunService:
             "spec": spec.model_dump(mode="json"),
             "tasks": tasks,
             "budget": {
-                "max_usd": bp.max_usd,
-                "max_tokens_in": bp.max_tokens_in,
-                "max_tokens_out": bp.max_tokens_out,
-                "max_wall_seconds": bp.max_wall_seconds,
-                "alert_threshold_pct": bp.alert_threshold_pct,
-                "current_usd": None,
-                "current_tokens_in": None,
-                "current_tokens_out": None,
-                "status": budget_status,
+                "max_usd": b_status.max_usd,
+                "max_tokens_in": b_status.max_tokens_in,
+                "max_tokens_out": b_status.max_tokens_out,
+                "max_wall_seconds": b_status.max_wall_seconds,
+                "alert_threshold_pct": b_status.alert_threshold_pct,
+                "current_usd": b_status.current_usd,
+                "current_tokens_in": b_status.current_tokens_in,
+                "current_tokens_out": b_status.current_tokens_out,
+                "status": b_status.status,
             },
             "created_at": run_rec["created_at"],
             "updated_at": run_rec["updated_at"],

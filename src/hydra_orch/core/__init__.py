@@ -42,6 +42,35 @@ from hydra_orch.core.skill_registry import (
     SkillDefinition,
     SkillRegistry,
 )
+from hydra_orch.core.budget import (
+    BudgetDimensionReport,
+    BudgetGovernor,
+    BudgetStatus,
+    ExtensionResult,
+)
+from hydra_orch.core.conflict_resolver import (
+    ConflictedFileDetail,
+    ConflictReport,
+    ConflictResolver,
+    ContractAmendmentProposal,
+    RepairResult,
+)
+from hydra_orch.core.packaging import (
+    ExportResult,
+    PRPackage,
+    PRPackager,
+    PublishResult,
+)
+from hydra_orch.core.preferences import (
+    AccessibilityChecklist,
+    AccessibilitySettings,
+    ColorTokenPair,
+    ControlA11yDescriptor,
+    Preference,
+    PreferenceService,
+    PreferenceSnapshot,
+    UiCommandEnvelope,
+)
 
 __all__ = [
     "ExecutionStore",
@@ -77,4 +106,25 @@ __all__ = [
     "ExtensionHost",
     "ExtensionInstall",
     "ExtensionManifest",
+    "BudgetDimensionReport",
+    "BudgetGovernor",
+    "BudgetStatus",
+    "ExtensionResult",
+    "ConflictedFileDetail",
+    "ConflictReport",
+    "ConflictResolver",
+    "ContractAmendmentProposal",
+    "RepairResult",
+    "ExportResult",
+    "PRPackage",
+    "PRPackager",
+    "PublishResult",
+    "AccessibilityChecklist",
+    "AccessibilitySettings",
+    "ColorTokenPair",
+    "ControlA11yDescriptor",
+    "Preference",
+    "PreferenceService",
+    "PreferenceSnapshot",
+    "UiCommandEnvelope",
 ]
