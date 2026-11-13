@@ -122,7 +122,8 @@ class DiscoveryService:
         try:
             text = data.decode('utf-8')
             if path.name == 'SKILL.md':
-                header = text.split('---', 2)[1] if text.startswith('---\n') and text.count('---') >= 2 else '{}'
+                normalized = text.replace('\r\n', '\n')
+                header = normalized.split('---', 2)[1] if normalized.startswith('---\n') and normalized.count('---') >= 2 else '{}'
                 metadata = yaml.load(header, Loader=yaml.BaseLoader)
             else:
                 metadata = json.loads(text)

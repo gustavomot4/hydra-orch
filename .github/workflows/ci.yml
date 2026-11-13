@@ -1,4 +1,4 @@
-name: Hermetic CI (M1)
+name: Hermetic CI (M1-M4 / V4)
 
 on:
   push:
@@ -59,18 +59,19 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
 
-      - name: Verify CLI entrypoint surface (M1)
+      - name: Validate Python syntax and OpenAPI schema
         run: |
-          hydra --help
-          hydra submit --help
-          hydra inspect --help
-          hydra review --help
-          hydra integrate --help
-          hydra cancel --help
-          hydra retry --help
+          python -m compileall -q src tests
+          python -c "import yaml, pathlib; spec = yaml.safe_load(pathlib.Path('doc/f_api/openapi.yaml').read_text(encoding='utf-8')); assert spec.get('openapi') == '3.0.3' and len(spec.get('paths', {})) >= 70"
+
+      - name: Verify CLI entrypoint surface (M1-M4)
+        run: python -c "import subprocess; cmds = ['submit','inspect','review','integrate','cancel','retry','project-create','project-list','runs','area','workspace','project','repo','agent','profile','session','metrics','consent','memory','discovery','skill','mcp','secret','extension','preference','transport','token','conflict','budget','pr-package']; subprocess.run(['hydra','--help'], check=True); [subprocess.run(['hydra', c, '--help'], check=True, stdout=subprocess.DEVNULL) for c in cmds]"
+
+      - name: Execute G-M4 negative, security and a11y gates
+        run: python -m pytest tests -m "negative or security or a11y" -v --tb=short
 
       - name: Execute hermetic offline test suite
-        run: python -m pytest tests -v
+        run: python -m pytest tests -v --tb=short
 
   driver-certification:
     name: "External CLI Driver Certification (Opt-In)"
@@ -92,5 +93,5 @@ jobs:
 
       - name: Verify driver certification environment
         run: |
-          echo "External CLI driver certification runs separately from the hermetic M1 CI gate (RT12)."
+          echo "External CLI driver certification runs separately from the hermetic M1-M4 CI gate (RT12)."
           python -m pytest tests/test_worker_runner.py -v

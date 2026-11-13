@@ -162,7 +162,11 @@ pytest tests/ -m "a11y" -v
 # Com cobertura
 pytest tests/ --cov=src/hydra_orch --cov-report=term-missing --cov-fail-under=80
 
-# CI (GitHub Actions)
+# Gate G-M4 / Expansão negativa, segurança e acessibilidade (T24)
+pytest tests/ -m "negative or security or a11y" -v
+pytest tests/test_ci_negative_gate.py -v
+
+# CI (GitHub Actions — M1-M4 / V4)
 # Ver .github/workflows/ci.yml
 ```
 

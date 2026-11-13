@@ -4,7 +4,7 @@
 | :--- | :--- |
 | **Spec ID** | `S20` |
 | **Versão** | `0.1.0` |
-| **Status** | `draft` (`T23` implementado nesta entrega; `T24` pendente de expansão) |
+| **Status** | `verified` (`T23` e `T24` implementados e validados) |
 | **Tarefas do Backlog** | `T23` (CLI Control Plane Estendida), `T24` (CI Estendida e Manuais Operacionais) |
 | **Requisitos Técnicos** | `RT28` (Equivalência CLI vs API), `RT29` (CI Offline Hermética), `RT30` (Manuais e Runbooks) |
 | **PRD Referência** | `doc/b_spc/prd_tecnico.md` (§3.7.4, §7.A, §8.2, §8.3) |
@@ -193,8 +193,8 @@ hydra pr-package publish <package_id> --authorized --json
 
 | ID | Descrição | Tarefa Relacionada | Status |
 | :--- | :--- | :--- | :--- |
-| `GAP-S20-01` | A cobertura completa de `T24` em `.github/workflows/ci.yml` (gates específicos da expansão negativa §7.A e validação automática do OpenAPI `doc/f_api/openapi.yaml`) ainda precisa ser expandida após consolidação do Control Plane. | `T24` | Aberto |
-| `GAP-S20-02` | `doc/j_manual/README.md` atualmente documenta os comandos M1 e protótipos parciais; precisa ser atualizado em `T24` com o catálogo completo dos 21 novos grupos CLI, exit codes e runbooks de falha. | `T24` | Aberto |
+| `GAP-S20-01` | A cobertura completa de `T24` em `.github/workflows/ci.yml` (gates específicos da expansão negativa §7.A e validação automática do OpenAPI `doc/f_api/openapi.yaml`) ainda precisa ser expandida após consolidação do Control Plane. | `T24` | Fechado (`tests/test_ci_negative_gate.py` e `.github/workflows/ci.yml`) |
+| `GAP-S20-02` | `doc/j_manual/README.md` atualmente documenta os comandos M1 e protótipos parciais; precisa ser atualizado em `T24` com o catálogo completo dos 21 novos grupos CLI, exit codes e runbooks de falha. | `T24` | Fechado (`doc/j_manual/README.md` §0.6–0.7) |
 | `GAP-S20-03` | `hydra token create` grava diretamente em `access_tokens` via `ExecutionStore` + `TokenVerifier` porque ainda não há um `TokenService` dedicado em `core/auth.py`; caso seja extraído posteriormente, a CLI deve delegar ao serviço sem alterar o contrato de hash/não-impressão. | `T23` | Observação arquitetural |
 
 ---

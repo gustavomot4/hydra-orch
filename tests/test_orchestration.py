@@ -37,6 +37,13 @@ if obj.get("restore") and model != "broken":
     assert path.read_text() == "partial", "lost partial Git state"
 if obj.get("log"):
     with open(obj["log"], "a") as f: f.write(json.dumps(["start", obj["path"], time.time()]) + "\\n")
+if obj.get("barrier_dir"):
+    bdir = pathlib.Path(obj["barrier_dir"])
+    bdir.mkdir(parents=True, exist_ok=True)
+    (bdir / obj["path"].replace("/", "_")).write_text("ready")
+    deadline = time.monotonic() + obj.get("barrier_timeout", 10.0)
+    while len(list(bdir.iterdir())) < obj.get("barrier_count", 2) and time.monotonic() < deadline:
+        time.sleep(0.02)
 time.sleep(obj.get("delay", 0))
 path.write_text("partial" if model == "broken" or obj.get("check_repair") and not path.exists() else obj["content"])
 if obj.get("log"):
@@ -100,10 +107,11 @@ async def reconcile_fixture(checkpoint):
 @pytest.mark.asyncio
 async def test_two_wave_real_foundation_parallel_workers_and_integration(profiles, tmp_path):
     log = tmp_path / 'workers.jsonl'
+    barrier_dir = tmp_path / 'barrier'
     engine, plan = await setup(profiles, tmp_path, mode='swarm', jobs=[
         {'path': 'src/foundation.txt', 'content': 'contract'},
-        {'path': 'src/a/output.txt', 'content': 'a', 'requires': ['src/foundation.txt'], 'delay': 0.2, 'log': str(log)},
-        {'path': 'src/b/output.txt', 'content': 'b', 'requires': ['src/foundation.txt'], 'delay': 0.2, 'log': str(log)}])
+        {'path': 'src/a/output.txt', 'content': 'a', 'requires': ['src/foundation.txt'], 'delay': 0.2, 'log': str(log), 'barrier_dir': str(barrier_dir), 'barrier_count': 2},
+        {'path': 'src/b/output.txt', 'content': 'b', 'requires': ['src/foundation.txt'], 'delay': 0.2, 'log': str(log), 'barrier_dir': str(barrier_dir), 'barrier_count': 2}])
     before = engine.runs.git_workspace.snapshot_operator_checkout()
     result = await MultiSessionSwarmEngine(engine).execute_swarm(plan, principal_id='operator', reviewer=accept, integrate=True)
     assert result.status == 'succeeded'
@@ -371,10 +379,10 @@ async def test_coordinator_cancellation_kills_real_worker_and_requires_reconcili
     engine, plan = await setup(profiles, tmp_path, jobs=[
         {'path': 'src/output.txt', 'content': 'late', 'delay': 20, 'log': str(tmp_path / 'worker-started.jsonl')}])
     future = asyncio.create_task(engine.execute(plan, principal_id='operator'))
-    for _ in range(200):
+    for _ in range(300):
         if (tmp_path / 'worker-started.jsonl').exists():
             break
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.05)
     assert (tmp_path / 'worker-started.jsonl').exists()
     entries = tuple(engine.runs.worker_runner._active_attempts.values())
     assert len(entries) == 1

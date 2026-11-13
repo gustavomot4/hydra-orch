@@ -259,7 +259,11 @@ def test_http_sessions_scoped_sse_and_message_idempotency(sessions):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("content,key", [("", "a" * 16), ("text", "short"), ("x" * 100001, "a" * 16)])
+@pytest.mark.parametrize(
+    "content,key",
+    [("", "a" * 16), ("text", "short"), ("x" * 100001, "a" * 16)],
+    ids=["empty_content", "short_key", "oversized_content"],
+)
 async def test_invalid_message_does_not_emit(sessions, content, key):
     session_id, thread_id = await running(sessions)
     before = await sessions.replay("run-a")

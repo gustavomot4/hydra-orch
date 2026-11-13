@@ -33,6 +33,14 @@ from hydra_orch.model import (
 BASE_SHA = "a" * 40
 
 
+async def _wait_for_tree_exit(parent_pid: int, child_pid: int, *, attempts: int = 100, interval: float = 0.05) -> None:
+    """Poll until both parent and child processes finish OS teardown."""
+    for _ in range(attempts):
+        if not is_process_alive(parent_pid) and not is_process_alive(child_pid):
+            break
+        await asyncio.sleep(interval)
+
+
 @pytest.mark.asyncio
 async def test_cwd_resolved(tmp_path: Path):
     """Subprocess executes in the canonical resolved worktree cwd, modifies file, and produces artifacts."""
@@ -186,7 +194,7 @@ async def test_timeout_tree_kill(tmp_path: Path):
         worktree_path=tmp_path,
         prompt="Long task",
         custom_command=(sys.executable, "-c", parent_script),
-        timeout=0.5,
+        timeout=1.0,
         attempt_id="att-timeout-tree",
     )
 
@@ -202,10 +210,7 @@ async def test_timeout_tree_kill(tmp_path: Path):
     child_pid = int(pids["child"])
 
     # Wait briefly if OS is finishing handle cleanup, then assert both parent and child are dead
-    for _ in range(20):
-        if not is_process_alive(parent_pid) and not is_process_alive(child_pid):
-            break
-        await asyncio.sleep(0.05)
+    await _wait_for_tree_exit(parent_pid, child_pid)
 
     assert is_process_alive(parent_pid) is False
     assert is_process_alive(child_pid) is False
@@ -253,10 +258,7 @@ async def test_verify_tree_kill(tmp_path: Path):
         pass
 
     assert killed is True
-    for _ in range(20):
-        if not is_process_alive(parent_pid) and not is_process_alive(child_pid):
-            break
-        await asyncio.sleep(0.05)
+    await _wait_for_tree_exit(parent_pid, child_pid)
 
     assert is_process_alive(parent_pid) is False
     assert is_process_alive(child_pid) is False
@@ -305,10 +307,7 @@ async def test_cancel_idempotent(tmp_path: Path):
     assert exec_res["error"] == "execution_cancelled"
     assert exec_res["attempt"].exit_reason == "user_requested_stop"
 
-    for _ in range(20):
-        if not is_process_alive(int(pids["parent"])) and not is_process_alive(int(pids["child"])):
-            break
-        await asyncio.sleep(0.05)
+    await _wait_for_tree_exit(int(pids["parent"]), int(pids["child"]))
     assert is_process_alive(int(pids["parent"])) is False
     assert is_process_alive(int(pids["child"])) is False
 

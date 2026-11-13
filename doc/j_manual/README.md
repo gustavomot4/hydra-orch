@@ -3,7 +3,7 @@
 **Identificador Formal:** `j_manual`
 **Caminho Canônico:** `doc/j_manual/`
 **Versão:** `v01_02_0000`
-**Status:** `OPERACIONAL M1 + T09–T14 / EXPANSÃO T15–T28 PROPOSTA`
+**Status:** `OPERACIONAL M1–M4 (T01–T28) / GATE G-M4`
 **Autoridade:** Arquitetura do hydra-orch, complementando [`../b_spc/prd_funcional.md`](../b_spc/prd_funcional.md), [`../b_spc/prd_tecnico.md`](../b_spc/prd_tecnico.md), [`../b_spc/api_control_plane.md`](../b_spc/api_control_plane.md), [`../b_spc/entrega_operacao.md`](../b_spc/entrega_operacao.md) e [`../i_infra/README.md`](../i_infra/README.md).
 **Escopo:** Manual operacional verificado do Marco M1 (V0) e referência para os horizontes de expansão (M2–M4 / V1–V4).
 
@@ -11,7 +11,7 @@
 
 ## 0. Manual Operacional M1 (Núcleo Verificável Local — Validado em T01–T08)
 
-Esta seção documenta a superfície **100% implementada e validada** no Marco **M1 (Gate G-M1)**. As seções 1 a 11 mais abaixo preservam a visão completa do produto incluindo comandos propostos para as ondas de expansão (`T15–T28`); a segurança HTTP T09 está documentada na seção 0.4 e a migração T10 na seção 0.5.
+Esta seção documenta a superfície **100% implementada e validada** do **hydra-orch** nos Marcos **M1 a M4 (`T01–T28` / Gates `G-M1` a `G-M4`)**. As seções 1 a 12 mais abaixo preservam a visão completa de arquitetura e operação proposta para componentes opcionais/futuros (como interface web visual); a segurança HTTP (`T09`) está na seção 0.4, migrações (`T10`) na seção 0.5, a superfície estendida CLI/API (`T11–T23`) na seção 0.6 e os runbooks operacionais verificados (`T24`) na seção 0.7.
 
 ### 0.1. Escopo Operacional M1 vs. Expansão (M2–M4)
 
@@ -23,9 +23,9 @@ Esta seção documenta a superfície **100% implementada e validada** no Marco *
 | Runner de subprocessos (`WorkerRunner`), `cwd` real, env filtrado, tree kill e `dry_run` isolado | **Operacional** (`T04`) | Sandboxing de extensões em `T20` |
 | Isolamento em Git worktree real (`GitWorkspaceService`), SHA base fixo, auditoria de escopo | **Operacional** (`T05`) | Reparo 3-way de conflito em `T27` |
 | Checks determinísticos (`CheckRunner`) e serviço de aplicação/integração (`RunService`) | **Operacional** (`T06`) | Pausas HITL em `T26` |
-| CLI M1 (`hydra submit`, `inspect`, `review`, `integrate`, `cancel`, `retry`, `serve`, `status`, `quota`) | **Operacional** (`T07`) | Subcomandos estendidos em `T23` |
-| API Control Plane M1 (`/v1/control-plane/projects`, `/runs`, `/events`, `/review`, `/integrate`, `/discard`) | **Operacional** (`T07`) | Bearer/PBKDF2, CORS e redaction entregues em `T09` |
-| Pipeline CI offline hermético multiplataforma (`.github/workflows/ci.yml`) | **Operacional** (`T08`) | CI estendido V4 em `T24` |
+| CLI M1 + Estendida (`hydra submit`..`retry`, `project-create`, `project-list`, `runs` + 21 subgrupos) | **Operacional** (`T07`, `T23`) | Paridade 1:1 com Control Plane (`S20`) |
+| API Control Plane REST & SSE (`/v1/control-plane/*`, 77 paths OpenAPI `3.0.3`) | **Operacional** (`T07`, `T09`, `T23`) | Auth PBKDF2, CORS estrito e redaction |
+| Pipeline CI offline hermético multiplataforma (`.github/workflows/ci.yml`) | **Operacional** (`T08`, `T24`) | OpenAPI, smoke CLI M1–M4 e gates `G-M4` |
 
 ### 0.2. Instalação e Execução da Suíte Hermética M1
 
@@ -51,8 +51,8 @@ hydra submit \
   --objective "Implementar validação X" \
   --task-id "run-01-t1" \
   --executor "codex" \
-  --allowed-paths "src/**,tests/**" \
-  --acceptance-cmd "python -m pytest tests/test_x.py -q" \
+  # escopo permitido padrão: src/** e tests/**
+  --check-cmd "python -m pytest tests/test_x.py -q" \
   --idempotency-key "idem-m1-operacao-0001" \
   --json
 
@@ -60,8 +60,8 @@ hydra submit \
 hydra submit \
   --repo-root /caminho/para/repositorio \
   --objective "Validar pipeline M1 offline" \
-  --allowed-paths "src/**" \
-  --acceptance-cmd "python -c \"import pathlib, sys; sys.exit(0 if pathlib.Path('src/mod.py').exists() else 1)\"" \
+  # exemplo dry-run offline com criação controlada em src/mod.py
+  --check-cmd "python -c \"import pathlib, sys; sys.exit(0 if pathlib.Path('src/mod.py').exists() else 1)\"" \
   --execute --dry-run --fake-touch "src/mod.py=VALUE = 1\n" \
   --json
 
@@ -155,6 +155,77 @@ até 1000 eventos e Last-Event-ID. O padrão é replay finito; `follow=true` aco
 novos eventos com heartbeat de 15 s e encerra na desconexão. O consumidor deve
 salvar o cursor e deduplicar; existe o helper Python EventCursor. Contrato em
 [S15](../b_spc/sessoes_observabilidade.md).
+
+### 0.6. Control Plane Estendida (CLI e API M2–M4 — `T11–T23`)
+
+A CLI (`hydra`) e a API REST/SSE (`/v1/control-plane/*`, 77 paths validados em [`doc/f_api/openapi.yaml`](../f_api/openapi.yaml)) compartilham exatamente a mesma camada transacional sobre `RunService`, `ExecutionStore` e serviços em `core/` e `bridge/`.
+
+**Top-level M1 + estendidos:** `serve`, `run`, `submit`, `inspect`, `review`, `integrate`, `cancel`, `retry`, `status`, `quota`, `project-create`, `project-list`, `runs`.
+
+**21 grupos de subcomandos CLI (`--json` e `--output <arquivo>` suportados em toda operação):**
+- **Organização & Escopo:** `hydra area` (`create`, `list`), `hydra workspace` (`create`, `list`, `archive`), `hydra project` (`create`, `list`, `adopt`), `hydra repo` (`register`, `list`, `grant`, `revoke`).
+- **Agentes, Perfis & Sessões:** `hydra agent` (`register`, `list`, `certify`, `revoke-cert`, `resolve`), `hydra profile` (`create`, `get`, `resolve`, `snapshot`), `hydra session` (`create`, `list`, `threads`, `transition`), `hydra metrics` (`query`, `usage`).
+- **Governança, Memória & Descoberta:** `hydra consent` (`request`, `list`, `decide`, `revoke`), `hydra memory` (`write`, `query`, `revoke`), `hydra discovery` (`scan`, `list`, `approve`, `reject`).
+- **Extensibilidade & Segredos:** `hydra skill` (`register`, `get`, `revoke`), `hydra mcp` (`register`, `get`, `revoke`), `hydra secret` (`register`, `get`, `revoke` — recusa literais; retorna apenas metadados), `hydra extension` (`register`, `install`, `list`, `activate`, `disable`, `revoke`, `rollback`).
+- **Preferências, Transportes & Tokens:** `hydra preference` (`set`, `list`, `resolve`, `revert`, `snapshot`), `hydra transport` (`register`, `list`, `certify`, `health`), `hydra token` (`create`, `revoke` — grava somente hash PBKDF2-SHA256 em `access_tokens`).
+- **Conflitos, Budget & Entrega:** `hydra conflict` (`analyze`, `auto-repair`, `manual`, `discard`), `hydra budget` (`status`, `extend`), `hydra pr-package` (`build`, `publish`).
+
+**Códigos de saída e mapeamento HTTP determinístico ([S20](../b_spc/cli_ci_manual.md)):**
+- `0` / `200|201`: Operação concluída; payloads sempre sanitizados pelo `Redactor`.
+- `1` / `400|403|404|422`: Validação de entrada, JSON inválido, segredo literal (`secret_value_rejected`), `path_traversal` / raiz fora da allowlist, ou recurso inexistente.
+- `2` / `500`: Falha de sistema, I/O ou `StorageError` (sem corrupção parcial no SQLite).
+- `3` / `409|410`: Conflito de estado/revisão/idempotência, `consent_required`, `discovery_untrusted`, `extension_revoked`/`quarantined`, `transport_uncertified`, `budget_frozen`/`exhausted` ou `publish_not_authorized`.
+
+### 0.7. Runbooks Operacionais Verificados (M2–M4 / Gate `G-M4`)
+
+#### RB-01 — Emissão, Rotação e Revogação de Tokens Locais (`access_tokens`)
+1. Emita tokens via CLI sem expor segredos no shell history (preferindo `--token-env`):
+   ```bash
+   hydra token create --principal-id op-1 --scopes read,write --token-env HYDRA_NEW_TOKEN --json
+   ```
+2. Confirme que apenas `token_id`, `principal_id`, `scopes` e `expires_at` foram retornados; `access_tokens.token_hash` armazena apenas `pbkdf2_sha256$...`.
+3. Em caso de comprometimento ou rotação do servidor, revogue o registro (`hydra token revoke <token_id> --json` ou `POST /v1/control-plane/tokens/{id}/revoke`), atualize `HYDRA_API_TOKEN_HASH` e reinicie `hydra serve`.
+
+#### RB-02 — Bloqueio de Memória sem Consentimento (`409` / exit `3`)
+1. Se `hydra memory write` retornar exit `3` (ou `POST /v1/control-plane/memory` retornar `409`), nunca insira registros manualmente no SQLite.
+2. Solicite e aprove um `ConsentRecord` explícito para o escopo alvo:
+   ```bash
+   hydra consent request --scope-type workspace --scope-id <ws_id> --principal-id <op> --json
+   hydra consent decide <consent_id> --action granted --principal-id <op> --json
+   hydra memory write --scope-type workspace --scope-id <ws_id> --consent-id <consent_id> --content "<fato>" --json
+   ```
+
+#### RB-03 — Discovery Local, Mudança de Hash (`untrusted`) e Quarentena de Extensão
+1. Descoberta é sempre opt-in e restrita a `allowed_roots`: `hydra discovery scan --root <repo> --principal-id <op> --json`.
+2. Recursos recém-encontrados ou alterados no disco recebem status `untrusted` automaticamente e não podem ser vinculados até aprovação explícita (`hydra discovery approve <resource_id> --expected-hash <sha256> --json`).
+3. Se uma extensão violar o sandbox (`sys.addaudithook` / tentativa de acesso ao SQLite core) ou divergir do SHA-256 aprovado, ela entra em `quarantined`:
+   ```bash
+   hydra extension list --json
+   hydra extension revoke <install_id> --reason "sandbox violation" --json
+   hydra extension rollback <install_id> --json
+   ```
+
+#### RB-04 — Divergência de Host Key SSH e Transportes Não Certificados
+1. Todo transporte remoto inicia não certificado (`hydra transport register ... --json`); execuções recusam nós sem certificação (`transport_uncertified`, exit `3`).
+2. Nunca desabilite `StrictHostKeyChecking=yes` nem aceite automaticamente chave divergente quando `check_health` / `SshTunnelManager` abortar por mismatch de `known_hosts` / fingerprint SHA-256.
+3. Valide a troca da máquina/chave fora de banda com o administrador do host, atualize o `known_hosts` confiável, recertifique via `hydra transport certify <transport_id> --json` e confirme saúde com `hydra transport health <transport_id> --json`.
+
+#### RB-05 — Migrações SQLite e Rollback Controlado (`0001` / `0002`)
+1. Backups WAL automáticos ficam em `.orchestrator/migration_backup/` antes de upgrades de schema (nunca versionar).
+2. Downgrade para `0001` exige serviço parado e tabelas da expansão vazias (`await store.rollback_migrations("0001")`); tentativas com dados novos ativos abortam sem perda silenciosa.
+
+#### RB-06 — Conflito 3-Way, Budget Exhausted (80%/100%) e PR Package Seguro
+1. **Conflitos de merge (`T27`):** rode `hydra conflict analyze <run_id> --task-id <task_id> --json`. Use `hydra conflict auto-repair <run_id> <conflict_id> --json` apenas para reparo isolado sujeito a checks; para resolução humana ou descarte seguro (preservando `main`), use `hydra conflict manual ...` ou `hydra conflict discard ...`.
+2. **Orçamento (`T28`):** em `80%` o sistema emite alerta auditável; em `100%` congela novos despachos (`budget_frozen` / `budget_exhausted`). Consulte e aprove extensão explícita antes de retomar:
+   ```bash
+   hydra budget status <run_id> --json
+   hydra budget extend <run_id> --additional-usd 5.0 --actor <op> --reason "justificativa" --json
+   ```
+3. **Empacotamento e Publicação de PR (`T28`):** gere artefato Markdown redigido com `hydra pr-package build <run_id> --json`; publicação exige autorização explícita (`--authorized`), falhando com exit `3` caso contrário.
+
+#### RB-07 — Recuperação de Crash, Worktrees Órfãs e Retomada HITL
+1. Após restart inesperado, `ExecutionStore` e `RunService` reconciliam tentativas interrompidas e identificam worktrees órfãs sem sobrescrever diffs não integrados.
+2. Inspecione o estado via `hydra inspect <run_id> --repo-root <repo> --events --artifacts --json`, retome pausas HITL respondendo à intervenção (`POST /v1/control-plane/runs/{run_id}/interventions/{request_id}/response`), e reexecute ou descarte worktrees com `hydra retry <run_id> <task_id>` ou `POST /v1/control-plane/runs/{run_id}/discard`.
 
 ---
 
