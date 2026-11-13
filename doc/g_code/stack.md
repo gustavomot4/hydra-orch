@@ -44,24 +44,28 @@ O projeto exige execução verificável local, orquestração assíncrona, strea
 
 ### 3.2 Frontend (Interface Visual) — React 18 + TypeScript 5.5
 
-| Camada | Tecnologia | Versão | Finalidade |
-|--------|------------|--------|------------|
-| **Runtime** | Node.js | 20 LTS | ES2023, fetch, WebSocket |
-| **Build** | Vite | 5.4 | HSR, ESM, otimizado |
-| **Framework** | React | 18.3 | Concurrent, Suspense, Server Components ready |
-| **Language** | TypeScript | 5.5 | Strict mode, type inference |
-| **Routing** | React Router | 6.26 | Data loading, nested routes |
-| **State/Server** | TanStack Query | 5.51 | Cache, dedup, SSE integration, mutations |
-| **Client State** | Zustand | 4.5 | Global UI state (sidebar, theme, modals) |
-| **SSE** | eventsource-parser | 1.1 | Parser streaming, reconnection |
-| **UI Primitives** | Radix UI | 1.1 | Acessível, unstyled, WCAG AA |
-| **Styling** | Tailwind CSS | 3.4 | Utility-first, design tokens, dark mode |
-| **Icons** | Lucide React | 0.436 | Consistente, tree-shakable |
-| **Diff/Patch** | diff2html + Monaco | 3.4 / 4.6 | Side-by-side, syntax highlight |
-| **Forms** | React Hook Form + Zod | 7.52 / 3.23 | Validação schema-first |
-| **Dates** | date-fns | 3.6 | Imutável, tree-shakable, i18n |
-| **Testing** | Vitest + Testing Library | 2.0 / 16.0 | Unit, integration, a11y |
-| **Lint/Format** | ESLint + Prettier | 8.57 / 3.3 | TypeScript-aware, Tailwind plugin |
+> Reconciliado com [`../b_spc/ui_contratos.md`](../b_spc/ui_contratos.md) (DBC-9), [`../b_spc/a_ui/README.md`](../b_spc/a_ui/README.md), [`../b_spc/a_ui/d_figma.md`](../b_spc/a_ui/d_figma.md) e [`../a_context/taxonomia_file_system.md`](../a_context/taxonomia_file_system.md).
+
+| Camada | Tecnologia | Versão (`package.json` / lock) | Finalidade |
+|--------|------------|----------------------------------|------------|
+| **Runtime** | Node.js | 20 LTS / 24.x (`v24.19.0`) | ES2023, fetch, WebSocket |
+| **Build** | Vite | `^5.4.21` (`5.4.21`) | HMR, ESM, proxy `/v1` |
+| **Framework** | React / React DOM | `^18.3.1` (`18.3.1`) | Concurrent, Suspense |
+| **Language** | TypeScript | `~5.5.0` (`5.5.4`) | Strict mode (`noImplicitAny`, `strictNullChecks`) |
+| **Routing** | React Router | `^6.26.0` (`6.30.6`) | Rotas Control Plane, deep links |
+| **State/Server** | TanStack Query | `^5.51.0` (`5.107.1`) | Cache, dedup, `retry: false` em mutações e `401/403/404` |
+| **Client State** | Zustand | `^4.5.0` (`4.5.7`) | Auth (`sessionStorage`), layout/tabs/split panes, sidebar (`localStorage`) |
+| **SSE** | `eventsource-parser` | `^1.1.0` (`1.1.2`) | Parser streaming SSE, reconexão por `seq` |
+| **UI Primitives** | Radix UI (`dialog`, `dropdown-menu`, `tabs`, `tooltip`) | `^1.1.x` / `^2.1.x` (`1.2.1`–`2.2.1`) | Acessível, unstyled, WCAG AA |
+| **Styling** | Tailwind CSS | `^3.4.0` (`3.4.19`) | Utility-first, tokens Figma dark (`#141414`..`#303030`) |
+| **Typography** | `@fontsource/inter` + `@fontsource/jetbrains-mono` | `^5.0.16` / `^5.0.18` (`5.3.0`) | `Inter` (UI) e `JetBrains Mono` (código/paths/terminais), empacotamento hermético offline |
+| **Icons** | `lucide-react` | `^0.436.0` (`0.436.0`) | Ícones SVG tree-shakable, sem chrome macOS falso |
+| **Terminal PTY** | `@xterm/xterm` + `@xterm/addon-fit` | `^5.5.0` / `^0.10.0` (`5.5.0` / `0.10.0`) | Terminal interativo PTY conectado na Onda 14 |
+| **Schema Validation** | Zod | `^3.23.8` (`3.25.76`) | Validação runtime schema-first dos DTOs Control Plane |
+| **Unit/Integration** | Vitest + Testing Library + `jsdom` | `^2.0.5` (`2.1.9`) / `^16.0.0` (`16.3.3`) | Unit, integração de shell, AuthGate e contratos |
+| **E2E & A11y** | Playwright (`@playwright/test`) + `axe-core` | `^1.47.0` (`1.65.0`) / `^4.10.0` (`4.14.0`) | Testes E2E e auditoria WCAG 2.1 AA |
+| **Lint/Format** | ESLint + Prettier | `^8.57.0` (`8.57.1`) / `^3.3.3` (`3.10.1`) | TypeScript-aware, React Hooks/Refresh, `--max-warnings 0` |
+| **Diff/Patch (Onda 14)** | `diff2html` / Monaco (lazy) | Planejado M5 | Carregamento sob demanda em `src/feature/artifact/` e `conflict/` |
 
 ### 3.3 Infraestrutura & Deploy
 
@@ -103,24 +107,29 @@ hydra-orch/
 │   ├── h_test/
 │   ├── i_infra/
 │   └── j_manual/
-├── frontend/                   # React + TS + Vite
-│   ├── public/
+├── frontend/                   # React 18 + TS 5.5 + Vite 5.4 (regra estrita do singular)
 │   ├── src/
-│   │   ├── components/
-│   │   ├── features/
-│   │   ├── hooks/
-│   │   ├── lib/
-│   │   ├── pages/
-│   │   ├── stores/
-│   │   ├── types/
+│   │   ├── component/          # AppRail, AuthGate, CapabilityGate, PaneLayout, Sidebar, StatusBadge, TabBar, UsageBar, WorkspaceTree
+│   │   ├── feature/            # Módulos Onda 14/15: artifact/, attachment/, auth/, chat/, composer/, conflict/, dictation/, quickopen/, quota/, shell/, terminal/
+│   │   ├── hook/               # queryClient, useBootstrap, useCapabilities, useControlPlaneClient, useKeyboardShortcuts, useWorkspaceHierarchy
+│   │   ├── page/               # NovoChatPage (18:8), ConfigPerfilPage (18:454), PlaceholderFeaturePage
+│   │   ├── store/              # authStore (sessionStorage), layoutStore (tabs/split/sidebar)
+│   │   ├── style/              # tokens.css (paleta Figma #141414..#303030, Inter, JetBrains Mono)
+│   │   ├── type/               # DTOs Control Plane e schemas Zod
 │   │   ├── App.tsx
+│   │   ├── index.css
 │   │   └── main.tsx
+│   ├── tests/                  # Vitest + Testing Library (+ Playwright E2E/axe-core)
 │   ├── index.html
 │   ├── package.json
+│   ├── package-lock.json
 │   ├── tsconfig.json
 │   ├── vite.config.ts
-│   ├── tailwind.config.js
-│   └── .eslintrc.json
+│   ├── vitest.config.ts
+│   ├── tailwind.config.ts
+│   ├── postcss.config.js
+│   ├── .eslintrc.cjs
+│   └── .prettierrc
 ├── src/
 │   └── hydra_orch/             # Pacote Python (PEP 621)
 │       ├── __init__.py         # __version__ = "0.1.0"
@@ -269,15 +278,14 @@ script_location = "migrations"
 {
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "vitest",
-    "test:ui": "vitest --ui",
-    "test:coverage": "vitest --coverage",
-    "lint": "eslint . --ext ts,tsx --max-warnings 0",
-    "format": "prettier --write .",
-    "typecheck": "tsc --noEmit",
-    "gen:api": "hey-api openapi-ts -i http://localhost:8000/openapi.json -o src/types/api --client fetch --hooks react-query --schemas zod"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "format": "prettier --write "src/**/*.{ts,tsx,css}" "tests/**/*.{ts,tsx}"",
+    "typecheck": "tsc --noEmit"
   }
 }
 ```
@@ -316,9 +324,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "20", cache: "npm", cache-dependency-path: "frontend/package-lock.json" }
       - run: cd frontend && npm ci
-      - run: cd frontend && npm run lint
       - run: cd frontend && npm run typecheck
-      - run: cd frontend && npm run test:coverage
+      - run: cd frontend && npm run lint
+      - run: cd frontend && npm test
       - run: cd frontend && npm run build
   
   docker:
@@ -349,13 +357,13 @@ jobs:
 - **Testes no mesmo commit** da implementação (TDD leve)
 
 ### 6.2 TypeScript/React
-- **Strict mode** no `tsconfig.json` (`noImplicitAny`, `strictNullChecks`)
-- **Zod schemas** derivados do OpenAPI para forms + validação runtime
-- **TanStack Query** para todo server state (cache, dedup, retry)
-- **Zustand** apenas para UI state global (theme, sidebar, modals)
-- **Radix UI** + Tailwind para componentes acessíveis por padrão
-- **Monaco Editor** apenas no DiffView (lazy load)
-- **Testes**: `vitest` + `testing-library` (unit + a11y)
+- **Strict mode** no `tsconfig.json` (`noImplicitAny`, `strictNullChecks`) e alias `@/*` -> `./src/*`
+- **Taxonomia estritamente no singular** sob `frontend/src/` (`component/`, `feature/`, `hook/`, `page/`, `store/`, `style/`, `type/`) conforme [`../a_context/taxonomia_file_system.md`](../a_context/taxonomia_file_system.md)
+- **Tokens Figma dark & i18n PT-BR**: paleta `#141414` / `#181818` / `#1C1C1C` / `#202020` / `#282828` / `#303030` / `#E8E8E8` / `#969696`, `@fontsource/inter` + `@fontsource/jetbrains-mono` offline, ícones `lucide-react`, zero semáforos falsos de macOS
+- **Zod schemas** para validação runtime dos contratos Control Plane; cota `unknown` permanece `—` (nunca `0%`)
+- **TanStack Query** para leitura (`retry: false` em mutações e `401/403/404`) + **Zustand** apenas para auth (`sessionStorage`) e layout local (painéis, tabs, sidebar)
+- **Radix UI** + Tailwind para componentes acessíveis por padrão; **Terminal PTY** via `@xterm/xterm` + `@xterm/addon-fit` (Onda 14)
+- **Testes**: `vitest` + `@testing-library/react` (unit/shell) e `@playwright/test` + `axe-core` (E2E/WCAG 2.1 AA)
 
 ### 6.3 Git & Commits
 - **Conventional Commits**: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`
@@ -396,6 +404,10 @@ jobs:
 | Documento | Link |
 |-----------|------|
 | PRD Técnico | [`../b_spc/prd_tecnico.md`](../b_spc/prd_tecnico.md) |
+| Contratos UI (DBC-9) | [`../b_spc/ui_contratos.md`](../b_spc/ui_contratos.md) |
+| Interface UI | [`../b_spc/a_ui/README.md`](../b_spc/a_ui/README.md) |
+| Telas Figma UI | [`../b_spc/a_ui/d_figma.md`](../b_spc/a_ui/d_figma.md) |
+| Taxonomia de Diretórios | [`../a_context/taxonomia_file_system.md`](../a_context/taxonomia_file_system.md) |
 | Infraestrutura | [`../i_infra/README.md`](../i_infra/README.md) |
 | API OpenAPI | [`../f_api/openapi.yaml`](../f_api/openapi.yaml) |
 | Testes | [`../h_test/README.md`](../h_test/README.md) |

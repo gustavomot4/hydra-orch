@@ -1,0 +1,20 @@
+:root {
+  --bg-main: #141414;
+  --bg-rail: #181818;
+  --bg-sidebar: #1c1c1c;
+  --bg-surface: #202020;
+  --bg-hover: #282828;
+  --border: #303030;
+  --text-primary: #e8e8e8;
+  --text-muted: #969696;
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --btn-primary-bg: #e8e8e8;
+  --btn-primary-text: #181818;
+  --status-success: #22c55e;
+  --status-warning: #f59e0b;
+  --status-error: #ef4444;
+  --status-info: #3b82f6;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}

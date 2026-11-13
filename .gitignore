@@ -65,3 +65,11 @@ worktree/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Frontend dependencies, build & test reports
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+playwright-report/
+test-results/
