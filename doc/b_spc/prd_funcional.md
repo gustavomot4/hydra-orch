@@ -3,11 +3,11 @@
 **Identificador Formal:** `prd_funcional.md`
 **Caminho Canônico:** `doc/b_spc/prd_funcional.md`
 **Versão:** `v02_00_0000`
-**Status:** `PROPOSTO / EM DESENVOLVIMENTO`
+**Status:** `IMPLEMENTADO / VALIDADO OFFLINE (M1–M4 · GATE G-M4)`
 **Autoridade:** Arquitetura do hydra-orch alinhada a [`../a_context/taxonomia_file_system.md`](../a_context/taxonomia_file_system.md) e [`plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md).
 **Escopo:** Requisitos funcionais (RF01 a RF30), casos de uso detalhados (UC01 a UC05), regras de negócio (RB01 a RB20), critérios de aceite e rastreabilidade DBC-9. Ideias exploratórias pós-M4 (antigos V5/V6) residem em [`../a_context/ideia_futura.md`](../a_context/ideia_futura.md).
 
-**Estado das capacidades:** RF01–RF15 formam o núcleo verificável (V0); RF16–RF25 formalizam a expansão control plane (V1–V4); RF26–RF30 detalham modos de orquestração (Swarm em Duas Ondas Wave 0+1, Relay e Persistente com Handoff por Estado Git/Worktree), interação humano-no-loop (HITL), resolução de conflitos + *Contract Amendment*, governança de orçamento e empacotamento de entrega. Propostas fora do núcleo de engenharia de software foram transferidas para [`../a_context/ideia_futura.md`](../a_context/ideia_futura.md). Todas as capacidades permanecem `PROPOSTO / NÃO IMPLEMENTADO` até seus gates técnicos e certificações.
+**Estado das capacidades:** **RF01–RF30** (M1 a M4 / V0 a V4) estão implementados no backend/CLI/API e validados na suíte hermética offline (`python -m pytest tests -q` → **568 testes aprovados**; ver [`../a_context/backlog.md`](../a_context/backlog.md)). Propostas fora do núcleo de engenharia de software residem em [`../a_context/ideia_futura.md`](../a_context/ideia_futura.md); frontend Web UI visual e certificação contra CLIs externas pagas permanecem fora do escopo offline.
 
 ---
 

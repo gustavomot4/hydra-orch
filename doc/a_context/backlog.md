@@ -1,467 +1,90 @@
 # backlog — Backlog Operacional das Tasks do hydra-orch
 
-**Identificador Formal:** `backlog.md`  
-**Caminho Canônico:** `doc/a_context/backlog.md`  
-**Versão:** `v02_00_0000`<br>
-**Status:** `APROVADO / ESCOPO ENXUTO (T01 a T28)`<br>
-**Autoridade:** Derivado normativo de [`doc/b_spc/prd_tecnico.md`](../b_spc/prd_tecnico.md) (§8), [`doc/b_spc/prd_funcional.md`](../b_spc/prd_funcional.md) e [`doc/a_context/plano_desenvolvimento.md`](plano_desenvolvimento.md).  
-**Escopo:** Catálogo operacional das 28 tasks normativas de Engenharia de Software (T01 a T28), prioridades (P0–P2), estimativas de complexidade relativa (204 Story Points), 11 ondas de execução, matriz de mitigação de colisão de arquivos para agentes e políticas de engenharia. Ideias periféricas (antigas T29 a T44) estão isoladas em [`ideia_futura.md`](ideia_futura.md).
+**Identificador Formal:** `backlog.md`
+**Caminho Canônico:** `doc/a_context/backlog.md`
+**Versão:** `v03_00_0000`
+**Status:** `CONCLUÍDO — M1 A M4 (28/28 TASKS · 204/204 SP · GATE G-M4 FECHADO)`
+**Autoridade:** Espelho operacional de [`prd_tecnico.md (§8)`](../b_spc/prd_tecnico.md) e [`prd_funcional.md`](../b_spc/prd_funcional.md), subordinado a [`AGENTS.md`](../../AGENTS.md) e [`taxonomia_file_system.md`](taxonomia_file_system.md). Ideias pós-M4 permanecem em [`ideia_futura.md`](ideia_futura.md).
 
 ---
 
-## 1. Purpose (Propósito)
+## 1. Resumo Executivo e Épicos (EP01–EP08)
 
-Fornecer uma ferramenta operacional determinística de engenharia de software para o planejamento, alocação, execução e rastreamento das 28 tarefas técnicas de implementação (**T01 a T28**) do `hydra-orch`.
+- **Escopo concluído:** **28 tasks (`T01`–`T28`)**, **204 Story Points** (Fibonacci: `P0` = núcleo M1; `P1` = Control Plane/Swarm/Handoff M2–M3; `P2` = Governança/Entrega M4), em **11 ondas**.
+- **Regra de fonte da verdade:** Detalhes algorítmicos, DDL e contratos DBC-9 vivem em [`doc/b_spc/`](../b_spc/); este arquivo mantém a rastreabilidade enxuta de status, dependências, cobertura de gaps e evidência final.
 
-O backlog traduz os requisitos normativos dos PRDs (RF01–RF30 / RT01–RT30) em unidades de trabalho atômicas e testáveis, organizadas em 11 ondas de execução concebidas para permitir o paralelismo seguro de agentes autônomos sem colisão de arquivos e sob o comando de um único integrador líder.
-
----
-
-## 2. Why (Justificativa)
-
-Em sistemas onde agentes de software (como Antigravity, Claude Code, Cursor, Copilot ou workers do swarm) atuam no código, a ausência de fronteiras explícitas de propriedade de arquivo gera sobreposição de branches, conflitos de merge destrutivos e retrabalho. Além disso, inflar o backlog com funcionalidades fora do domínio de orquestração de código (como voz duplex, geração de vídeo/música e quantização GGUF, agora movidas para [`ideia_futura.md`](ideia_futura.md)) desviava o foco do caminho crítico. O presente backlog estabelece as regras de engajamento, estimativas em Fibonacci (204 SP) e a matriz anti-colisão indispensáveis para a entrega contínua do núcleo (M1) e da expansão de governança (M2–M4).
-
----
-
-## 3. Contract (Contrato Operacional e Convenções)
-
-### 3.1. Hierarquia de Fonte da Verdade
-1. **Norma Máxima:** O [`prd_tecnico.md (§8)`](../b_spc/prd_tecnico.md) é a autoridade canônica imutável para a definição técnica, dependências formais, arquivos de propriedade e Definition of Done (DoD) de cada task T01–T28.
-2. **Backlog Operacional:** O presente documento espelha fielmente os identificadores, dependências e requisitos do PRD técnico. O DoD sintético aqui apresentado resume a regra normativa; em qualquer divergência textual, prevalece o PRD técnico.
-3. **Governança Git e Taxonomia:** As diretrizes do [`AGENTS.md`](../../AGENTS.md) e da [`taxonomia_file_system.md`](taxonomia_file_system.md) (regra estrita do singular: `migration/`, `adapter/`, `model.py`) prevalecem sobre quaisquer fluxos operacionais.
-4. **Sincronização:** Toda e qualquer alteração de escopo, divisão de task ou redefinição de arquivos de propriedade deve ser formalizada primeiramente no PRD técnico e refletida neste backlog no mesmo commit.
-
-### 3.2. Prioridades das Tasks (Escala P0–P2)
-O backlog adota uma escala de prioridades de três níveis estritamente associada aos marcos M1 a M4 do produto:
-- **P0 — Bloqueador do Núcleo Verificável (V0 / M1):** Tasks T01 a T08. Pré-requisito inegociável para qualquer execução autônoma de código em worktree real.
-- **P1 — Crítico para Control Plane, Swarm em 2 Ondas e Handoff Git (V1–V3 / M2–M3):** Tasks T09 a T16, T25 e T26. Habilita segurança, persistência relacional (`migration/`), workspaces, catálogo, observabilidade, Swarm (Wave 0 + Wave 1) e Handoff por Estado Git/Worktree.
-- **P2 — Expansão de Governança e Entrega Automatizada (V4 / M4):** Tasks T17 a T24, T27 e T28. Governança de memória, discovery local, extensões em sandbox, resolução 3-way de conflitos + *Contract Amendment*, budget rígido e PR packaging.
-
-### 3.3. Estimativa de Complexidade Relativa (Fibonacci)
-As tasks são pontuadas utilizando a sequência clássica de Fibonacci como métrica de complexidade relativa e incerteza técnica (Story Points — SP), **não correspondendo a horas ou dias de calendário**:
-- **1 SP:** Alteração pontual, configuração simples ou verificação trivial de schema.
-- **2 SP:** Implementação mecânica com padrão pré-existente e testes diretos.
-- **3 SP:** Unidade padrão de complexidade moderada (Âncora: **T01** — Configuração canônica tipada com validação, aliases e consolidação de runtime `.orchestrator/`).
-- **5 SP:** Módulo substancial com múltiplos fluxos, validações estritas e testes herméticos.
-- **8 SP:** Componente crítico com integração de processos, persistência transacional ou protocolos de rede.
-- **13 SP:** Subsistema complexo com alta densidade lógica ou orquestração concorrente (**T06, T20, T25**). **Regra:** Toda task de 13 SP exige decomposição obrigatória em subtarefas no spec correspondente antes do início do código.
-- **Total do Backlog Ativo:** **204 Story Points** distribuídos nas 28 tasks normativas (105 SP de ideias periféricas transferidos para [`ideia_futura.md`](ideia_futura.md)).
-
-### 3.4. Ciclo de Vida e Estados da Task
-O estado operacional de cada task progride rigorosamente através do seguinte fluxo:
-`pendente` $\rightarrow$ `pronto` $\rightarrow$ `em_andamento` $\rightarrow$ `em_revisao` $\rightarrow$ `concluido` (com estado de exceção `bloqueado`).
+| Épico | Título | Marco | Tasks | SP | Status |
+|---|---|---|---|---|---|
+| **EP01** | Núcleo Verificável Local | V0 / M1 | T01–T08 | 58 | concluido |
+| **EP02** | Control Plane Seguro e HITL | V1 / M2 | T09, T26 | 13 | concluido |
+| **EP03** | Workspaces e Catálogo de Perfis | V2 / M3 | T10–T13 | 23 | concluido |
+| **EP04** | Sessões, Observabilidade, Rotas e Swarm (Wave 0+1) | V3 / M3 | T14–T16, T25 | 34 | concluido |
+| **EP05** | Memória, Discovery e Extensões | V4 / M4 | T17–T20 | 34 | concluido |
+| **EP06** | Acessibilidade e Transportes Certificados | V4 / M4 | T21, T22 | 13 | concluido |
+| **EP07** | Entrega Governada (Conflitos, Budget, PR) | V4 / M4 | T27, T28 | 16 | concluido |
+| **EP08** | Superfícies CLI, CI e Manuais Estendidos | V4 / M4 | T23, T24 | 13 | concluido |
 
 ---
 
-## 4. Estrutura de Épicos (EP01 a EP08)
+## 2. Matriz Consolidada de Tasks (`T01` a `T28`)
 
-As 28 tasks normativas são organizadas em 8 épicos de engenharia de software:
-
-| Épico | Título | Versão / Marco | Tasks Contidas | SP Total |
-|---|---|---|---|---|
-| **EP01** | Núcleo Verificável Local | V0 / M1 | T01, T02, T03, T04, T05, T06, T07, T08 | 58 |
-| **EP02** | Control Plane Seguro e HITL | V1 / M2 | T09, T26 | 13 |
-| **EP03** | Workspaces e Catálogo de Perfis | V2 / M3 | T10, T11, T12, T13 | 23 |
-| **EP04** | Sessões, Observabilidade, Rotas e Swarm (Wave 0+1) | V3 / M3 | T14, T15, T16, T25 | 34 |
-| **EP05** | Memória, Discovery e Extensões | V4 / M4 | T17, T18, T19, T20 | 34 |
-| **EP06** | Acessibilidade e Transportes Certificados | V4 / M4 | T21, T22 | 13 |
-| **EP07** | Entrega Governada (Conflitos, Budget, PR) | V4 / M4 | T27, T28 | 16 |
-| **EP08** | Superfícies CLI, CI e Manuais Estendidos | V4 / M4 | T23, T24 | 13 |
-
----
-
-## 5. Decomposição das 11 Ondas de Execução
-
-As tasks são distribuídas em 11 ondas lógicas sequenciais. Tasks dentro de uma mesma onda com arquivos de propriedade disjuntos podem ser executadas em paralelo por agentes em worktrees isoladas; tasks com arquivos sobrepostos são executadas em estrita ordem serial.
-
-```mermaid
-flowchart TD
-    subgraph V0 [V0 / M1 — Núcleo Verificável]
-        O1[Onda 1: Fundações T01-T03] --> O2[Onda 2: Execução Real T04-T06] --> O3[Onda 3: Integração M1 T07-T08]
-    end
-    subgraph V1_V3 [V1-V3 / M2-M3 — Control Plane, Swarm Wave 0+1 & Handoff Git]
-        O3 --> O4[Onda 4: Segurança & DB T09-T10]
-        O4 --> O5[Onda 5: Entidades V2/V3 T11, T12, T14]
-        O5 --> O6[Onda 6: Perfis, Telemetria & HITL T13, T15, T26]
-        O6 --> O7[Onda 7: Rotas & Swarm/Relay T16, T25]
-    end
-    subgraph V4 [V4 / M4 — Governança Avançada & Entrega]
-        O7 --> O8[Onda 8: Memória & Conflitos T17, T18, T27]
-        O8 --> O9[Onda 9: Skills, Budget & A11y T19, T21, T22, T28]
-        O9 --> O10[Onda 10: Extensões Isoladas T20]
-        O10 --> O11[Onda 11: CLI & CI Estendidos T23, T24]
-    end
-```
-
-### Detalhamento das Ondas:
-
-- **Onda 1 (V0 / Fundações):** T01 (3 SP), T02 (5 SP), T03 (8 SP) — *Serial estrito*. Cria a base canônica de configuração tipada, schemas Pydantic e persistência SQLite WAL com migração inicial em `migration/`.
-- **Onda 2 (V0 / Execução Real):** T04 (8 SP), T05 (8 SP), T06 (13 SP) — *Serial estrito*. Implementa o runner com isolamento de processos, workspace Git em worktree real e serviço de integração serializada com gates de checks.
-- **Onda 3 (V0 / Fechamento M1):** T07 (8 SP), T08 (5 SP) — *Serial*. Unifica superfícies CLI e API sobre o mesmo serviço de run e estabelece a suíte offline reproduzível de CI. **Fecha o Marco M1 (Gate G-M1)**.
-- **Onda 4 (Segurança e Base Control Plane):** T09 (5 SP), T10 (8 SP) — *Serial*. Implementa token de autenticação local obrigatório, CORS estrito, redaction centralizada de segredos e esquema de migrações DDL da expansão (`migration/`). **Fecha o Gate de Segurança G-SEG**.
-- **Onda 5 (Entidades e Registro V2/V3):** T11 (5 SP), T12 (5 SP), T14 (8 SP) — *Paralelo seguro* (arquivos disjuntos: `workspace_registry.py`, `agent_registry.py`, `session_service.py`).
-- **Onda 6 (Perfis, Telemetria e HITL):** T13 (5 SP), T15 (5 SP), T26 (8 SP) — *Paralelo governado* (arquivos disjuntos: `profile_service.py`, `metrics.py`, `hitl.py`).
-- **Onda 7 (Roteamento Adaptativo e Swarm Wave 0+1 / Handoff Git):** T16 (8 SP), T25 (13 SP) — *Paralelo seguro* (`route_selector.py` e `engine/swarm.py`). **Fecha o Marco M3 (Gate G-M3)**.
-- **Onda 8 (Governança Base e Conflitos V4):** T17 (8 SP), T18 (5 SP), T27 (8 SP) — *Paralelo seguro* (`consent.py`/`memory_store.py`, `discovery.py`, `conflict_resolver.py`).
-- **Onda 9 (Conectividade, Budget e Acessibilidade):** T19 (8 SP), T21 (5 SP), T22 (8 SP), T28 (8 SP) — *Paralelo seguro* (`skill_registry.py`, `preferences.py`, `transport_registry.py`, `budget.py`/`packaging.py`).
-- **Onda 10 (Extensões Isoladas):** T20 (13 SP) — *Serial exclusivo* (`extension_host.py`). Isolamento de processos de plugins com sandbox de permissões.
-- **Onda 11 (Fechamento V4):** T23 (8 SP), T24 (5 SP) — *Serial*. CLI estendida para todos os módulos e CI estendido cobrindo todos os cenários negativos. **Fecha o Marco M4 (Gate G-M4)**.
-
----
-
-## 6. Tabela Unificada do Backlog (Tasks T01 a T28)
-
-Todas as 28 tasks normativas detalhadas com seus contratos formais, dependências, arquivos de propriedade (em conformidade estrita com a taxonomia no singular) e Definition of Done (DoD).
-
-| ID | Nome da Task | Épico / Versão | Prio | SP | Dependências | RF / RT | Arquivos de Propriedade | Definition of Done (DoD Sintético) | Status |
+| ID | Nome da Task | Épico / Versão | Prio | SP | Dependências | RF / RT | Arquivos / Entregáveis Principais | DoD Sintético | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| **T01** | Config canônica | EP01 / V0 | P0 | 3 | — | RF02 / RT01 | `config.py`, `config.yaml`, `.gitignore`, consumidores router/gateway/CLI/API e testes | Aliases e modelo resolvidos; provedores explícitos; inválidos recusados; runtime `.orchestrator/`; gateway desligado sem chamadas e required com preflight | concluido |
-| **T02** | Contratos e estados | EP01 / V0 | P0 | 5 | T01 | RF03, RF07 / RT02 | `model.py`, `prd_tecnico.md (§3.4)`, `tests/test_model.py` | Schemas Pydantic + máquinas de transição válidas/inválidas 100% cobertas | concluido |
-| **T03** | Store e migração | EP01 / V0 | P0 | 8 | T02 | RF03, RF05 / RT03, RT11 | `core/checkpointer.py`, `migration/`, `tests/test_checkpointer.py` | SQLite WAL, restart seguro, chave de idempotência, transação atômica e FKs ativas | concluido |
-| **T04** | Runner e fake | EP01 / V0 | P0 | 8 | T03 | RF04, RF06 / RT04 | `bridge/worker_runner.py`, `tests/test_worker_runner.py` | Cwd operacional real, erro `executor_unavailable`, timeout com tree kill, fake restrito a dry-run | concluido |
+| **T01** | Config canônica | EP01 / V0 | P0 | 3 | — | RF02 / RT01 | `config.py`, `config.yaml`, `.gitignore` | Aliases/provedores explícitos; inválidos recusados; runtime `.orchestrator/`; gateway desligado sem rede | concluido |
+| **T02** | Contratos e estados | EP01 / V0 | P0 | 5 | T01 | RF03, RF07 / RT02 | `model.py`, `tests/test_model.py` | Schemas Pydantic + máquinas de transição válidas/inválidas 100% cobertas | concluido |
+| **T03** | Store e migração | EP01 / V0 | P0 | 8 | T02 | RF03, RF05 / RT03, RT11 | `core/checkpointer.py`, `migration/0001_initial_core.sql`, `tests/test_checkpointer.py` | SQLite WAL, restart seguro, idempotência, transação atômica e FKs ativas | concluido |
+| **T04** | Runner e fake | EP01 / V0 | P0 | 8 | T03 | RF04, RF06 / RT04 | `bridge/worker_runner.py`, `tests/test_worker_runner.py` | Cwd real, erro `executor_unavailable`, timeout com tree kill, fake restrito a dry-run | concluido |
 | **T05** | Workspace Git | EP01 / V0 | P0 | 8 | T04 | RF01, RF04 / RT05 | `core/git_workspace.py`, `tests/test_git_workspace.py` | SHA base fixo, worktree real isolada, checkout do usuário intacto, lock cleanup | concluido |
 | **T06** | Checks e integração | EP01 / V0 | P0 | 13 | T05 | RF07, RF08 / RT06 | `core/git_workspace.py`, `core/run_service.py`, `tests/test_integration.py` | Patch real atribuível, escopo validado, conflito bloqueante, checks determinam aceite | concluido |
-| **T07** | Entrada M1 (CLI/API) | EP01 / V0 | P0 | 8 | T06 | RF03–RF08 / RT10 | `cli.py`, `server.py`, `tests/test_server.py`, `tests/test_cli.py` | Submeter/consultar/cancelar/revisar usam mesmo serviço de run; auth local loopback | concluido |
-| **T08** | CI e manual M1 | EP01 / V0 | P0 | 5 | T07 | RF15 / RT12 | `.github/workflows/ci.yml`, `doc/j_manual/README.md`, `pyproject.toml` | Suíte offline hermética no CI (Linux, Windows, macOS); manual operacional de M1 | concluido |
-| **T09** | Auth e CORS estrito | EP02 / V1 | P1 | 5 | T07 | RF15, RF24 / RT25 | `server.py`, `core/auth.py`, `core/redaction.py`, `tests/test_auth.py` | Token local obrigatório; CORS allowlist estrita; redaction de segredos validada | concluido |
-| **T10** | Migrações control plane | EP03 / V2 | P1 | 8 | T03, T09 | RF16–RF30 / RT03, RT25 | `core/checkpointer.py`, `migration/`, `tests/test_migration.py` | Tabelas de expansão versionadas em `migration/`; rollback auditável; FKs ativas | concluido |
+| **T07** | Entrada M1 (CLI/API) | EP01 / V0 | P0 | 8 | T06 | RF03–RF08 / RT10 | `cli.py`, `server.py`, `tests/test_server.py`, `tests/test_cli.py` | Submeter/consultar/cancelar/revisar usam `RunService`; auth local Bearer/loopback | concluido |
+| **T08** | CI e manual M1 | EP01 / V0 | P0 | 5 | T07 | RF15 / RT12 | `.github/workflows/ci.yml`, `doc/j_manual/README.md`, `pyproject.toml` | Suíte offline hermética no CI (Linux/Windows/macOS); manual operacional M1 | concluido |
+| **T09** | Auth e CORS estrito | EP02 / V1 | P1 | 5 | T07 | RF15, RF24 / RT25 | `server.py`, `core/auth.py`, `core/redaction.py`, `tests/test_auth.py` | Token local PBKDF2 obrigatório; CORS allowlist estrita; redaction de segredos | concluido |
+| **T10** | Migrações control plane | EP03 / V2 | P1 | 8 | T03, T09 | RF16–RF30 / RT03, RT25 | `core/checkpointer.py`, `migration/0002_control_plane.sql`, `tests/test_migration.py` | Tabelas de expansão versionadas em `migration/`; rollback auditável; FKs ativas | concluido |
 | **T11** | Registry áreas/repos | EP03 / V2 | P1 | 5 | T10 | RF16 / RT13 | `core/workspace_registry.py`, `tests/test_workspace_registry.py` | Hierarquia Area/Workspace/Project/Repo persistida; path traversal bloqueado | concluido |
 | **T12** | Catálogo agentes/capabilities | EP03 / V2 | P1 | 5 | T02, T04, T10 | RF17, RF14 / RT14 | `core/agent_registry.py`, `config.yaml`, `tests/test_agent_registry.py` | Capabilities declaradas; driver não certificado bloqueado; CLI ausente gera erro claro | concluido |
 | **T13** | Perfis e snapshots | EP03 / V2 | P1 | 5 | T11, T12 | RF17, RF23 / RT15 | `core/profile_service.py`, `tests/test_profile.py` | Validação pré-execução; ProfileSnapshot imutável com hash SHA-256 por run | concluido |
-| **T14** | Sessões, threads, SSE replay | EP04 / V3 | P1 | 8 | T03, T07, T10 | RF18, RF05 / RT16 | `core/session_service.py`, `server.py`, `tests/test_sse_replay.py` | Árvore hierárquica sessões/threads; SSE com Last-Event-ID, replay e dedup | concluido |
-| **T15** | Métricas observabilidade | EP04 / V3 | P1 | 5 | T03, T10, T14 | RF19 / RT17 | `core/metrics.py`, `tests/test_metrics.py` | Fila, duração, tokens, custo com status observed/stale/unknown; zero não inventado | concluido |
-| **T16** | Seleção adaptativa rotas | EP04 / V3 | P1 | 8 | T12, T15 | RF20, RF11 / RT18 | `core/route_selector.py`, `bridge/omniroute_client.py`, `tests/test_route_selector.py` | RouteDecision auditável; modo direto sem gateway testado; quota unknown | concluido |
-| **T17** | Consentimento e memória | EP05 / V4 | P2 | 8 | T09, T10 | RF21 / RT19 | `core/consent.py`, `core/memory_store.py`, `tests/test_memory.py` | Escrita exige ConsentRecord; revogação funcional; isolamento de checkpoints | concluido |
-| **T18** | Discovery local controlado | EP05 / V4 | P2 | 5 | T09, T11 | RF22 / RT20 | `core/discovery.py`, `tests/test_discovery.py` | Varredura opt-in restrita a allowlist; hash SHA-256 + untrusted; sem auto-ativação | concluido |
+| **T14** | Sessões, threads, SSE replay | EP04 / V3 | P1 | 8 | T03, T07, T10 | RF18, RF05 / RT16 | `core/session_service.py`, `server.py`, `tests/test_sse_replay.py` | Árvore hierárquica sessões/threads; SSE com `Last-Event-ID`, replay e dedup | concluido |
+| **T15** | Métricas observabilidade | EP04 / V3 | P1 | 5 | T03, T10, T14 | RF19 / RT17 | `core/metrics.py`, `tests/test_metrics.py` | Fila, duração, tokens, custo com status `observed`/`stale`/`unknown`; zero não inventado | concluido |
+| **T16** | Seleção adaptativa rotas | EP04 / V3 | P1 | 8 | T12, T15 | RF20, RF11 / RT18 | `core/route_selector.py`, `bridge/omniroute_client.py`, `tests/test_route_selector.py` | RouteDecision auditável; modo direto sem gateway testado; quota `unknown` | concluido |
+| **T17** | Consentimento e memória | EP05 / V4 | P2 | 8 | T09, T10 | RF21 / RT19 | `core/consent.py`, `core/memory_store.py`, `tests/test_memory.py` | Escrita exige `ConsentRecord`; revogação funcional; isolamento de checkpoints | concluido |
+| **T18** | Discovery local controlado | EP05 / V4 | P2 | 5 | T09, T11 | RF22 / RT20 | `core/discovery.py`, `tests/test_discovery.py` | Varredura opt-in restrita a allowlist; SHA-256 + `untrusted`; sem auto-ativação | concluido |
 | **T19** | Skills, MCPs, secret refs | EP05 / V4 | P2 | 8 | T12, T17, T18 | RF17, RF22 / RT21 | `core/skill_registry.py`, `bridge/mcp_client.py`, `tests/test_secrets.py` | Segredos como referências externas; resolução no spawn com env filtrado | concluido |
-| **T20** | Isolamento extensões/plugins | EP05 / V4 | P2 | 13 | T18, T19 | RF24 / RT22 | `core/extension_host.py`, `tests/test_extension.py` | Manifesto versionado; processo isolado sem acesso ao DB core; revogação imediata | concluido |
-| **T21** | Preferências e acessibilidade | EP06 / V4 | P2 | 5 | T13 | RF23 / RT23 | `core/preferences.py`, `tests/test_preferences.py`, `doc/h_test/README.md` | Preferências escopadas e reversíveis; checklist a11y WCAG AA (teclado, foco, contraste) | concluido |
-| **T22** | Transportes certificados | EP06 / V4 | P2 | 8 | T04, T09 | RF25, RF14 / RT24 | `bridge/transport_registry.py`, `bridge/ssh_tunnel.py`, `tests/test_transport.py` | Alvo, identidade, healthcheck; host key SSH alterada aborta; isolamento saídas | concluido |
-| **T23** | CLI control plane estendida | EP08 / V4 | P2 | 8 | T11, T12, T13, T17, T18, T20 | RF16–RF30 / RT13–RT25 | `cli.py`, `tests/test_cli.py` | Comandos completos para áreas, projetos, perfis, memória, discovery e extensões | concluido |
-| **T24** | CI estendido e runbooks | EP08 / V4 | P2 | 5 | T08, T23 | RF15, RF23, RF25 / RT12 | `.github/workflows/ci.yml`, `doc/j_manual/README.md` | Testes offline cobrindo regras negativas da expansão; runbooks operacionais | concluido |
-| **T25** | Orquestração Swarm/Relay/Persist | EP04 / V3 | P1 | 13 | T06, T13 | RF26 / RT26 | `engine/swarm.py`, `engine/relay.py`, `engine/persist.py`, `tests/test_orchestration.py` | Swarm em 2 Ondas (Wave 0 Fundação + Wave 1 Paralela com trava de deps); Handoff por Estado Git/Worktree e Retry de Turno Atômico | concluido |
-| **T26** | HITL (Humano-no-Loop) | EP02 / V1 | P1 | 8 | T07, T14 | RF27 / RT27 | `core/hitl.py`, `core/run_service.py`, `tests/test_hitl.py` | Pausa needs_context/needs_approval; timeout de expiração; retomada auditada | concluido |
-| **T27** | Resolução conflitos merge | EP07 / V4 | P2 | 8 | T06, T08 | RF28 / RT28 | `core/conflict_resolver.py`, `core/git_workspace.py`, `tests/test_conflict.py` | Relatório 3-way; merge_repair e *Contract Amendment* com teto de orçamento; opções manual/descarte | concluido |
-| **T28** | Budgeting e PR Packaging | EP07 / V4 | P2 | 8 | T07, T15 | RF29, RF30 / RT29, RT30 | `core/budget.py`, `core/packaging.py`, `tests/test_budget_packaging.py` | Tetos USD/tokens/tempo; alerta aos 80% e congelamento aos 100%; PR package auto | concluido |
+| **T20** | Isolamento extensões/plugins | EP05 / V4 | P2 | 13 | T18, T19 | RF24 / RT22 | `core/extension_host.py`, `bridge/extension_runner.py`, `tests/test_extension.py` | Manifesto versionado; subprocesso sem acesso ao DB core; quarentena e rollback | concluido |
+| **T21** | Preferências e acessibilidade | EP06 / V4 | P2 | 5 | T13 | RF23 / RT23 | `core/preferences.py`, `tests/test_preferences.py`, `tests/test_a11y.py` | Preferências escopadas reversíveis (`explicit > inferred_opt_in`); checklist WCAG AA | concluido |
+| **T22** | Transportes certificados | EP06 / V4 | P2 | 8 | T04, T09 | RF25, RF14 / RT24 | `bridge/transport_registry.py`, `bridge/ssh_tunnel.py`, `tests/test_transport.py` | Alvo/identidade/healthcheck; host key SSH alterada aborta; isolamento de saídas | concluido |
+| **T23** | CLI/API control plane estendida | EP08 / V4 | P2 | 8 | T11, T12, T13, T17, T18, T20 | RF16–RF30 / RT13–RT25 | `cli.py`, `server.py`, `doc/f_api/openapi.yaml`, `tests/test_cli.py`, `tests/test_server.py` | 77 paths OpenAPI `3.0.3` + 21 grupos CLI com paridade de serviço e `--json`/`--output` | concluido |
+| **T24** | CI estendido e runbooks | EP08 / V4 | P2 | 5 | T08, T23 | RF15, RF23, RF25 / RT12 | `.github/workflows/ci.yml`, `tests/test_ci_negative_gate.py`, `doc/j_manual/README.md` | CI offline estendido + gates negativos/security/a11y + runbooks M2–M4 | concluido |
+| **T25** | Orquestração Swarm/Relay/Persist | EP04 / V3 | P1 | 13 | T06, T13 | RF26 / RT26 | `engine/swarm.py`, `engine/relay.py`, `engine/persist.py`, `tests/test_orchestration.py` | Swarm 2 Ondas (Wave 0 + Wave 1 paralela), Handoff por Estado Git e Retry atômico | concluido |
+| **T26** | HITL (Humano-no-Loop) | EP02 / V1 | P1 | 8 | T07, T14 | RF27 / RT27 | `core/hitl.py`, `core/run_service.py`, `tests/test_hitl.py` | Pausa `needs_context`/`needs_approval`; expiração por timeout; retomada auditada | concluido |
+| **T27** | Resolução conflitos merge | EP07 / V4 | P2 | 8 | T06, T08 | RF28 / RT28 | `core/conflict_resolver.py`, `core/git_workspace.py`, `tests/test_conflict.py` | Relatório 3-way; `merge_repair` + *Contract Amendment*; opções `manual`/`discard` | concluido |
+| **T28** | Budgeting e PR Packaging | EP07 / V4 | P2 | 8 | T07, T15 | RF29, RF30 / RT29, RT30 | `core/budget.py`, `core/packaging.py`, `tests/test_budget_packaging.py` | Tetos USD/tokens/tempo (80% alerta / 100% congela); PR package redigido com publish gated | concluido |
 
 ---
 
-## 7. Matriz de Cobertura de Gaps Arquiteturais (A01 a A18)
+## 3. Cobertura dos Gaps Arquiteturais (`A01`–`A18`)
 
-Mapeamento formal demonstrando como a execução do backlog elimina todas as lacunas diagnósticas identificadas no código existente ([`plano_desenvolvimento.md §2.1`](plano_desenvolvimento.md)):
-
-| Gap | Prio A | Descrição da Lacuna no Código Existente | Task(s) de Resolução | Tipo de Cobertura |
-|---|---|---|---|---|
-| **A01** | P0 | Aliases não resolvidos no relay gerando "No active adapters" | **T01** | Total |
-| **A02** | P0 | `worker_runner` forja sucesso quando CLI está ausente | **T04** (e limpeza de scaffold) | Total |
-| **A03** | P0 | `omniroute_client` fabrica sucesso e quota 100% offline | **T01**, **T16** (e limpeza de scaffold) | Total |
-| **A04** | P0 | Swarm gera texto sem executar em worktree real | **T04, T06, T07** | Total |
-| **A05** | P0 | Merge e limpeza sem gates, afetam main e forçam remoção | **T05, T06** | Total |
-| **A06** | P0 | `create_worktree` cai para pasta comum se Git falhar | **T05** (e limpeza de scaffold) | Total |
-| **A07** | P1 | Merge ignora `worker_results` e não vincula artefatos | **T06, T25** | Total |
-| **A08** | P1 | Gravação tardia de checkpoints e relay destrutivo | **T03, T25** | Total |
-| **A09** | P1 | Contexto limitado a 1.500 caracteres sem persistência | **T25** | Total |
-| **A10** | P1 | `healer.py` retorna `True` sem aplicar patch ou testar | **T25** (via RF12/RT26) | Total |
-| **A11** | P1 | Ausência de limite de concorrência e tree kill em subprocessos | **T04, T25** | Total |
-| **A12** | P1 | Conflito `.hydra/` vs `.orchestrator/` | **T01** (normalizado em todo o código) | Total |
-| **A13** | P1 | Conexão SSH consulta chave inexistente na config | **T01, T22** | Total |
-| **A14** | P1 | CORS aberto, sem auth, host key desativada | **T09, T22** | Total |
-| **A15** | P1 | Stream com ID novo por chunk e falta de suporte a tool_calls | **T07, T14** | Total |
-| **A16** | P2 | Decompositor com 4 tarefas fixas e stitcher inseguro | **T02, T25** (Wave 0+1 e Handoff Git) | Total |
-| **A17** | P2 | Discrepância de dependência do OmniRoute e falta de LICENSE | **G0** (Documental) | Total |
-| **A18** | P1 | Suíte de testes superficial dependente de localhost | **T08, T24** e transversal | Total |
+| Gaps | Tema / Lacuna Original | Tasks de Resolução | Cobertura |
+|---|---|---|---|
+| **A01, A12, A17** | Aliases no relay, conflito `.hydra/` vs `.orchestrator/`, `LICENSE` / política OmniRoute | `T01`, `G0` | Total |
+| **A02, A04, A05, A06** | Simulação forjada em `worker_runner`, texto no swarm, merge inseguro, fallback sem Git | `T04`, `T05`, `T06`, `T07` | Total |
+| **A03, A13, A14** | Quota fictícia offline, SSH com config/host key ausente, CORS aberto e ausência de auth | `T01`, `T09`, `T16`, `T22` | Total |
+| **A07, A08, A09, A10, A11, A16** | Merge ignorando resultados, relay destrutivo, healer fake, sem tree kill, 4 tasks fixas | `T02`, `T03`, `T04`, `T06`, `T25` | Total |
+| **A15, A18** | Streaming SSE sem cursor/dedup e suíte superficial dependente de `localhost` | `T07`, `T08`, `T14`, `T24` | Total |
 
 ---
 
-## 8. Políticas Canônicas para Agentes de Desenvolvimento
-
-Regras compulsórias para qualquer agente LLM ou desenvolvedor humano atuando nas tasks deste repositório, em estrita consonância com [`AGENTS.md`](../../AGENTS.md):
-
-1. **Início da Sessão e Verificação de Checkout:**
-   - Confirmar a raiz com `git rev-parse --show-toplevel`.
-   - Verificar checkout limpo com `git status --short --branch`.
-   - Executar `git pull --ff-only` com upstream configurado antes de editar qualquer arquivo.
-   - Ler a seção correspondente em `prd_tecnico.md §8` e confirmar que a task está em estado `pronto` (todas as dependências `concluido`).
-
-2. **Branching e Propriedade de Arquivos:**
-   - Cada task é implementada em branch própria no padrão `task/t##_nome_da_task` (minúsculas, singular, sem timestamps).
-   - Publicar a branch remota com `git push -u origin <branch>`.
-   - Nenhum agente worker faz commit direto em `main`. Apenas o agente líder integra a branch após verificação da suíte.
-   - Dois agentes paralelos **nunca** podem editar o mesmo arquivo na mesma onda (obedecer à matriz de colisão do Apêndice A).
-
-3. **Testes Herméticos e Cobertura Obrigatória:**
-   - Todo commit de código **deve conter os testes automatizados correspondentes no mesmo commit**.
-   - Testes unitários e de integração residem em `tests/` e devem ser 100% reproduzíveis sem rede externa, sem GPU e sem contas pagas (utilizar mocks ou dublês quando aplicável).
-   - Testes de Git devem operar sobre repositórios temporários isolados (`tmp_path`), jamais sobre o checkout de desenvolvimento.
-   - Cada task de código deve cobrir pelo menos um caso negativo catalogado em `prd_tecnico.md §7.A`.
-   - Cobertura mínima de testes: $\ge 80\%$ no módulo implementado (100% obrigatório em `src/hydra_orch/model.py`).
-
-4. **Mensagens de Commit:**
-   - Utilizar commits semânticos: `feat:`, `fix:`, `test:`, `docs:`, `chore:`.
-   - Incluir o ID da task no escopo: ex.: `feat(t04): implementa runner de subprocessos com tree kill e cwd real`.
-
-5. **Critérios de Fechamento de Task:**
-   - Todos os itens do DoD cumpridos e testados.
-   - `git diff --check` sem alertas de formatação ou espaços em branco ao final de linhas.
-   - Suíte `pytest tests` passando com 100% de sucesso.
-   - Atualização do status no `backlog.md` para `concluido` realizada pelo agente líder no merge da branch.
-
----
-
-## 9. Apêndices Operacionais
-
-### Apêndice A: Matriz Anti-Colisão de Propriedade de Arquivos
-
-Arquivos compartilhados do projeto com controle estrito de concorrência por onda:
-
-| Arquivo Crítico | Tasks com Escopo de Escrita | Resolução de Concorrência |
-|---|---|---|
-| `src/hydra_orch/server.py` | T07 (O3), T09 (O4), T14 (O5) | **Serializado por onda.** Jamais tocar simultaneamente. |
-| `src/hydra_orch/cli.py` | T07 (O3), T23 (O11) | **Serializado por onda.** |
-| `src/hydra_orch/model.py` | T02 (O1) | **Exclusivo na Onda 1.** |
-| `src/hydra_orch/config.py` e `config.yaml` | T01 (O1), T12 (O5) | **Serializado por onda.** |
-| `src/hydra_orch/core/checkpointer.py` | T03 (O1), T10 (O4) | **Serializado por onda.** |
-| `src/hydra_orch/core/git_workspace.py` | T05 (O2), T06 (O2), T27 (O8) | T05 e T06 são seriais na Onda 2; T27 isolada na Onda 8. |
-| `src/hydra_orch/core/run_service.py` | T06 (O2), T26 (O6) | **Serializado por onda.** |
-| `src/hydra_orch/core/session_service.py` | T14 (O5) | **Exclusivo na Onda 5.** |
-| `src/hydra_orch/bridge/mcp_client.py` | T19 (O9) | **Exclusivo na Onda 9.** |
-| `.github/workflows/ci.yml` | T08 (O3), T24 (O11) | **Serializado por onda.** |
-
-### Apêndice B: Trilha Documental de Coerência (Pré-requisitos de Código)
-
-Documentos formais de especificação que devem ser revisados e validados antes do início do código da respectiva task:
-
-| Documento de Coerência | Caminho Canônico | Exigido Antes de Iniciar |
-|---|---|---|
-| Schemas JSON e DDL | `doc/b_spc/prd_tecnico.md §3.4` | T02, T10 |
-| Modelo Relacional (MER) | `doc/d_mer/mer.md` e `mer.mmd` | T03, T10 |
-| Diagrama de Classes | `doc/e_class/diagrama_classe.md` e `.mmd` | T02, T13 |
-| Contrato OpenAPI | `doc/f_api/openapi.yaml` | T07, T09 |
-| Fronteiras de Arquitetura | `doc/g_code/architecture.md` | T04, T07, T10 |
-| Matriz de Testes Herméticos | `doc/h_test/README.md` | T08, T24 |
-| Certificação de Transportes | `doc/i_infra/README.md` | T22 |
-| Manuais e Runbooks | `doc/j_manual/README.md` | T08, T24 |
-
-## Evidência da revalidação da T01
-
-- Contrato: [S01 — configuração de runtime](../b_spc/configuracao_runtime.md). Escopo inclui os consumidores necessários no router, gateway, CLI e API; não entrega T04/T07 nem certifica provedores.
-- Baseline do commit `2b46168` executado em cópia temporária: **26 testes aprovados**. Entrega ampliada: **77 testes aprovados** no Windows/Python 3.14.6. Permanecem cinco avisos de depreciação já presentes no baseline.
-- Cobertura de linhas de `config.py`: **97%** (344 statements, 9 não executados), medida com coverage no ambiente virtual local. O gate mínimo de 80% da T01 passou; isso não representa cobertura integral dos motores ainda em scaffold.
-- Sem chamadas reais de modelos, CLI de agente, SSH ou CDP. O teste de quota offline usa HTTP simulado; testes que escrevem contratos usam diretório temporário.
-- Configuração inválida e indisponibilidade de rota/gateway têm diagnóstico explícito; Codex não é convertido em CDP. Swarm pelo chat é recusado até a implementação dos gates de execução.
-- Próxima entrega: **T02 — contratos e estados**. M1 continua pendente de T02–T08; interface visual vem após o núcleo verificável.
-- A suíte exige execução fora da restrição de sockets deste sandbox Windows: o asyncio usa socket local interno mesmo em testes offline. Dependências foram instaladas somente em `.venv/`; cobertura e runtime permanecem ignorados.
-
-## Evidência da T02 — contratos e estados
-
-- Contrato implementado: [S02](../b_spc/contrato_execucao.md), em `src/hydra_orch/model.py`; os modelos de chat existentes foram preservados.
-- Entidades de run/tarefa/tentativa/resultado, orçamento, capabilities, revisão, artefatos, checks, evento e handoff têm validação e round-trip JSON. Specs são congeladas com tuplas; payload de evento é serializado pelo serviço de persistência futuro.
-- As quatro máquinas de estado cobrem **202 combinações** origem/destino, incluindo arestas ilegais e mistura de domínios. Revisão exige versão atual; simulação, checks ausentes e atribuição incorreta não autorizam aceite/integração.
-- Baseline T01: **77 testes aprovados**. Entrega T02: **173 testes aprovados**, com **100% de cobertura de linhas em `model.py`** (376 statements, nenhum ausente), no Windows/Python 3.14.6. Os cinco avisos de depreciação permanecem iguais ao baseline.
-- `CheckSpec.command` passou a array de argumentos, com ID explícito; o OpenAPI proposto foi alinhado. `persistent` é o nome canônico do modo. Isso não cria rotas HTTP de execução.
-- Não foram executados provedores, workers, processos Git de tarefa, checkpoints de run ou merges de produto. Os testes desta entrega validam contratos em memória; comprovação de bytes/hashes e execução pertence a T04–T06.
-- Próxima entrega: **T03 — store canônico e migração SQLite**. M1 continua pendente de T03–T08.
-
-## Evidência da T03 — store canônico e migração SQLite
-
-- Contrato implementado: [S03](../b_spc/persistencia_execucao.md), em `src/hydra_orch/core/checkpointer.py` (`ExecutionStore` e compatibilidade integral com `StreamCheckpointer`) e esquema DDL inicial em `migration/0001_initial_core.sql`.
-- Pragmas obrigatórios (`journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000`, `synchronous=NORMAL`), runner de migrações transacional com verificação de `checksum` SHA-256 e preservação de bancos legados (`legacy_handoff_checkpoints`, `checkpoints`, `provider_limits`, `active_generations`, `quota_status`).
-- Operações atômicas (`BEGIN IMMEDIATE`) entre mutação de estado e emissão de `RunEvent`, controle de concorrência otimista (`expected_revision`), submissão idempotente (`submit_run_idempotent` / `record_command` escopado com `IdempotencyConflictError`), unicidade parcial de tentativa ativa por tarefa (`idx_attempts_active_task`), reconciliação pós-crash (`reconcile_interrupted_attempts`) e replay ordenado por cursor (`after_seq`).
-- Suíte ampliada: **198 testes aprovados** (`python -m pytest tests -q`) no Windows/Python 3.12.10, incluindo 13 suítes herméticas de persistência, rollback transacional, concorrência WAL e restart em `tests/test_checkpointer.py`.
-- Próxima entrega: **T04 — runner de subprocessos e executor fake**. M1 continua pendente de T04–T08.
-
-## Evidência da T04 — runner de subprocessos e executor fake
-
-- Contrato implementado: [S04](../b_spc/executor_cli.md), em `src/hydra_orch/bridge/worker_runner.py` (`WorkerRunner`, `InvocationPlan`, `build_invocation`, `filter_worker_env`, `cancel_process_tree`, `is_process_alive`) e exportado em `src/hydra_orch/bridge/__init__.py`.
-- Zero fallback simulado silencioso em modo real: CLIs ausentes no `PATH` geram `ExecutionFailure(code="executor_unavailable")` sem spawnar subprocesso nem fabricar saída de sucesso (elimina GAP A02); `fake_subprocess` é bloqueado fora de `dry_run=True` com `simulated_result_not_integrable`.
-- Isolamento de processo e ambiente: `cwd` resolvido e validado como diretório físico existente (`workspace_invalid`), ambiente sanitizado por allowlist (`filter_worker_env`) removendo segredos arbitrários do host e aplicando `extra_env` com precedência determinística, grupo de processos isolado (`start_new_session=True` / `CREATE_NEW_PROCESS_GROUP`) e tree kill recursivo (`taskkill /F /T /PID` no Windows e `killpg` no POSIX) com verificação real de encerramento (`is_process_alive`, elimina GAP A11).
-- Suíte ampliada: **207 testes aprovados** (`python -m pytest tests -q`) no Windows/Python 3.12.10, incluindo 9 suítes herméticas de subprocesso, tree kill, idempotência de cancelamento, latência de despacho P99 < 300ms (RNF01) e integração transacional com `ExecutionStore` em `tests/test_worker_runner.py`.
-- Próxima entrega: **T05 — workspace Git isolado em worktree real**. M1 continua pendente de T05–T08.
-
-## Evidência da T05 — workspace Git isolado em worktree real
-
-- Contrato implementado: [S05](../b_spc/integracao_git.md), em `src/hydra_orch/core/git_workspace.py` (`GitWorkspaceService`, `WorkspaceRecord`, `OperatorCheckoutSnapshot`, `ScopeValidationResult`, `WorktreeDiffArtifact`, `IntegrationOutcome`) e exportado em `src/hydra_orch/core/__init__.py`.
-- Isolamento estrito de Git worktree: ancoragem em `base_sha` de 40 caracteres hexadecimais verificados (`git rev-parse --verify <ref>^{commit}`), proibição de fallback para pasta comum quando `git worktree add` falha (elimina GAP A06) e verificação de `.git` e `HEAD == base_sha` na worktree criada.
-- Preservação do checkout do operador e de evidências: captura e validação de `OperatorCheckoutSnapshot` (`branch`, `head_sha`, `staged`, `unstaged`, `untracked`), validação de escopo (`allowed_paths`, `forbidden_paths` e detecção de symlinks externos), recusa de remoção de worktree suja sem `force_discard=True` (elimina GAP A05), limpeza de locks órfãos (`cleanup_stale_locks` com `is_process_alive`) e integração serializada por repositório na branch dedicada `integrate/<run_id>` preservando worktrees em conflito (`test_merge_serialized` e `test_conflict_preserves_worktree`).
-- Decomposição obrigatória da **T06 (13 SP)** formalizada em `doc/b_spc/integracao_git.md` (§8.2: T06.1 a T06.4).
-- Suíte ampliada: **213 testes aprovados** (`python -m pytest tests -q`) no Windows/Python 3.12.10, incluindo 6 suítes herméticas de worktrees reais em repositórios temporários em `tests/test_git_workspace.py`.
-- Próxima entrega: **T06 — checks determinísticos e serviço de integração (`RunService`)**. M1 continua pendente de T06–T08.
-
-## Evidência da T06 — checks determinísticos e serviço de integração (`RunService`)
-
-- Contrato implementado: [S05](../b_spc/integracao_git.md), em `src/hydra_orch/core/run_service.py` (`CheckRunner`, `RunService`, `TaskExecutionOutcome`) e `src/hydra_orch/core/git_workspace.py`, exportados em `src/hydra_orch/core/__init__.py`.
-- Execução determinística de checks (`CheckRunner`): comandos `CheckSpec.command` executados como arrays `argv` sem shell, com ambiente filtrado por allowlist, tree kill em timeout, medição de duração e gravação atômica de `stdout`/`stderr` como `Artifact(kind="check_output")` com SHA-256 vinculados ao `tested_sha`.
-- Gates de promoção e aceite em `RunService`: `exit_code == 0` do worker sem diff real (`empty_patch`), violação de escopo (`scope_violation`), resultado simulado (`simulated_execution`) ou falha em qualquer check obrigatório (`acceptance_check_failed`) resultam em `TaskStatus.FAILED` com evidências e worktree preservadas; apenas tarefas com patch real atribuível e 100% dos checks aprovados avançam para `TaskStatus.READY_FOR_REVIEW`.
-- Ciclo completo `submit_run` $\rightarrow$ `execute_task_attempt` $\rightarrow$ `review_task_result` (concorrência otimista via `expected_revision`) $\rightarrow$ `integrate_run` (merge serializado na branch dedicada `integrate/<run_id>` + reexecução dos checks combinados sobre o SHA integrado) $\rightarrow$ `retry_task` / `cancel_run`.
-- Suíte ampliada: **219 testes aprovados** (`python -m pytest tests -q`) no Windows/Python 3.12.10, incluindo 6 suítes de integração ponta a ponta em `tests/test_integration.py`.
-- Próxima entrega: **T07 — entrada unificada M1 (CLI e API sobre `RunService`)**. M1 continua pendente de T07–T08.
-
-## Evidência da T07 — entrada unificada M1 (CLI e API sobre `RunService`)
-
-- Contrato implementado: [S10 / M1](../b_spc/api_control_plane.md), em `src/hydra_orch/server.py`, `src/hydra_orch/cli.py` e `src/hydra_orch/core/run_service.py`.
-- Superfícies CLI (`hydra submit`, `hydra inspect`, `hydra review`, `hydra integrate`, `hydra cancel`, `hydra retry`) e API REST/SSE (`/v1/control-plane/projects`, `/v1/control-plane/runs`, `/v1/control-plane/runs/{id}/tasks`, `/v1/control-plane/runs/{id}/artifacts`, `/v1/control-plane/runs/{id}/events`, `/v1/control-plane/runs/{id}/cancel`, `/v1/control-plane/runs/{id}/tasks/{task_id}/retry`, `/v1/control-plane/runs/{id}/tasks/{task_id}/review`, `/v1/control-plane/runs/{id}/integrate`, `/v1/control-plane/runs/{id}/discard`) consomem exclusivamente a mesma instância/camada de `RunService` (`test_ui_commands_same_service` e `test_cli_submit_inspect_review_integrate_same_service`).
-- Garantias de protocolo e segurança M1: submissão idempotente (`Idempotency-Key` com `409 idempotency_conflict` em divergência de payload), replay SSE ordenado por cursor (`Last-Event-ID`, `id: <seq>`, `event: heartbeat`, `410 sse_cursor_expired`), proteção local loopback / Bearer token (`test_auth_required`), allowlist estrita de CORS recusando wildcard `*` ou origens não autorizadas com `403 cors_origin_forbidden` (`test_cors_strict_allowlist`), cancelamento granular por tarefa no swarm (`test_cancel_task_in_swarm`) e descarte seguro preservando retenção de artefatos verificados por SHA-256 (`test_discard_preserves_retention`).
-- Suíte ampliada: **235 testes aprovados** (`python -m pytest tests -q`) no Windows/Python 3.12.10, incluindo 24 testes em `tests/test_server.py` e 4 testes em `tests/test_cli.py`, além da migração de `on_event` para `lifespan` no FastAPI.
-- Próxima entrega: **T08 — CI hermético e manual operacional M1**. M1 continua pendente de T08.
-
-
-## Evidência da T08 — CI hermético e manual operacional M1 (Fechamento do Gate G-M1)
-
-- Contrato implementado: [S13 / M1](../b_spc/entrega_operacao.md), em `.github/workflows/ci.yml`, `pyproject.toml`, `doc/j_manual/README.md` e `tests/test_checkpointer.py`.
-- Pipeline CI offline hermético multiplataforma (`.github/workflows/ci.yml`): matriz `ubuntu-latest`, `windows-latest`, `macos-latest` com Python `3.10` e `3.12`, `HYDRA_OFFLINE_CI=1`, checagem de formatação (`git diff --check`), smoke test de superfície CLI M1 e execução integral da suíte; job de certificação de driver externo (`driver-certification`) isolado sob `workflow_dispatch` opt-in (RT12).
-- Manual operacional M1 (`doc/j_manual/README.md` §0): documenta a superfície M1 verificada (`hydra submit`, `inspect`, `review`, `integrate`, `cancel`, `retry`, códigos de saída `0`–`3` e rotas `/v1/control-plane/*`), distinguindo o que está certificado no Gate G-M1 (`T01–T08`) do que pertence aos horizontes `M2–M4` (`T09–T28`).
-- Rastreabilidade completa de testes M1 (`doc/h_test/README.md` §1.1): incluídos `test_restart_preserves_state`, `test_events_monotonic`, `test_artifact_hash_verification` e `test_offline_ci_no_external` em `tests/test_checkpointer.py`.
-- Suíte ampliada: **239 testes aprovados** (`python -m pytest tests -q`) no Windows/Python 3.12.10. **Gate G-M1 (Marco M1 — Núcleo Verificável Local / V0) 100% concluído (T01 a T08)**. Próxima onda: **Onda 4 (T09 — Auth local, CORS estrito e Redaction; T10 — Migrações do control plane)**.
-
-## Evidência da T09 — autenticação local, CORS e redaction
-
-- Contrato: [S16 — segurança local e proveniência](../b_spc/seguranca_proveniencia.md). Todas as rotas HTTP exigem Bearer, inclusive loopback; startup sem credencial falha antes dos serviços. A CLI local permanece independente de HTTP.
-- `core/auth.py`: verificador PBKDF2-SHA256 com salt aleatório, 600.000 iterações, comparação constante e configuração por hash externo (preferido) ou token de ambiente. A aplicação guarda apenas o verificador. CORS aceita origens loopback explícitas e preflight válido sem executar endpoints.
-- `core/redaction.py`: sanitização recursiva de eventos antes do INSERT, replay legado, SSE/JSON, logging com traceback e stdout/stderr de workers/checks antes da gravação e do hash. Patches não são reescritos. Logs legados em disco não são expurgados automaticamente.
-- Validação local: **299 testes aprovados**, **100% de cobertura de linhas em auth.py e redaction.py**, Linux/Python **3.14.9**, com um aviso de depreciação de Starlette/httpx. `git diff --check` e links locais da documentação alterada verificados. Sem LLM, conta paga ou driver externo; a matriz de CI remota não foi certificada nesta entrega.
-- Entrega `e3b1b93` integrada em `main` por fast-forward após revisão local e suíte completa. T09 atende seu DoD; G-SEG completo ainda depende dos contratos posteriores de autorização de raízes, consentimento e extensões. O corpus benigno sintético não comprova a taxa RNF05 em tráfego real.
-- Próxima entrega: **T10 — migrações do control plane**, preservando o legado e validando rollback e FKs.
-
-## Evidência da T10 — migrações do control plane
-
-- Contrato: [S14 — base relacional, workspaces e perfis](../b_spc/workspaces_perfis.md). `0002_control_plane.sql` adiciona 26 tabelas e evolui projects/events sem modificar a migração 0001. `area_workspaces` é organizacional; `workspaces` continua por tentativa.
-- O migrador fixa checksums up/down, recusa versões desconhecidas/lacunas, serializa inicializações sob BEGIN IMMEDIATE, cria backup SQLite consistente com WAL antes dos scripts de domínio e valida foreign_key_check. Falha de SQL/FK desfaz o lote e registra auditoria em migration_history.
-- `rollback_migrations("0001")` é administrativo/offline, com backup e script down verificado. Recusa perda de registros/colunas da expansão e tentativas queued/running; não existe descarte forçado. O núcleo e os schemas legados são preservados. Uma nova inicialização com o checkout atual reaplica 0002.
-- Validação local: **318 testes aprovados** (19 casos em `tests/test_migration.py`), **96% de cobertura de linhas em core/checkpointer.py**, Linux/Python **3.14.9**. Um aviso de depreciação Starlette/httpx. `git diff --check`, links locais e preservação do arquivo 0001 verificados.
-- Testes usam bancos e registros temporários, sem modelos externos nem serviços pagos. Não há certificação nova da matriz remota de SOs nem de drivers. Os schemas não implementam os serviços T11–T28 ou fecham o gate G-SEG.
-- Entrega `cc5ace2` integrada em `main` por fast-forward após revisão e validação completa. Próxima entrega: **T11 — registry de áreas, workspaces, projetos, repositórios e autorizações**; T12 e T14 também têm suas dependências técnicas satisfeitas.
-
-## Evidência da T11 — registry de áreas e repositórios
-
-- `WorkspaceRegistry` persiste hierarquia e grants explícitos por repositório; resolve Git/SHA sob allowlist, recusa traversal e symlink externo, relê revogação e bloqueia workspace arquivado. Adoção de projeto legado é explícita e não concede execução.
-- Mutações e auditoria `commands(scope=registry)` são atômicas. IDs UUIDv7 têm fallback compatível com Python 3.10. As superfícies estendidas pertencem à T23; a API M1 não foi migrada silenciosamente.
-- **343 testes aprovados** no Linux/Python 3.14.9; **99% de cobertura no registry**, 100% no helper de IDs. Git/SQLite em diretórios temporários; sem provedores externos. `git diff --check` aprovado.
-- Contrato e limites: [S14](../b_spc/workspaces_perfis.md). Próxima entrega: **T12 — catálogo de agentes e capabilities**.
-
-T11 integrada por fast-forward: `0f2624b`. Próxima tarefa pronta: T12.
-
-## Evidência da T12 — catálogo de agentes e capabilities
-
-- `AgentRegistry` persiste declarações sem certificar implicitamente; exige CLI, capabilities e certificado por SO na seleção. Relatórios importados explicitamente são vinculados por hash ao executável e auditados; revogação preserva histórico e bloqueia nova resolução.
-- Os testes usam relatórios sintéticos de operador e executáveis de fixture: validam os gates e hashes, sem certificar provedores externos nem executar LLM. A veracidade dos checks atestados pertence ao emissor/operador. Contrato e limites em [S14](../b_spc/workspaces_perfis.md).
-- Alias `claude-code` alinhado ao runner `claude_code`. **358 testes aprovados**, **99% de cobertura em agent_registry.py**, Linux/Python 3.14.9; `git diff --check` aprovado. Próxima entrega após integração: **T13 — perfis e snapshots**.
-
-T12 integrada por fast-forward: `dfad3e4`. T13 pronta; próxima entrega do ciclo.
-
-## Evidência da T13 — perfis e snapshots
-
-- `ProfileService` valida componentes, orçamento, grants e capabilities/certificados; mantém referências relacionais e JSON coerentes, com revision otimista. Memória exige consentimento vigente do principal/projeto; componentes descobertos não aprovados e credenciais brutas são recusados.
-- Um snapshot por run, fixado antes de qualquer tentativa, com JSON canônico e SHA-256; criação e evento `profile.snapshot_created` atômicos. Edições futuras não alteram snapshots existentes; leitura detecta corrupção. Integração ao despacho dos modos pertence à T25; superfícies estendidas à T23.
-- **366 testes aprovados**, **100% de cobertura de profile_service.py e model.py**, Linux/Python 3.14.9. Fixtures Git/SQLite e relatórios sintéticos; nenhuma certificação externa ou execução LLM. `git diff --check` aprovado. Próxima entrega: **T14 — sessões, threads e SSE**.
-
-T13 integrada por fast-forward: `4ea61ae`. Próxima tarefa do ciclo: T14. T25 tem dependências técnicas satisfeitas e exige decomposição antes de iniciar.
-
-## Evidência da T14 — sessões, threads e SSE
-
-- `SessionService` persiste árvores por run/sessão, transições com expected_state, mensagens com cursor/idempotência e eventos atômicos sanitizados. Escopo cruzado é recusado; falha/cancelamento preserva estados terminais e cancela filhos não iniciados.
-- API autenticada sob `/v1/control-plane/runs/{run_id}/sessions`. SSE aceita filtros e follow opt-in, mantém replay finito M1, consulta SQLite após reconexão, emite heartbeat e encerra na desconexão. EventCursor demonstra dedup concorrente em cliente Python; não implementa UI nem exactly-once de efeitos externos.
-- **382 testes aprovados**, **99% de cobertura em session_service.py**, **100% em model.py**, Linux/Python 3.14.9. Testes offline com Git/SQLite temporários, sem LLM. `git diff --check`, links e referências OpenAPI verificados. Contrato em [S15](../b_spc/sessoes_observabilidade.md).
-- Próxima entrega: **T15 — métricas com proveniência**; T26 também tem as dependências técnicas satisfeitas.
-
-T14 integrada por fast-forward: `4d71eeb` + documentação `110bb9f`. T15 e T26 prontas; próxima entrega do ciclo: T15.
-
-## Evidência da T15 — métricas com proveniência
-
-- `MetricsService` persiste amostra/evento atomicamente, valida escopo e unidade e distingue observed/stale/unknown. Ausência não vira zero; TTL preserva valor antigo com stale e agregação parcial expõe known_subtotal/cobertura sem fabricar total.
-- RunService registra timestamps locais e uso/custo unknown enquanto a CLI não informar telemetria estruturada certificada. GET autenticado de métricas/uso está disponível por run; escopo cruzado é recusado. Contrato em [S15](../b_spc/sessoes_observabilidade.md).
-- **397 testes aprovados**, **99% de cobertura em metrics.py**, Linux/Python 3.14.9. Testes de zero explícito, ausência, staleness, fonte, rollback e captura após subprocesso real; sem LLM externo. `git diff --check` e referências OpenAPI aprovados.
-- Próxima entrega da Onda 6: **T26 — HITL**. T16 tem dependências técnicas satisfeitas após integração.
-
-T15 integrada por fast-forward: `56fbc13`. Próxima entrega da Onda 6: T26 (HITL); T16 está pronta para a Onda 7.
-
-## Evidência da T26 — intervenção humana (HITL)
-
-- `HITLService` mantém solicitações needs_context/needs_approval, deadlines e respostas idempotentes no store canônico, com eventos e estado atômicos. Só pausa entre tentativas: atividade em despacho/processo impede criar uma falsa pausa de CLI.
-- Barreiras transacionais de admissão bloqueiam run/task/attempt e retry pendentes. Resposta retoma o coordenador sem executar automaticamente; a próxima tentativa recebe contexto humano estruturado. Negação/expiração falha com reason e preserva evidências. Scheduler HTTP reconcilia deadlines a cada segundo e encerra no shutdown.
-- **409 testes aprovados**, **97% de cobertura em hitl.py**, **100% em model.py**, Linux/Python 3.14.9. Testes de corrida resposta/timeout, restart, duplicação, escopo e retomada com subprocesso real de fixture; sem LLM. Referências OpenAPI e `git diff --check` aprovados. Contrato: [intervenção humana](../b_spc/intervencao_humana.md).
-- Próxima entrega: **T16 — seleção adaptativa de rotas**; depois T25, com decomposição obrigatória antes de iniciar.
-
-T26 integrada por fast-forward: `e3ad256`. Próxima entrega do ciclo: T16; T25 segue depois, com decomposição prévia.
-
-## Evidência da T16 — seleção adaptativa de rotas
-
-- `RouteSelector` recusa drivers/capabilities inelegíveis e quota observed=0; disabled não chama gateway, optional permite fallback direto e required impede bypass. Unknown/stale seguem política explícita, sem fingir disponibilidade.
-- Ranking usa prioridade, custo/duração observados e ID estável; telemetria só é usada quando correlacionada com run/modelo/executor. Candidatos, motivos, fontes, valores, certificado, escolha e fallback são auditados e têm read model HTTP. Sem elegíveis, route.rejected é persistido sem fabricar rota selecionada.
-- OmniRouteClient normaliza quota inválida para unknown e preserva último valor stale em falha; disabled não faz geração HTTP. Nenhuma API de provedor real foi certificada: os testes usam gateway/relatórios simulados.
-- **416 testes aprovados**, **98% de cobertura em route_selector.py**, Linux/Python 3.14.9. `git diff --check` e referências OpenAPI aprovados. Contrato em [S15](../b_spc/sessoes_observabilidade.md). Próxima entrega: **T25**, com decomposição antes do código.
-
-T16 integrada por fast-forward: `a61ecee`. Próxima entrega da Onda 7: T25, com contrato de subtarefas antes de implementar.
-
-### Evidências T25 — orquestração com execução e estado Git
-
-- Decomposição anterior ao código em [S15](../b_spc/sessoes_observabilidade.md). Coordenador recebe plano explícito e valida perfil imutável, grants/certificados correntes, ownership e modelo ligado aos argumentos do binário certificado.
-- Swarm executa/revisa/consolida Wave 0 antes da Wave 1 paralela, com trava de manifestos e semáforo limitado pelo run/perfil. Relay/persistent passam SHAs consolidados entre etapas. Integrações usam worktrees próprias e nunca substituem evidência anterior.
-- Handoff durável preserva contrato completo, Git/status/hash dos bytes e referências de diffs/checks. Reparação real limitada, nova worktree e reconciliação explícita dos efeitos desconhecidos; retry atômico descarta gerações interrompidas. Rejeição humana não é contornada por reparação.
-- **436 testes aprovados**, **90% em orchestration.py**, **88% em swarm.py**, demais wrappers/retry **100%** e **model.py 100%**, Linux/Python 3.14.9. Casos incluem workers concorrentes, preservação do checkout, restart, reparação de patch não commitado/commitado, locks, escopo, revisão e cancelamento de subprocesso real. `git diff --check` aprovado. Sem LLM/provedor pago; certificações dos fixtures são sintéticas.
-- Limites explícitos em S15: worktree não é sandbox; transporte gateway não executa workspace; quota CLI desconhecida não recebe reset inventado. Budget financeiro/tokens, conflitos e comandos estendidos permanecem T28/T27/T23. Esta evidência não certifica drivers externos nem fecha por si só todos os gates operacionais de M3/G-SEG.
-
-T25 integrada por fast-forward: `66eb365`. Próxima entrega do ciclo: **T17 — consentimento e memória**, iniciando a Onda 8.
-
-### Evidências T17 — consentimento e memória
-
-- Consentimento solicitado/concedido/negado/revogado/expirado com escopo e principal explícitos. Mudança de estado e auditoria atômicas; revogação desativa entradas e bloqueia consultas/escritas e novos perfis com a política revogada.
-- Memórias com autoria, versão otimista, retenção de 1/30 dias e expiração; escopo/consentimento imutáveis. Conteúdo sanitizado antes da persistência; auditoria inclui hash/versão, sem duplicar o texto. Checkpoints têm tabela/lifecycle próprios e nunca alimentam memória automaticamente.
-- API autenticada em `/v1/control-plane/consents` e `/memory`; sem consentimento a escrita retorna **409**, outro contexto/principal **403**. Identidade HTTP é o operador local fixo, sem aceitar principal fornecido pelo request. Schemas e paths operacionais atualizados em OpenAPI.
-- **447 testes aprovados**, **100% de cobertura em consent.py, memory_store.py e model.py**, Linux/Python 3.14.9. Casos de concorrência, rollback de auditoria, redaction, escopo, retenção, revogação e HTTP; sem LLM/serviço externo. `git diff --check` e **125 referências OpenAPI** verificados.
-- Contrato e limites em [S16](../b_spc/seguranca_proveniencia.md): heurísticas não garantem detectar toda PII em texto livre. Nenhuma certificação global de G-SEG; discovery e extensões permanecem T18–T20.
-
-T17 integrada por fast-forward: `3d60711`. Próxima entrega do ciclo: **T18 — discovery local e proveniência**.
-
-### Evidências T18 — discovery local e proveniência
-
-- Scan opt-in em raízes absolutas explícitas, limitado por entradas/profundidade/tamanho, com symlinks/runtime/dependências ignorados. Descoberta registra hash/capabilities como `untrusted`; não executa manifestos nem importa memórias/sessões.
-- Aprovação exige o hash revisado e capabilities conhecidas; ativação revalida o arquivo. Hash alterado, fonte ausente ou raiz removida invalidam aprovação; rescan preserva identidade e não revive recursos rejeitados/revogados. Dono/proveniência e decisões têm auditoria transacional.
-- Perfis exigem verificador de descoberta e persistem invalidações mesmo quando o snapshot é recusado; scheduler revalida componentes do perfil fixado antes de cada despacho. Contrato/limites em [S16](../b_spc/seguranca_proveniencia.md). CLI/HTTP estendidos seguem para T23.
-- **454 testes na suíte completa**, depois **8 testes de discovery aprovados** após endurecimento final contra resource_type malformado. Cobertura: **94% discovery.py**, **99% profile_service.py**, **100% model.py**; Linux/Python 3.14.9. Arquivos/Git/SQLite reais temporários e sem LLM externo; `git diff --check` aprovado.
-- POSIX usa descritores relativos/O_NOFOLLOW; fallback portátil verifica caminhos/identidades antes/depois. A entrega não certifica isolamento contra mutação hostil concorrente em todos os sistemas nem fecha o gate de extensões T20.
-
-T18 integrada por fast-forward: `6e7b882`. Próxima entrega do ciclo: **T19 — skills, MCPs e referências externas de segredos**. T27 também está pronta por dependências na Onda 8.
-
-### Evidências T19 — skills, MCPs e referências de segredos
-
-- Contrato registrado antes do código em [S16](../b_spc/seguranca_proveniencia.md) e rastreabilidade RT21 atualizada em [`doc/h_test/README.md`](../h_test/README.md).
-- `SkillRegistry` e `SecretResolver` (`core/skill_registry.py`): cadastro e revogação atômica (`commands(scope='skill_registry')`) de `SecretRef`, `SkillDefinition` e `McpDefinition` sobre a migração 0002 (sem alteração de DDL). `source_key` recusa literais de segredo (`secret_value_rejected`), permissões seguem vocabulário fechado e vínculo com `discovered_resource_id` exige aprovação prévia e hash coincidente via `DiscoveryService`.
-- Resolução no spawn (`SecretBundle`): provedor `env` resolve em memória apenas antes do spawn e injeta exclusivamente via `allowed_env` em `filter_worker_env`; `vault` e `keyring` retornam `secret_provider_unavailable`. Exceção de propriedade documentada: `core/redaction.py` recebeu `redaction_scope` por `ContextVar` para mascarar literais resolvidos em logs/eventos/artefatos, e `RunService` rejeita patches contendo literais resolvidos (`secret_in_patch`).
-- `ProfileService` e `Orchestrator._admit` validam ausência de revogação e compatibilidade de permissões (`net:external` bloqueado sob `network_isolation`). `McpClient` (`bridge/mcp_client.py`) implementa transporte `stdio` isolado com `filter_worker_env`, JSON-RPC 2.0, validação de `declared_tools` (`mcp_tools_mismatch`), bloqueio por permissão (`mcp_permission_denied`), timeout com `cancel_process_tree` e recusa de `sse`/`websocket` (`mcp_transport_uncertified`).
-- Validação local (Windows/Python 3.12.10): **9 testes aprovados** em `tests/test_secrets.py`; na suíte combinada (`test_secrets.py`, `test_profile.py`, `test_orchestration.py`, `test_auth.py`, `test_integration.py`), **103 aprovados e 1 falha preexistente** (`test_coordinator_cancellation_kills_real_worker_and_requires_reconciliation`, já presente no baseline Windows). Sem rede, sem LLM externo e sem `pytest-cov` instalado neste ambiente; testes MCP usam fixture `stdio` local.
-- Limites: CLI/HTTP `/skills` e `/mcps` ficam para T23; transportes remotos para T22. Próximas entregas prontas: **T20 — isolamento de extensões/plugins (13 SP; exige decomposição antes do código)** e **T27 — resolução de conflitos de merge**.
-
-### Evidências T20 — isolamento de extensões e plugins
-
-- Contrato registrado antes da implementação em [S16](../b_spc/seguranca_proveniencia.md) com decomposição explícita em `T20.1`–`T20.6` e rastreabilidade `RF24 / RT22` atualizada em [`doc/h_test/README.md`](../h_test/README.md).
-- Exceções de propriedade de arquivo documentadas: generalização retrocompatível de `ConsentService` em [`core/consent.py`](../../src/hydra_orch/core/consent.py) (`purpose='extension'`, `ScopeType='extension'`, `workspaces` opcional e revogação em cascata para `extension_installs`) e criação de [`bridge/extension_runner.py`](../../src/hydra_orch/bridge/extension_runner.py) (`ExtensionRunner`, `ExtensionPolicy`, `ExtensionAnomalyError`), preservando 100% da migração `0002_control_plane.sql` sem alterar DDL.
-- `ExtensionHost` ([`core/extension_host.py`](../../src/hydra_orch/core/extension_host.py)): registro e validação de `ExtensionManifest` (nome, versão, `compatible_api_version` semver major `1`, SHA-256 contra entrypoint dentro de `allowed_roots` com bloqueio a traversal/symlink fora da raiz, permissões válidas e recusa de credenciais literais), exigência de `ConsentRecord` ativo antes de instalar/ativar, ciclo completo de estados (`installed`, `active`, `disabled`, `quarantined`, `revoked`, `rolled_back`), resolução efêmera de `secret:<id>` via `SecretResolver` + `redaction_scope`, quarentena automática por adulteração em disco ou violação de sandbox, revogação síncrona com `cancel_process_tree` e `rollback` para versão anterior aprovada com auditoria atômica em `commands(scope='extension')`.
-- Contenção por subprocesso (`ExtensionRunner`): spawn em `python -I -B`, `filter_worker_env`, diretório de trabalho isolado em `.extensions_runtime/<install_id>/work`, IPC JSON-RPC 2.0 delimitado por linha em stdio e `sys.addaudithook` bloqueando leitura/escrita no SQLite core (`core.sqlite` e `-wal`/`-shm`/`-journal`), leitura/escrita fora das raízes autorizadas, criação/conexão de sockets sem permissão e spawn não autorizado.
-- Validação local (Windows/Python 3.12.10): `python -m py_compile` aprovado nos 5 módulos Python tocados; **8 testes aprovados** em `tests/test_extension.py`; **114 aprovados** na suíte combinada (`test_extension.py`, `test_memory.py`, `test_secrets.py`, `test_auth.py`, `test_profile.py`, `test_checkpointer.py`), sem rede, sem LLM externo e sem `pytest-cov` neste ambiente.
-- Limites: a barreira via `sys.addaudithook` cobre entrypoints `.py` (executáveis binários contam apenas com `cwd` isolado, `filter_worker_env` e isolamento de grupo de processo sem sandbox nativo do SO nesta etapa); endpoints HTTP `/v1/control-plane/extensions*`, comandos CLI e integração `tests/test_server.py::test_extension_lifecycle` ficam para **T23**. Próximas entregas prontas na trilha: **T23 — CLI/API Control Plane** e **T27 — resolução de conflitos de merge**.
-
-### Evidências T21, T22, T27 e T28 — Fase A consolidada (Preferências/A11y, Transportes Certificados, Conflitos/Contract Amendment, Budgeting e PR Packaging)
-
-- **T21 (`core/preferences.py`, [S18a](../b_spc/acessibilidade_preferences.md)):** `PreferenceService` com escopos `user`/`area`/`project`, auditoria reversível em `commands(scope='preferences')`, precedência estrita `explicit > inferred_opt_in`, snapshot imutável `PreferenceSnapshot` (SHA-256) por run com evento `preference.snapshot_created`, cálculo real de luminância/contraste WCAG AA (`>= 4.5:1` normal, `>= 3.0:1` grande), validação de teclado/foco/roles/estados textuais/`reduce_motion` e guarda de comando versionado da UI (`tests/test_preferences.py`, `tests/test_a11y.py`: **11 aprovados**).
-- **T22 (`bridge/transport_registry.py`, `bridge/ssh_tunnel.py`, [S18b](../b_spc/transportes_certificados.md)):** `TransportRegistry` com registro não certificado por padrão, bloqueio de credenciais em `target_identity`, certificação explícita auditada, `check_health` tipado e recusa de alvo divergente (incluindo CDP); `SshTunnelManager` endurecido com `StrictHostKeyChecking=yes` obrigatório, verificação de `known_hosts`/fingerprint SHA-256 abortando divergências e isolamento de porta/logs por sessão concorrente (`tests/test_transport.py`: **26 aprovados**).
-- **T27 (`core/conflict_resolver.py`, `core/git_workspace.py`, [S05/T27](../b_spc/integracao_git.md)):** `ConflictResolver` com relatório 3-way persistido em `conflict_reports`, `auto_repair` (`merge_repair` em worktree isolada com teto `max_repair_attempts` e validação por checks), fluxo `manual`/`discarded` sem tocar a branch do operador e protocolo *Contract Amendment* para emenda de Wave 0 com revalidação de dependentes da Wave 1 (`tests/test_conflict.py`: **18 aprovados** no conjunto Git/integração).
-- **T28 (`core/budget.py`, `core/packaging.py`, `core/run_service.py`, [S19](../b_spc/budget_packaging.md)):** `BudgetGovernor` com alerta 80%, congelamento 100% bloqueando despacho em `RunService`, extensão/recusa (`budget_exhausted`) e preservação estrita de `unknown` sem converter em zero; `PRPackager` com geração Markdown redigida, artefato `pr_package` atômico SHA-256 e bloqueio de `publish` sem autorização explícita (`tests/test_budget_packaging.py`: **27 aprovados** no conjunto budget/integration/metrics).
-- **Validação consolidada após integração (Windows/Python 3.12.10):** `python -m pytest tests/test_preferences.py tests/test_a11y.py tests/test_transport.py tests/test_conflict.py tests/test_budget_packaging.py tests/test_git_workspace.py tests/test_integration.py tests/test_metrics.py tests/test_model.py tests/test_server.py -q` -> **198 aprovados** (1 warning preexistente `httpx`/`starlette.testclient`); `git diff --check` aprovado sem erros. Próximas entregas: **T23 — CLI e API Control Plane estendidas** e **T24 — CI estendido, runbooks e Gate G-M4**.
-
-### Evidências T23 — API Control Plane, SSE e CLI Estendidas
-
-- Contrato DBC-9 registrado em [S20](../b_spc/cli_ci_manual.md) e especificação REST alinhada em [`doc/f_api/openapi.yaml`](../f_api/openapi.yaml) (**77 paths** validados como OpenAPI `3.0.3`).
-- **API Control Plane e SSE (`src/hydra_orch/server.py`, `tests/test_server.py`):** mapeamento determinístico de `ContractViolation` para `400`/`403`/`404`/`409`/`410`/`422` com Bearer auth, CORS estrito e redação; bootstrap/projects/consents estendidos; replay SSE compartilhado para runs e sessões (`/v1/control-plane/sessions/{session_id}/events`); e 58 novas rotas cobrindo áreas, workspaces, multi-repositórios, agentes/executores/capabilities, perfis, discovery (`scan`/`approve`/`reject`), skills, MCPs, secret refs, ciclo de vida de extensões, preferências e snapshots, transportes certificados, tokens locais (PBKDF2-SHA256 em `access_tokens`), resolução de conflitos, orçamento e PR packaging (**36 testes aprovados** em `tests/test_server.py`, incluindo 12 novos cenários de integração).
-- **CLI Estendida (`src/hydra_orch/cli.py`, `tests/test_cli.py`):** preservação 100% dos comandos M1 (`serve`, `run`, `submit`, `inspect`, `review`, `integrate`, `cancel`, `retry`, `status`, `quota`) + `project-create`, `project-list`, `runs` e 21 subgrupos Typer (`area`, `workspace`, `project`, `repo`, `agent`, `profile`, `session`, `metrics`, `consent`, `memory`, `discovery`, `skill`, `mcp`, `secret`, `extension`, `preference`, `transport`, `token`, `conflict`, `budget`, `pr-package`) consumindo `get_run_service()` e os serviços `core/`/`bridge/`, com `--json`, `--output`, redação de segredos e exit codes `0/1/2/3` (**12 testes aprovados** em `tests/test_cli.py`).
-- **Validação integrada após junção (Windows/Python 3.12.10):** `python -m pytest tests/test_server.py tests/test_cli.py tests/test_sse_replay.py -q` -> **64 aprovados** (1 warning preexistente `httpx`/`starlette.testclient`); `git diff --check` exit code `0`. Próxima e última entrega do backlog: **T24 — CI estendido, runbooks operacionais e Gate G-M4**.
-
-### Evidências T24 — CI Estendido, Portabilidade Windows, Runbooks M2–M4 e Fechamento G-M4
-
-- **Correções de portabilidade Windows & parsing (`T24a`):**
-  - `src/hydra_orch/core/discovery.py`: normalização `\r\n` -> `\n` na extração de frontmatter YAML para evitar falso negativo em arquivos CRLF.
-  - `tests/test_sse_replay.py`, `tests/test_worker_runner.py` e `tests/test_orchestration.py`: parâmetros `ids=` curtos dentro do limite de `PYTEST_CURRENT_TEST` no Windows, espera determinística de encerramento de árvore de processos e barreira via diretório para coordenação paralela em Windows.
-- **CI Estendida e Gate Negativo (`T24`):**
-  - [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml): workflow `Hermetic CI (M1-M4 / V4)` atualizado com `python -m compileall -q src tests`, validação OpenAPI `3.0.3` (`doc/f_api/openapi.yaml`), smoke test da CLI cobrindo comandos M1 + `project-create`/`project-list`/`runs` + os 21 subgrupos, gate explícito `pytest tests -m "negative or security or a11y"` e suíte offline completa multiplataforma (`ubuntu-latest`, `windows-latest`, `macos-latest`; Python `3.10`, `3.12`), mantendo `driver-certification` isolado por `workflow_dispatch`.
-  - [`tests/test_ci_negative_gate.py`](../../tests/test_ci_negative_gate.py): **27 casos aprovados** cobrindo paridade OpenAPI vs FastAPI (77 paths), help offline dos 21 grupos CLI e gates negativos/segurança/a11y do Gate `G-M4` (memória sem consentimento `409`/exit `3`, discovery fora de `allowed_roots` `403`/exit `1`, segredo literal recusado e `access_tokens` persistindo somente PBKDF2-SHA256, `pr-package publish` sem `--authorized` bloqueado, contraste WCAG AA).
-- **Documentação & Runbooks M2–M4:** atualizados [`doc/j_manual/README.md`](../j_manual/README.md) (§0.1, §0.6 Control Plane estendida, §0.7 runbooks `RB-01`–`RB-07` e correção de flags de exemplo `hydra submit`), [`doc/b_spc/cli_ci_manual.md`](../b_spc/cli_ci_manual.md) (`Status: verified`; fechados `GAP-S20-01` e `GAP-S20-02`), [`doc/h_test/README.md`](../h_test/README.md) e [`doc/a_context/roadmap.md`](roadmap.md).
-- **Validação final completa após integração (Windows/Python 3.12.10):** `python -m pytest tests -q` -> **568 aprovados, 0 falhas, 0 erros** (1 warning preexistente `httpx`/`starlette.testclient`, em `854.32s`), smoke CLI (`31` entradas) aprovado e `git diff --check` exit code `0`. **Backlog T01–T28 (204/204 SP) concluído; Gate `G-M4` fechado.**
+## 4. Evidências Consolidadas por Marco (`G-M1` a `G-M4`)
+
+Detalhes contratuais DBC-9 e limites específicos estão registrados nas respectivas specs em [`doc/b_spc/`](../b_spc/README.md) e na matriz [`doc/h_test/README.md`](../h_test/README.md).
+
+| Marco / Gate | Tasks | Principais Specs | Evidência Consolidada |
+|---|---|---|---|
+| **M1 (`G-M1`)** | `T01`–`T08` | `S01`–`S13` ([`entrega_operacao.md`](../b_spc/entrega_operacao.md)) | Config estrita `.orchestrator/`, `model.py`, `ExecutionStore` WAL (`0001`), `WorkerRunner` (cwd + tree kill), `GitWorkspaceService`, `RunService`, CLI/API M1 e CI hermético |
+| **Segurança & M2–M3 (`G-SEG`, `G-M2`, `G-M3`)** | `T09`–`T16`, `T25`, `T26` | [`seguranca_proveniencia.md`](../b_spc/seguranca_proveniencia.md), [`workspaces_perfis.md`](../b_spc/workspaces_perfis.md), [`sessoes_observabilidade.md`](../b_spc/sessoes_observabilidade.md), [`intervencao_humana.md`](../b_spc/intervencao_humana.md) | Bearer PBKDF2 + CORS + `Redactor`, migração `0002` + rollback, Area/Repo/Agent/Profile/Session, SSE `Last-Event-ID`, `MetricsService`, `RouteSelector`, HITL e Swarm Wave 0+1 / Relay / Persist |
+| **V4 Governança (`G-M4` parte 1)** | `T17`–`T22`, `T27`, `T28` | `S16`, [`acessibilidade_preferences.md`](../b_spc/acessibilidade_preferences.md), [`transportes_certificados.md`](../b_spc/transportes_certificados.md), [`integracao_git.md`](../b_spc/integracao_git.md), [`budget_packaging.md`](../b_spc/budget_packaging.md) | `ConsentRecord` obrigatório, Discovery allowlist + `untrusted`, `SecretRef` + MCP `stdio`, `ExtensionRunner` sem acesso ao SQLite core, preferências/WCAG AA, SSH `StrictHostKeyChecking=yes`, conflitos 3-way + *Contract Amendment*, Budget 80%/100% e `PRPackager` |
+| **V4 Fechamento (`G-M4` final)** | `T23`, `T24` | [`cli_ci_manual.md`](../b_spc/cli_ci_manual.md) (`S20`), [`openapi.yaml`](../f_api/openapi.yaml) | 77 paths OpenAPI `3.0.3`, 21 grupos CLI + M1, `test_ci_negative_gate.py`, workflow CI M1–M4, correções CRLF/Windows e runbooks `RB-01`–`RB-07` em [`doc/j_manual/README.md`](../j_manual/README.md) |
+
+- **Validação final do backlog após integração completa (Windows / Python 3.12.10):**
+  - `python -m pytest tests -q` → **`568 passed, 1 warning in 854.32s`** (0 falhas, 0 erros; warning preexistente `httpx`/`starlette.testclient`).
+  - `python -m compileall -q src tests`, validação YAML/rotas `doc/f_api/openapi.yaml` (`77` paths), smoke test CLI (`31` comandos/grupos), verificação de links locais e `git diff --check` aprovados sem erros.
+  - **Fora da suíte offline (próximos passos pós-M4):** execução real no GitHub Actions multi-OS, certificação opt-in de CLIs externas (`driver-certification`), construção do frontend Web UI sobre [`doc/b_spc/a_ui/README.md`](../b_spc/a_ui/README.md) e eventuais promoções futuras em [`ideia_futura.md`](ideia_futura.md).

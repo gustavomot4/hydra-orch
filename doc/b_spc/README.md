@@ -3,7 +3,7 @@
 **Identificador Formal:** `b_spc`
 **Caminho Canônico:** `doc/b_spc/`
 **Versão:** `v02_00_0000`
-**Status:** `PROPOSTO / EM DESENVOLVIMENTO`
+**Status:** `IMPLEMENTADO / VALIDADO OFFLINE (M1–M4 · 28/28 TASKS)`
 **Autoridade:** Arquitetura do hydra-orch, norma para implementação e testes.
 **Escopo:** Especificações formais normativas, PRDs, contratos e diretrizes arquiteturais.
 
@@ -34,6 +34,14 @@ Para implementação e testes, seguir a sequência:
 
 | Arquivo | Tipo | Descrição | Versão |
 |---------|------|-----------|--------|
+| [`cli_ci_manual.md`](cli_ci_manual.md) | S20 / M4 / T23–T24 (DBC-9) | CLI estendida (21 subgrupos), CI hermética M1–M4 e manuais/runbooks | `verified` |
+| [`budget_packaging.md`](budget_packaging.md) | S19 / M4 / T28 (DBC-9) | Governança de orçamento 80%/100% e empacotamento seguro de PR (`PRPackager`) | `v01_00_0000` |
+| [`acessibilidade_preferences.md`](acessibilidade_preferences.md) | S18a / M4 / T21 (DBC-9) | Preferências escopadas reversíveis, snapshot por run e validação WCAG AA | `v01_00_0000` |
+| [`transportes_certificados.md`](transportes_certificados.md) | S18b / M4 / T22 (DBC-9) | Registry de transportes certificados e túnel SSH com `StrictHostKeyChecking=yes` | `v01_00_0000` |
+| [`seguranca_proveniencia.md`](seguranca_proveniencia.md) | S16 / M2–M4 / T09, T17–T20 (DBC-9) | Auth PBKDF2, CORS, redaction, consentimento/memória, discovery, SecretRef/MCP e sandbox de extensões | `v01_00_0000` |
+| [`sessoes_observabilidade.md`](sessoes_observabilidade.md) | S15 / M3 / T14–T16, T25 (DBC-9) | Sessões/threads, SSE replay, métricas `observed`/`stale`/`unknown`, roteamento e Swarm/Relay/Persist | `v01_00_0000` |
+| [`workspaces_perfis.md`](workspaces_perfis.md) | S14 / M2–M3 / T10–T13 (DBC-9) | Migração `0002`, hierarquia área/workspace/repo, catálogo de agentes e perfis SHA-256 | `v01_00_0000` |
+| [`intervencao_humana.md`](intervencao_humana.md) | T26 / M2 (DBC-9) | Pausas HITL (`needs_context`, `needs_approval`), timeout e retomada auditada | `v01_00_0000` |
 | [`entrega_operacao.md`](entrega_operacao.md) | S13 / M1 / T08 (DBC-9) | CI hermético multiplataforma, retenção verificada por SHA-256 e manual operacional M1 | `v01_00_0000` |
 | [`api_control_plane.md`](api_control_plane.md) | S10 / M1 / T07 (DBC-9) | Entrada unificada M1 (CLI e API REST/SSE) sobre `RunService`, idempotência, revisão e loopback auth | — |
 | [`integracao_git.md`](integracao_git.md) | S05 / T05–T06 (DBC-9) | Workspace Git isolado em worktree real, SHA fixo, escopo, integração serializada e decomposição T06 | — |
@@ -48,14 +56,14 @@ Para implementação e testes, seguir a sequência:
 
 | Categoria | Range | Status |
 |-----------|-------|--------|
-| **RF** (Requisitos Funcionais) | RF01 – RF30 | Proposto |
-| **RT** (Requisitos Técnicos) | RT01 – RT30 | Proposto |
-| **RNF** (Requisitos Não-Funcionais) | RNF01 – RNF10 | Proposto |
+| **RF** (Requisitos Funcionais) | RF01 – RF30 | Implementado / Validado offline |
+| **RT** (Requisitos Técnicos) | RT01 – RT30 | Implementado / Validado offline |
+| **RNF** (Requisitos Não-Funcionais) | RNF01 – RNF10 | Validado offline (suíte M1–M4) |
 | **UC** (Casos de Uso) | UC01 – UC05 | Documentado |
 | **RB** (Regras de Negócio) | RB01 – RB20 | Definido |
-| **T** (Tasks de Implementação) | T01 – T28 | Proposto |
-| **S** (Etapas de Faseamento) | S00 – S20 | Planejado |
-| **M / V** (Marcos / Slices) | M1 – M4 (V0 a V4) | Planejado |
+| **T** (Tasks de Implementação) | T01 – T28 | Concluído (`28/28`) |
+| **S** (Etapas de Faseamento) | S00 – S20 | Concluído (`T01`–`T28`) |
+| **M / V** (Marcos / Slices) | M1 – M4 (V0 a V4) | Gates `G-M1`..`G-M4` fechados |
 
 ## Convenções de Documentação (DBC-9)
 

@@ -1,7 +1,7 @@
 # Documentação Técnica do hydra-orch
 
 **Versão:** `v02_00_0000`
-**Status:** `PROPOSTO / EM DESENVOLVIMENTO`
+**Status:** `IMPLEMENTADO / VALIDADO OFFLINE (M1–M4 · GATE G-M4)`
 
 Esta pasta reúne a documentação canônica do projeto **hydra-orch**, estruturada rigorosamente conforme as diretrizes de taxonomia oficial da equipe (`doc/a_context/taxonomia_file_system.md`), ordenação sequencial por prefixos cognitivos (`a_...`, `b_...`) e regra da singularidade absoluta.
 
@@ -85,16 +85,16 @@ A organização segue ordem alfabética sequencial correspondente à progressão
 
 | Categoria | Range | Status |
 |-----------|-------|--------|
-| **RF** (Requisitos Funcionais) | RF01 – RF30 | Proposto |
-| **RT** (Requisitos Técnicos) | RT01 – RT30 | Proposto |
-| **RNF** (Requisitos Não-Funcionais) | RNF01 – RNF10 | Proposto |
+| **RF** (Requisitos Funcionais) | RF01 – RF30 | Implementado / Validado offline |
+| **RT** (Requisitos Técnicos) | RT01 – RT30 | Implementado / Validado offline |
+| **RNF** (Requisitos Não-Funcionais) | RNF01 – RNF10 | Validado offline (suíte M1–M4) |
 | **UC** (Casos de Uso) | UC01 – UC05 | Documentado |
 | **RB** (Regras de Negócio) | RB01 – RB20 | Definido |
-| **T** (Tasks de Implementação) | T01 – T28 | Proposto |
-| **S** (Etapas de Faseamento) | S00 – S20 | Planejado |
-| **M** (Marcos / Slices) | M1 – M4 (V0 a V4) | Planejado |
-| **SP** (Story Points Totais) | 309 SP (Fibonacci) | Estimado |
-| **O** (Ondas de Execução) | Onda 1 a Onda 16 | Estruturado |
+| **T** (Tasks de Implementação) | T01 – T28 | Concluído (`28/28`) |
+| **S** (Etapas de Faseamento) | S00 – S20 | Concluído (`T01`–`T28`) |
+| **M** (Marcos / Slices) | M1 – M4 (V0 a V4) | Gates `G-M1`..`G-M4` fechados |
+| **SP** (Story Points Totais) | 204 SP ativos (T01–T28) + 105 SP Parking Lot | Concluído (204/204 SP) |
+| **O** (Ondas de Execução) | Onda 1 a Onda 11 (backlog ativo) | Concluído (`11/11`) |
 
 ---
 
@@ -158,14 +158,14 @@ RF → UC → RT → RNF → Task (T##) → Etapa (S##) → Evidência (Teste) �
 
 ---
 
-## Próximos Passos para Implementação
+## Estado Pós-M4 e Próximos Passos
 
-1. **Consultar o Backlog Operacional** — Ler [`a_context/backlog.md`](a_context/backlog.md) para critérios DoR/DoD de cada task e matriz anti-colisão.
-2. **Iniciar pela Onda 1 (Fundações V0)**:
+1. **Backlog M1–M4 concluído (`28/28` tasks):** Consultar [`a_context/backlog.md`](a_context/backlog.md) e [`a_context/roadmap.md`](a_context/roadmap.md) para o histórico enxuto e a validação offline (`568 passed`).
+2. **Operação e Runbooks:** Consultar [`j_manual/README.md`](j_manual/README.md) (§0.6–0.7) para operação CLI/API e procedimentos `RB-01`–`RB-07`.
    - **T01:** Config canônica tipada (`config.py`, `config.yaml`, testes).
    - **T02:** Contratos canônicos e máquinas de estado (`model.py`, testes).
    - **T03:** Store relacional transacional SQLite WAL e migração (`core/checkpointer.py`, testes).
-3. **Seguir o Faseamento por Ondas** — Avançar de O1 a O16 conforme os gates de saída definidos em [`a_context/roadmap.md`](a_context/roadmap.md).
+3. **Próximos passos opcionais:** Certificação real de drivers externos (`driver-certification`), construção do frontend Web UI ([`b_spc/a_ui/README.md`](b_spc/a_ui/README.md)) e promoções futuras via [`a_context/ideia_futura.md`](a_context/ideia_futura.md).
 
 ---
 

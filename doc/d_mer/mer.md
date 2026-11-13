@@ -4,7 +4,7 @@
 **Caminho Canônico:** `doc/d_mer/mer.md`
 **Diagrama Complementar:** [`mer.mmd`](mer.mmd)
 **Versão:** `v01_02_0000`
-**Status:** `PROPOSTO / EM MODELAGEM`
+**Status:** `IMPLEMENTADO / SCHEMA 0001+0002 VALIDADO (M1–M4)`
 **Autoridade:** Modelagem relacional e persistência transacional em SQLite (`.orchestrator/checkpoints.sqlite`), alinhada ao [PRD técnico](../b_spc/prd_tecnico.md) e ao [diagrama de classes](../e_class/diagrama_classe.md).
 **Escopo:** Tabelas de núcleo (projetos, runs, tasks, attempts, workspaces, resultados, checks, artefatos, reviews, integrações) e expansão (áreas, workspaces, repositórios, agentes, perfis, sessões, threads, métricas, rotas, memória, consentimento, discovery, extensões, preferências, transportes, orçamento, conflitos, PR packages, handoff checkpoints).
 
@@ -12,7 +12,7 @@
 
 Complemento visual autônomo disponível em [`mer.mmd`](mer.mmd).
 
-Status: modelo lógico do produto; o núcleo 0001 e o schema aditivo T10/0002 estão implementados. Serviços da expansão permanecem faseados. O Workspace organizacional usa `area_workspaces`; `workspaces` preserva as worktrees por tentativa. Mapeamento físico e rollback em [S14](../b_spc/workspaces_perfis.md). Alinhado ao [PRD técnico](../b_spc/prd_tecnico.md) e ao [diagrama de classes](../e_class/diagrama_classe.md).
+Status: modelo lógico implementado em [`migration/0001_initial_core.sql`](../../migration/0001_initial_core.sql) e [`migration/0002_control_plane.sql`](../../migration/0002_control_plane.sql), com todos os serviços M1–M4 (`T01`–`T28`) ativos e validados offline. O Workspace organizacional usa `area_workspaces`; `workspaces` preserva as worktrees por tentativa. Mapeamento físico e rollback em [S14](../b_spc/workspaces_perfis.md). Alinhado ao [PRD técnico](../b_spc/prd_tecnico.md) e ao [diagrama de classes](../e_class/diagrama_classe.md).
 
 ## 1. Propósito
 

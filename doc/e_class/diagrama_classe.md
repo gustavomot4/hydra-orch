@@ -4,7 +4,7 @@
 **Caminho Canônico:** `doc/e_class/diagrama_classe.md`
 **Diagrama Complementar:** [`diagrama_classe.mmd`](diagrama_classe.mmd)
 **Versão:** `v01_01_0000`
-**Status:** `PROPOSTO / EM MODELAGEM`
+**Status:** `IMPLEMENTADO / REFERÊNCIA ESTRUTURAL (M1–M4)`
 **Autoridade:** Modelagem de classes e interfaces do hydra-orch, alinhada ao [PRD técnico](../b_spc/prd_tecnico.md) e ao [MER](../d_mer/mer.md).
 **Escopo:** Entidades de execução (núcleo + expansão), serviços de aplicação, interfaces de provedores, executores, control plane, observabilidade, memória, discovery, extensões, orçamento, conflitos e empacotamento.
 
@@ -12,7 +12,7 @@
 
 Complemento visual autônomo disponível em [`diagrama_classe.mmd`](diagrama_classe.mmd).
 
-Status: modelo alvo proposto, não engenharia reversa das classes atuais. Contratos em [PRD técnico](../b_spc/prd_tecnico.md); persistência em [MER](../d_mer/mer.md).
+Status: modelo estrutural alinhado às classes implementadas em `src/hydra_orch/` (`model.py`, `core/`, `bridge/`, `engine/`, `server.py`, `cli.py`) nos marcos **M1–M4 (`T01`–`T28`)**. Contratos em [PRD técnico](../b_spc/prd_tecnico.md); persistência em [MER](../d_mer/mer.md).
 
 ## 1. Propósito
 

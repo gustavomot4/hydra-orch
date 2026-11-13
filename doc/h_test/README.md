@@ -3,7 +3,7 @@
 **Identificador Formal:** `h_test`
 **Caminho Canônico:** `doc/h_test/`
 **Versão:** `v01_01_0000`
-**Status:** `PROPOSTO / EM DESENVOLVIMENTO`
+**Status:** `VALIDADO OFFLINE (M1–M4 · 568 TESTES PASSANDO)`
 **Autoridade:** Arquitetura do hydra-orch, complementando `prd_funcional.md`, `prd_tecnico.md` e `model.py`.
 **Escopo:** Matriz de rastreabilidade RF/RT → testes, estratégia de testes herméticos, critérios de cobertura, testes de segurança e acessibilidade.
 

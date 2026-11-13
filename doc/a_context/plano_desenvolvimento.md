@@ -3,13 +3,13 @@
 **Identificador Formal:** `plano_desenvolvimento.md`
 **Caminho Canônico:** `doc/a_context/plano_desenvolvimento.md`
 **Versão:** `v01_00_0000`
-**Status:** `PROPOSTO / ATIVO`
+**Status:** `CONCLUÍDO — ESCOPO M1–M4 EXECUTADO (28/28 TASKS · GATE G-M4 FECHADO)`
 **Autoridade:** Diagnóstico arquitetural do checkout do hydra-orch e planejamento de entregas por marcos.
 **Escopo:** Revisão do código, lacunas A01 a A18, gates operacionais, inventário de arquivos e sequência de tarefas.
 
 ---
 
-**Estado:** proposta de sequência técnica; não comprova implementação das capacidades planejadas.
+**Estado:** plano mestre de arquitetura concluído nos marcos **M1–M4 (`T01`–`T28`)** e validado em suíte offline hermética (**568 testes aprovados**; ver [`backlog.md`](backlog.md) e [`roadmap.md`](roadmap.md)). A seção 8.1 abaixo preserva o diagnóstico inicial histórico pré-implementação; frontend Web UI e certificação opt-in de CLIs externas permanecem fora do escopo offline.
 
 **Base revisada:** `9a8a7ab8a7a4055b00a28853e00e45428f50e961`, em 2026-11-05.
 

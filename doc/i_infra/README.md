@@ -3,7 +3,7 @@
 **Identificador Formal:** `i_infra`
 **Caminho Canônico:** `doc/i_infra/`
 **Versão:** `v01_01_0000`
-**Status:** `PROPOSTO / EM DESENVOLVIMENTO`
+**Status:** `IMPLEMENTADO OFFLINE / CERTIFICAÇÃO EXTERNA OPT-IN (M1–M4)`
 **Autoridade:** Arquitetura do hydra-orch, complementando `prd_tecnico.md`, `../g_code/architecture.md`.
 **Escopo:** Topologia de rede, tunelamento SSH, gateway OmniRoute, contêineres, sandboxing, certificação de drivers, gestão de processos multiplataforma.
 

@@ -12,7 +12,7 @@ Ele atua como o cérebro central para alimentar agentes de código autônomos co
 
 ## Estado da implementação
 
-O núcleo verificável M1 está em desenvolvimento. A configuração e o roteamento de inferência têm testes offline; execução de tarefas com Codex, revisão e integração serão entregues nas próximas etapas. `hydra run` atualmente gera texto. O modo swarm pelo chat é recusado para impedir operações Git sem os gates de M1. Os diagramas e pilares abaixo descrevem a arquitetura pretendida, não certificação de provedores.
+O núcleo e o control plane dos **Marcos M1 a M4 (`T01`–`T28`, 204 SP, Gate `G-M4`)** estão implementados e validados em suíte hermética offline (`python -m pytest tests -q` → **568 testes aprovados**). O repositório entrega CLI estendida (`hydra` com comandos M1 + **21 subgrupos**), API FastAPI + SSE (`77` paths OpenAPI `3.0.3` com Bearer auth PBKDF2-SHA256, CORS estrito e redaction), persistência SQLite WAL (`migration/0001` + `0002`), isolamento em *Git worktrees*, modos **Swarm (Wave 0+1) / Relay / Persist**, pausas HITL, conflitos 3-way, orçamento 80%/100%, PR packaging, memória consentida, discovery opt-in, SecretRef/MCP, extensões isoladas, preferências/WCAG AA e túnel SSH estrito (`StrictHostKeyChecking=yes`). Permanecem fora da validação offline a certificação real de CLIs/provedores pagos (`driver-certification`, opt-in no CI) e o frontend Web UI (há apenas o contrato em [`doc/b_spc/a_ui/README.md`](doc/b_spc/a_ui/README.md)).
 
 Consulte a [configuração de runtime](doc/b_spc/configuracao_runtime.md) e o [backlog](doc/a_context/backlog.md) para os contratos e o estado de cada entrega.
 
@@ -124,11 +124,13 @@ omniroute:
       primary: "local/qwen2.5-coder:7b"
 ```
 
-O driver inicial `execution.driver: codex` é configuração preparatória; ele não cria um adaptador de inferência nem comprova execução. Credenciais de API usam nomes de variáveis de ambiente (`api_key_env`). Campos desconhecidos, políticas contraditórias e caminhos legados são recusados; consulte o [procedimento de migração](doc/b_spc/configuracao_runtime.md#7-falhas-e-migração).
+O driver `execution.driver: codex` e os provedores configurados seguem validação estrita em `config.py`; execução com provedores externos reais depende das CLIs/credenciais disponíveis no ambiente (ou use `--execute --dry-run` no `hydra submit` para testar o pipeline offline). Credenciais de API usam nomes de variáveis de ambiente (`api_key_env`), campos desconhecidos são recusados e o procedimento de migração está em [configuracao_runtime.md](doc/b_spc/configuracao_runtime.md#7-falhas-e-migração).
 
 ### 3. Iniciar o Servidor Proxy OpenAI
 
 ```bash
+# Defina a credencial local obrigatória do servidor (Bearer auth PBKDF2-SHA256)
+export HYDRA_API_TOKEN="meu-token-local-seguro-com-mais-de-32-chars"   # PowerShell: $env:HYDRA_API_TOKEN="..."
 hydra serve --host 127.0.0.1 --port 8000
 ```
 
@@ -183,43 +185,27 @@ hydra-orch/
 │   ├── i_infra/                    # Infraestrutura, túneis SSH e conectividade
 │   └── j_manual/                   # Manuais de operação, runbooks e guias
 
-
-
-
-
-
+├── migration/                      # DDL versionado SQLite (0001_initial_core.sql + 0002_control_plane.sql)
 ├── ws/                             # Espaço de trabalho operacional delimitado
 │   ├── README.md                   # Diretrizes gerais do workspace
 │   ├── a_input/                    # Entradas, briefs e contratos versionados
 │   │   └── README.md
 │   └── b_output/                   # Saídas locais e evidências (git-ignored)
 │       └── README.md
-├── tests/                          # Suíte de testes automatizados (pytest)
-│   ├── test_checkpointer.py        # Testes do mecanismo de checkpoint
-│   ├── test_config.py              # Testes do loader de configurações
-│   ├── test_model.py               # Testes de schemas e modelos (singular)
-│   ├── test_router.py              # Testes do roteador inteligente
-│   └── test_server.py              # Testes do servidor FastAPI e túnel SSH
+├── tests/                          # Suíte offline hermética (568 testes: M1–M4, CI negativo, segurança, a11y)
+│   ├── test_ci_negative_gate.py    # Gate G-M4 (OpenAPI, CLI 21 grupos, negativos e WCAG AA)
+│   └── test_*.py                   # Unit, integração, controle Git, SSE, extensões, budget e CLI/API
 └── src/
     └── hydra_orch/
         ├── __init__.py             # Inicialização do pacote
-        ├── cli.py                  # CLI com typer e rich (hydra serve, hydra run, hydra status)
-        ├── config.py               # Loader e validação Pydantic de config.yaml
-        ├── model.py                # Schemas OpenAI Chat Completions & Streaming (singular)
-        ├── server.py               # Servidor FastAPI proxy OpenAI (/v1/chat/completions)
-        ├── core/
-        │   ├── __init__.py         # Inicialização do core
-        │   ├── checkpointer.py     # SQLite stream checkpointer & hot-handoff logic
-        │   ├── router.py           # Orquestrador central dos 3 modos de execução
-        │   ├── ssh_tunnel.py       # Gerenciador de túneis autossh para GPUs remotas
-        │   └── swarm.py            # Particionamento, Contratos e Git Worktrees
-        └── adapter/
-            ├── __init__.py         # Registro de adaptadores
-            ├── base.py             # Interface BaseAdapter e LimitHitException
-            ├── ui_cdp.py           # Conector Chrome DevTools Protocol (9222-9229)
-            ├── ide_bridge.py       # Ponte com IDEs Antigravity e Cursor
-            ├── api_gateway.py      # Conector OpenRouter / DeepSeek REST SSE
-            └── remote_local.py     # Conector Ollama / vLLM local ou via SSH
+        ├── cli.py                  # CLI Typer (M1 + 21 subgrupos, --json/--output, exit codes 0/1/2/3)
+        ├── config.py               # Loader e validação Pydantic estrita de config.yaml
+        ├── model.py                # Contratos canônicos, state machines e enums
+        ├── server.py               # FastAPI OpenAI-compatible + Control Plane & SSE (77 paths)
+        ├── core/                   # RunService, Checkpointer, Git/Conflict, Auth/Redaction, Memory/Discovery, Extensions, Budget/PR, A11y
+        ├── bridge/                 # WorkerRunner (cwd + tree kill), MCP, OmniRoute, SSH Tunnel, TransportRegistry, ExtensionRunner
+        ├── engine/                 # Orquestração Swarm (Wave 0+1), Relay, Persist, Healer e Decomposer
+        └── adapter/                # Conectores UI CDP, IDE Bridge, API Gateway e Local/Remote
 ```
 
 ---
@@ -229,7 +215,7 @@ Distribuído sob licença MIT. Consulte `LICENSE` para mais detalhes.
 
 ## Contexto de desenvolvimento e investigação
 
-O PRD descreve a visão do produto. O scaffold atual ainda precisa de validação ponta a ponta das capacidades anunciadas acima.
+Os marcos **M1 a M4 (`T01`–`T28`)** e o **Gate `G-M4`** foram concluídos e validados em testes herméticos offline (**568 testes**). Para próximos passos pós-M4 (certificação real de drivers externos, eventual frontend Web UI e ideias futuras em Parking Lot), consulte [`doc/a_context/roadmap.md`](doc/a_context/roadmap.md) e [`doc/a_context/ideia_futura.md`](doc/a_context/ideia_futura.md).
 
 O [plano de especificação e desenvolvimento](doc/a_context/plano_desenvolvimento.md) registra a revisão do checkout, as lacunas priorizadas e a sequência de entregas com critérios de aceite. O primeiro marco é uma tarefa local com executor, diff e checks verificáveis; a expansão para swarm, retomada e interface visual depende desses gates.
 

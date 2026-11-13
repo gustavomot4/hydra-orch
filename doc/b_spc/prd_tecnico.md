@@ -3,13 +3,13 @@
 **Identificador Formal:** `prd_tecnico.md`
 **Caminho Canônico:** `doc/b_spc/prd_tecnico.md`
 **Versão:** `v02_00_0000`
-**Status:** `PROPOSTO / EM DESENVOLVIMENTO`
+**Status:** `IMPLEMENTADO / VALIDADO OFFLINE (M1–M4 · GATE G-M4)`
 **Autoridade:** Arquitetura do hydra-orch, complementando [`prd_funcional.md`](prd_funcional.md), [`../a_context/plano_desenvolvimento.md`](../a_context/plano_desenvolvimento.md) e [`../g_code/architecture.md`](../g_code/architecture.md).
 **Escopo:** Requisitos técnicos (RT01 a RT30), requisitos não-funcionais (RNF01 a RNF10), contratos formais de execução, fronteiras arquiteturais, máquinas de estado, esquemas DDL, API REST, algoritmos centrais (Swarm Wave 0+1 e Handoff por Estado Git/Worktree), critérios negativos e tasks T01 a T28. Ideias pós-M4 residem em [`../a_context/ideia_futura.md`](../a_context/ideia_futura.md).
 
 ---
 
-Status: arquitetura técnica normativa proposta, sem alegação de implementação prévia. RT01–RT12 e T01–T08 cobrem o núcleo inicial verificável (M1); RT13–RT30 e T09–T28 cobrem a expansão de control plane (áreas, perfis, sessões, observabilidade, memória, discovery, extensões, acessibilidade, transportes, modos de orquestração Wave 0+1 e Handoff Git, HITL, resolução de conflitos + *Contract Amendment*, budgeting, empacotamento PR). Ideias periféricas (antigos V5/V6) estão isoladas em [`../a_context/ideia_futura.md`](../a_context/ideia_futura.md). Complementa o [PRD funcional](prd_funcional.md) e o [plano](../a_context/plano_desenvolvimento.md). Modelagem relacional em [MER](../d_mer/mer.md) e classes em [diagrama de classes](../e_class/diagrama_classe.md).
+Status: arquitetura técnica implementada e validada offline nos marcos **M1–M4 (`T01`–`T28`, 568 testes em `pytest`)**, cobrindo **RT01–RT30** e **RNF01–RNF10** no backend, CLI estendida e API Control Plane (77 paths OpenAPI `3.0.3`). Ideias periféricas (antigos V5/V6) seguem isoladas em [`../a_context/ideia_futura.md`](../a_context/ideia_futura.md); frontend Web UI e certificação real de drivers externos pagos não fazem parte da suíte offline. Complementa o [PRD funcional](prd_funcional.md), o [backlog](../a_context/backlog.md), o [MER](../d_mer/mer.md) e o [diagrama de classes](../e_class/diagrama_classe.md).
 
 ## 1. Propósito
 

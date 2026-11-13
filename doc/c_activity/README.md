@@ -3,7 +3,7 @@
 **Identificador Formal:** `c_activity`
 **Caminho Canônico:** `doc/c_activity/`
 **Versão:** `v01_01_0000`
-**Status:** `PROPOSTO / EM DESENVOLVIMENTO`
+**Status:** `REFERÊNCIA DE FLUXO (UC01–UC05 COBERTOS EM M1–M4)`
 **Autoridade:** Arquitetura do hydra-orch, complementando `prd_funcional.md` e `prd_tecnico.md`.
 **Escopo:** Casos de uso detalhados (UC01 a UC05) com diagramas de atividades Mermaid (TB/LR), DBC-9 e Meta-Information JSON.
 
