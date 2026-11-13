@@ -33,7 +33,7 @@
 
 ---
 
-## 3. Próximas Tasks Ativas — Marco `M5` (`V5`: OmniRoute, CLI Interativa & GUI `a_ui`)
+## 3. Tasks Concluídas — Marco `M5` (`V5`: OmniRoute, CLI Interativa & GUI `a_ui`)
 
 Plano derivado de [`b_interface.md`](../b_spc/a_ui/b_interface.md) (`UI01`–`UI11`), [`c_process.md`](../b_spc/a_ui/c_process.md) (Etapas 1–11), [`d_figma.md`](../b_spc/a_ui/d_figma.md) (18 telas `Protótipo navegável`) e [`stack.md`](../g_code/stack.md), organizado em **4 ondas (`O12`–`O15`)**:
 

@@ -5,7 +5,7 @@
 **Versão:** `v02_00_0000`<br>
 **Status:** `M1–M5 CONCLUÍDOS (GATES G-M1 A G-M5 FECHADOS)`<br>
 **Autoridade:** Derivado estratégico de [`doc/b_spc/prd_funcional.md`](../b_spc/prd_funcional.md), [`doc/b_spc/prd_tecnico.md`](../b_spc/prd_tecnico.md), [`doc/a_context/plano_desenvolvimento.md`](plano_desenvolvimento.md) e [`doc/g_code/architecture.md`](../g_code/architecture.md) (§6).  
-**Escopo:** Horizontes de produto focados em Engenharia de Software Autônoma (V0 a V4), marcos de entrega (M1 a M4), gates formais de aceitação (DoR/DoD de marco), timeline visual Mermaid e matriz de riscos arquiteturais. Ideias periféricas (antigos V5 e V6) estão isoladas em [`ideia_futura.md`](ideia_futura.md).
+**Escopo:** Horizontes de produto focados em Engenharia de Software Autônoma e Controle do Operador (V0 a V5), marcos de entrega (M1 a M5), gates formais de aceitação (DoR/DoD de marco), timeline visual Mermaid e matriz de riscos arquiteturais. Ideias periféricas exploratórias (multimodal, voz, computer-use, GGUF) estão isoladas em [`ideia_futura.md`](ideia_futura.md).
 
 ---
 
