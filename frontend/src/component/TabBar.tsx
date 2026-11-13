@@ -42,8 +42,7 @@ export function TabBar({ paneId, onSyncRoute }: TabBarProps) {
         splitMode === 'split' && focusedPaneId === paneId ? 'border-b-[#3B82F6]/60' : ''
       }`}
     >
-      <div
-        role="tablist"
+      <nav
         aria-label={`Abas do painel ${paneId === 'primary' ? 'principal' : 'secundário'}`}
         className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
       >
@@ -64,8 +63,7 @@ export function TabBar({ paneId, onSyncRoute }: TabBarProps) {
             >
               <button
                 type="button"
-                role="tab"
-                aria-selected={isActive}
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => {
                   activateTab(tabId, paneId);
                   onSyncRoute?.(tab.route);
@@ -114,7 +112,7 @@ export function TabBar({ paneId, onSyncRoute }: TabBarProps) {
         >
           <Plus aria-hidden="true" className="h-3.5 w-3.5" />
         </button>
-      </div>
+      </nav>
 
       {paneId === 'primary' ? (
         <div className="flex shrink-0 items-center gap-1">

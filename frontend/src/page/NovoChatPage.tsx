@@ -102,6 +102,10 @@ export function NovoChatPage({ renderComposer }: NovoChatPageProps) {
         throw new Error('Descreva o objetivo da tarefa antes de enviar.');
       }
       const idempotencyKey = `ui-run-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+      const resolvedExecutor =
+        executors.find((ex) => ex.id === selectedExecutor)?.driver ??
+        selectedExecutor ??
+        'codex';
       return client.request<{ run_id: string; status: string }>('/v1/control-plane/runs', {
         method: 'POST',
         headers: { 'Idempotency-Key': idempotencyKey },
@@ -111,6 +115,19 @@ export function NovoChatPage({ renderComposer }: NovoChatPageProps) {
           base_branch: activeProject.base_branch ?? 'main',
           objective: cleanObjective,
           mode,
+          task_spec: {
+            task_id: 'task-1',
+            objective: cleanObjective,
+            acceptance_criteria: [
+              {
+                check_id: 'chk-status',
+                command: ['git', 'status', '--short'],
+                description: 'Verificação base do workspace',
+              },
+            ],
+            allowed_paths: ['*'],
+            assigned_executor: resolvedExecutor,
+          },
           idempotency_key: idempotencyKey,
           execute: false,
         },

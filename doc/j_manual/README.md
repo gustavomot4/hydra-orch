@@ -3,15 +3,15 @@
 **Identificador Formal:** `j_manual`
 **Caminho Canônico:** `doc/j_manual/`
 **Versão:** `v01_02_0000`
-**Status:** `OPERACIONAL M1–M4 (T01–T28) / GATE G-M4`
+**Status:** `OPERACIONAL M1–M5 (T01–T38) / GATES G-M1 A G-M5`
 **Autoridade:** Arquitetura do hydra-orch, complementando [`../b_spc/prd_funcional.md`](../b_spc/prd_funcional.md), [`../b_spc/prd_tecnico.md`](../b_spc/prd_tecnico.md), [`../b_spc/api_control_plane.md`](../b_spc/api_control_plane.md), [`../b_spc/entrega_operacao.md`](../b_spc/entrega_operacao.md) e [`../i_infra/README.md`](../i_infra/README.md).
-**Escopo:** Manual operacional verificado do Marco M1 (V0) e referência para os horizontes de expansão (M2–M4 / V1–V4).
+**Escopo:** Manual operacional verificado dos Marcos M1–M5 (V0–V5 / `T01–T38`) e referência arquitetural complementar.
 
 ---
 
-## 0. Manual Operacional M1 (Núcleo Verificável Local — Validado em T01–T08)
+## 0. Manual Operacional M1–M5 (Superfície Validada em T01–T38)
 
-Esta seção documenta a superfície **100% implementada e validada** do **hydra-orch** nos Marcos **M1 a M4 (`T01–T28` / Gates `G-M1` a `G-M4`)**. As seções 1 a 12 mais abaixo preservam a visão completa de arquitetura e operação proposta para componentes opcionais/futuros (como interface web visual); a segurança HTTP (`T09`) está na seção 0.4, migrações (`T10`) na seção 0.5, a superfície estendida CLI/API (`T11–T23`) na seção 0.6 e os runbooks operacionais verificados (`T24`) na seção 0.7.
+Esta seção documenta a superfície **100% implementada e validada** do **hydra-orch** nos Marcos **M1 a M5 (`T01–T38` / Gates `G-M1` a `G-M5`)**. As seções 1 a 12 mais abaixo preservam o desenho conceitual original da arquitetura; a segurança HTTP (`T09`) está na seção 0.4, migrações (`T10`) na seção 0.5, a superfície estendida CLI/API (`T11–T23`) na seção 0.6, os runbooks operacionais verificados (`T24`) na seção 0.7 e a operação interativa M5 (OmniRoute, TUI, GUI `frontend/`, matriz PTY, automações e painéis Parking Lot) na seção 0.8.
 
 ### 0.1. Escopo Operacional M1 vs. Expansão (M2–M4)
 
@@ -226,6 +226,51 @@ A CLI (`hydra`) e a API REST/SSE (`/v1/control-plane/*`, 77 paths validados em [
 #### RB-07 — Recuperação de Crash, Worktrees Órfãs e Retomada HITL
 1. Após restart inesperado, `ExecutionStore` e `RunService` reconciliam tentativas interrompidas e identificam worktrees órfãs sem sobrescrever diffs não integrados.
 2. Inspecione o estado via `hydra inspect <run_id> --repo-root <repo> --events --artifacts --json`, retome pausas HITL respondendo à intervenção (`POST /v1/control-plane/runs/{run_id}/interventions/{request_id}/response`), e reexecute ou descarte worktrees com `hydra retry <run_id> <task_id>` ou `POST /v1/control-plane/runs/{run_id}/discard`.
+
+### 0.8. Operação Interativa M5 (OmniRoute, TUI, GUI Web & Matriz SO)
+
+Esta subseção cobre a superfície implementada em **M5 (`T29–T38`)**. Exemplos conceituais nas seções 1, 5 e 6 abaixo (como `hydra run watch` ou `hydra serve --with-ui`) são anteriores à entrega real e devem ser substituídos pelos comandos e fluxos verificados aqui.
+
+- **Backend API & Autenticação Local:**
+  - Inicie o servidor Control Plane com `hydra serve --host 127.0.0.1 --port 8000` configurando `HYDRA_API_TOKEN` (32–4096 caracteres sem whitespace) ou `HYDRA_API_TOKEN_HASH` (`pbkdf2_sha256$...`; nunca configure ambos simultaneamente).
+  - O CORS aceita apenas origens HTTP(S) loopback explícitas via `HYDRA_CORS_ALLOW_ORIGINS` (o padrão já inclui `http://127.0.0.1:5173`, `http://localhost:5173`, `http://127.0.0.1:8000`, `http://localhost:8000`, `http://127.0.0.1:3000` e `http://localhost:3000`).
+  - Na interface web, o operador informa o token no `AuthGate`, que o mantém exclusivamente no `sessionStorage` da aba e nunca em parâmetros de URL.
+
+- **Frontend Web (`frontend/`):**
+  - Aplicação React + TypeScript + Vite servida separadamente do servidor Python (`hydra serve` expõe apenas o Control Plane autenticado HTTP/SSE/WS; os assets de `frontend/` são servidos pelo Vite dev/preview ou por servidor estático cuja origem conste em `HYDRA_CORS_ALLOW_ORIGINS`).
+  - Instalação e execução local:
+    ```bash
+    cd frontend
+    npm ci
+    # Desenvolvimento com proxy /v1 (HTTP/SSE/WS) para http://127.0.0.1:8000:
+    npm run dev
+    # Ou build + preview estático (inclua http://127.0.0.1:4173 em HYDRA_CORS_ALLOW_ORIGINS se acessar diretamente):
+    npm run build && npm run preview -- --port 4173
+    ```
+  - Suíte de validação frontend: `npm run typecheck`, `npm run lint`, `npm test` (Vitest + React Testing Library), `npm run build` e E2E + acessibilidade `axe-core` com `npx playwright test`.
+
+- **CLI Interativa / Cockpit TUI (`T30`):**
+  - Comandos reais: `hydra watch` e o alias `hydra ui`, com suporte às opções `--run-id`, `--api-url`, `--api-token-env`, `--refresh-seconds`, `--once`, `--script`, `--no-alt-screen`, `--max-steps` e `--principal-id`.
+  - Oferece acompanhamento ao vivo via SSE, inspeção de coordenador e workers, decisões HITL (`hitl-list`, `hitl-reply`), revisão (`review`), resolução de conflitos (`conflict-list`, `conflict-auto`, `conflict-manual`, `conflict-discard`), integração (`integrate`), empacotamento de PR (`pr-build`, `pr-publish --authorized`) e roteamento (`route-inventory`, `select-account`).
+
+- **Roteamento OmniRoute (`T29`):**
+  - Comandos CLI: `hydra route inventory` e `hydra route select-account` (aplica apenas às próximas execuções, sem mutar tentativas em andamento).
+  - Na GUI Web, a página `/consumo` (**Contas e consumo**) e a barra de uso exibem badges honestos de proveniência (`observed` / `Observado`, `stale` / `Desatualizado` e `unknown` / `Desconhecido`, renderizando `—` em vez de fabricar `0%`). Opera offline sem gateway externo quando `omniroute.enabled=false` ou `connection_mode="disabled"`.
+
+- **Automações (`T32` / `T35`):**
+  - CLI `hydra automation {list,create,pause,resume,trigger,history,tick,delete}` e página `/automacoes` na GUI.
+  - Valida exclusividade mútua entre `cron_expr` e `interval_seconds >= 60`, exige timezone IANA válida, aceita `overlap_policy` (`skip` | `queue` | `allow`) e `missed_policy` (`skip` | `run_once`), e aplica controle de concorrência otimista via `expected_revision` (retornando HTTP `409` em divergência).
+
+- **Matriz PTY por SO & Restrições Honestas (`T31`):**
+  - **Unix / Linux / macOS:** usa backend nativo `posix_pty` (`pty_certified = true`), aplicando `TIOCSWINSZ`/`TIOCSCTTY` e fazendo fallback gracioso para `pipe_interactive_bridge` caso `pty.openpty()` falhe com `OSError`.
+  - **Windows:** opera atualmente via `pipe_interactive_bridge` (`pty_certified = false`), reportado honestamente em `/v1/control-plane/bootstrap`, `/v1/control-plane/capabilities` e no terminal da GUI como `degraded` / `Pipe bridge (não ConPTY certificado)` até certificação futura de ConPTY.
+  - Em todos os SOs, `PtyRunner.close_session(..., keep_running=False)` e `PtyRunner.close_all()` (incluindo shutdown do servidor) encerram toda a árvore de processos sem deixar PIDs pais ou netos órfãos.
+
+- **Painéis Capability-Gated (Parking Lot `F06` / `F07`):**
+  - As rotas `/dispositivos` (**Emulador móvel**, `F06`) e `/computador` (**Controle do computador**, `F07`) inspecionam `/v1/control-plane/capabilities` via `CapabilityGate` e renderizam `Indisponível` sempre que não houver certificação ativa no host (`uncertified_parking_lot_bridge`), nunca simulando execução falsa.
+
+- **Ditado (`UI08`):**
+  - O `DictationControl` captura reconhecimento de fala opcional do navegador apenas para preencher um rascunho editável (`textarea` revisável) com inserção e confirmação manual de envio no compositor; nunca envia automaticamente nem opera voz full-duplex.
 
 ---
 

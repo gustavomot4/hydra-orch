@@ -28,14 +28,17 @@ export function ProviderQuotaCard({
   const isStale = card.status === 'stale';
   const resetInfo = formatResetDisplay(card.resetAt, card.resetsInSeconds);
 
+  const defaultAccountId = card.activeOverride?.account_id ?? card.accounts[0]?.account_id ?? '';
+  const resolvedSelectedAccount = selectedAccountId || defaultAccountId;
+
   const effectiveCandidate =
-    manualAccountId.trim().length > 0 ? manualAccountId.trim() : selectedAccountId.trim();
+    manualAccountId.trim().length > 0 ? manualAccountId.trim() : resolvedSelectedAccount.trim();
 
   const liveValidation =
     manualAccountId.trim().length > 0
       ? validateAccountIdentifier(manualAccountId)
-      : selectedAccountId.trim().length > 0
-        ? validateAccountIdentifier(selectedAccountId)
+      : resolvedSelectedAccount.trim().length > 0
+        ? validateAccountIdentifier(resolvedSelectedAccount)
         : null;
 
   const activeSecretWarning =
@@ -192,7 +195,7 @@ export function ProviderQuotaCard({
             </label>
             <select
               id={`account-select-${card.providerKey}`}
-              value={selectedAccountId}
+              value={resolvedSelectedAccount}
               disabled={isUpdating}
               onChange={(e) => {
                 setSelectedAccountId(e.target.value);

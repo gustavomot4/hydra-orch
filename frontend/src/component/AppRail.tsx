@@ -53,6 +53,7 @@ export function AppRail({ activeRoute, onNavigate }: AppRailProps) {
     >
       <div className="flex flex-col items-center gap-2">
         <div
+          role="img"
           aria-label="Hydra"
           title="Hydra Control Plane"
           className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#303030] bg-[#202020] text-[#E8E8E8]"

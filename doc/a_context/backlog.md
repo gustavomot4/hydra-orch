@@ -3,7 +3,7 @@
 **Identificador Formal:** `backlog.md`
 **Caminho Canônico:** `doc/a_context/backlog.md`
 **Versão:** `v04_01_0000`
-- **Status:** `M1–M4 CONCLUÍDOS (28/28 TASKS · 204 SP) · M5 EM EXECUÇÃO (Ondas 12–14 + Onda 15 Parte A T29–T35/T37–T38 CONCLUÍDOS · T36 em curso)`
+- **Status:** `M1–M5 CONCLUÍDOS (38/38 TASKS · 278 SP) · GATES G-M1 A G-M5 FECHADOS`
 **Autoridade:** Espelho operacional de [`prd_tecnico.md (§8)`](../b_spc/prd_tecnico.md), [`a_ui/README.md`](../b_spc/a_ui/README.md), [`b_interface.md`](../b_spc/a_ui/b_interface.md), [`c_process.md`](../b_spc/a_ui/c_process.md), [`d_figma.md`](../b_spc/a_ui/d_figma.md) e [`architecture.md`](../g_code/architecture.md), subordinado a [`AGENTS.md`](../../AGENTS.md) e [`taxonomia_file_system.md`](taxonomia_file_system.md). Ideias multimodais/voz/GGUF permanecem em [`ideia_futura.md`](ideia_futura.md).
 
 ---
@@ -11,13 +11,13 @@
 ## 1. Resumo Executivo e Épicos (`EP01`–`EP10`)
 
 - **Base concluída (`M1`–`M4`):** `28/28` tasks (`T01`–`T28`, `204 SP`), validada offline em `pytest` (**568 passed**), OpenAPI `3.0.3` (`77` paths) e CLI (`hydra` + `21` subgrupos).
-- **Próximo foco (`M5 / V5`):** **OmniRoute** como roteador de IA/quotas + **CLI Interativa (TUI)** + **GUI Control Plane (`frontend/`)** fiel às **18 telas Figma** e requisitos **`UI01`–`UI11`** em [`doc/b_spc/a_ui/`](../b_spc/a_ui/README.md) (`T29`–`T38`, `74 SP`, Ondas `12`–`15`).
+- **Entrega concluída (`M5 / V5`):** **OmniRoute** como roteador de IA/quotas + **CLI Interativa (TUI)** + **GUI Control Plane (`frontend/`)** fiel às **18 telas Figma** e requisitos **`UI01`–`UI11`** em [`doc/b_spc/a_ui/`](../b_spc/a_ui/README.md) (`T29`–`T38`, `74 SP`, Ondas `12`–`15`); acumulado **`38/38` tasks (`278 SP`)**, validado em `pytest` (**634 passed**), `Vitest` (**46 passed** em 14 arquivos) e `Playwright` E2E + `axe-core` (**2 passed**; PTY POSIX certificado `posix_pty`, Windows `pipe_interactive_bridge` sem órfãos com Win ConPTY não certificado).
 
 | Épico | Título | Marco | Tasks | SP | Status |
 |---|---|---|---|---|---|
 | **EP01–EP08** | Núcleo Local, Control Plane, Swarm/Relay, Governança e CI (`M1–M4`) | V0–V4 / M1–M4 | T01–T28 | 204 | **28/28 concluido** |
 | **EP09** | OmniRoute Operacional, Contratos PTY/Anexos/Busca/Agenda & TUI | V5 / M5 | T29–T31, T37 | 29 | **29/29 concluido** (`T29`–`T31`, `T37`) |
-| **EP10** | GUI Control Plane (`frontend/`, 18 Telas Figma, `UI01`–`UI11` & CI) | V5 / M5 | T32–T36, T38 | 45 | **em execução** (`T32` concluido; `Onda 14` em paralelo) |
+| **EP10** | GUI Control Plane (`frontend/`, 18 Telas Figma, `UI01`–`UI11` & CI) | V5 / M5 | T32–T36, T38 | 45 | **45/45 concluido** (`T32`–`T36`, `T38`) |
 
 ---
 
@@ -48,7 +48,7 @@ Plano derivado de [`b_interface.md`](../b_spc/a_ui/b_interface.md) (`UI01`–`UI
 | **T34** | GUI: Terminal PTY (Single/Split), Previews Seguros, Diffs & Conflitos | EP10 / O14 | P1 | 8 | T27, T31, T32 | UI03, UI06 / Figma `7:69`, `22:8`, `22:239` / Etapa 5, 6 | `frontend/src/feature/{terminal,artifact,conflict}/`, `frontend/tests/terminal_artifact.test.tsx` | `TerminalPane` (`@xterm/xterm` + fit) em painel único ou dividido (Codex/Claude): host/cwd/sessão visíveis, ANSI/Unicode, colagem multilinha revisável, resize, interrupção, código de saída, reconexão e diálogo ao fechar aba (manter ou encerrar processo); `ArtifactViewer` lado a lado (`diff2html`/Monaco, Markdown sem script, imagem/PDF); `review`, conflitos 3-way, `integrate` e `pr-package` | **concluido** |
 | **T38** | GUI: Busca Global (`QuickOpen`), Anexos (`AttachmentRef`) & Ditado Revisável | EP10 / O14 | P1 | 5 | T31, T32, T33 | UI04, UI05, UI08 / Figma `7:359`, `7:679`, `7:1039` / Etapa 6, 9 | `frontend/src/feature/{quickopen,attachment,dictation}/`, `frontend/tests/quickopen_attachments.test.tsx` | `QuickOpen` (`Ctrl+K`) por teclado em hosts/projetos/workspaces/abas sem recriar sessão; drag/drop e seletor acessível de `AttachmentRef` (nome, MIME, tamanho, progresso, erro, destino explícito remoto); controle de ditado STT (`inativo`/`ativo`/permissão negada recuperável/cancelar), transcrição **editável sem auto-envio** (distinto de voz duplex `RF36`) | **concluido** |
 | **T35** | GUI: Recursos/Governança, Automações & Painéis Capability-Gated | EP10 / O15 | P2 | 8 | T32, T33, T37 | RF21–RF25, RF29 / UI07, UI10, UI11 / Figma `7:205`, `7:439`/`832`, `7:519`/`901`, `7:599`/`970` / Etapa 8, 10 | `frontend/src/feature/{governance,automation,device,computer_use}/`, `frontend/tests/governance.test.tsx`, `frontend/tests/automation_capabilities.test.tsx`, `frontend/tests/wave15Wiring.test.tsx` | Tela `Recursos` (skills, MCPs, consentimento/memória `409`, discovery `approve`/`reject`, extensões quarentena/rollback, SecretRef só metadados, SSH host-key, budget 80%/100%); tela `Automações` (agenda + TZ + toggle + histórico ligado ao run); painéis `Emulador móvel` (`UI07`) e `Controle do computador` (`UI11`) estritamente **capability-gated** (exibem `Indisponível / não certificado` sem simular execução falsa) | **concluido** |
-| **T36** | Suíte E2E (GUI + TUI), WCAG AA (`axe-core`), Mobile, Certificação OS & CI M5 | EP10 / O15 | P2 | 8 | T30, T34, T35, T38 | RF15, RF23 / UI01–UI11 / Etapa 11 | `frontend/tests/e2e/`, `tests/`, `.github/workflows/ci.yml`, `doc/j_manual/README.md` | Cenário integrado de 10 passos (`c_process.md`) com executor falso/fixtures (GUI + TUI); `axe-core` WCAG AA (desktop `1920×1100`, estreito, zoom 200%, mobile sem sobreposição do teclado); matriz de prova PTY por SO (Windows ConPTY + Unix PTY) sem processos órfãos; CI M5 (`lint`, `typecheck`, `build`, `Vitest`, `Playwright`) e manual operacional (**fecha Gate `G-M5`**) | pendente |
+| **T36** | Suíte E2E (GUI + TUI), WCAG AA (`axe-core`), Mobile, Certificação OS & CI M5 | EP10 / O15 | P2 | 8 | T30, T34, T35, T38 | RF15, RF23 / UI01–UI11 / Etapa 11 | `frontend/tests/e2e/`, `tests/`, `.github/workflows/ci.yml`, `doc/j_manual/README.md` | Cenário integrado de 10 passos (`c_process.md`) com executor falso/fixtures (GUI + TUI); `axe-core` WCAG AA (desktop `1920×1100`, estreito, zoom 200%, mobile sem sobreposição do teclado); matriz de prova PTY por SO (`posix_pty` certificado; Windows `pipe_interactive_bridge` sem órfãos, Win ConPTY não certificado); CI M5 (`lint`, `typecheck`, `build`, `Vitest`, `Playwright`) e manual operacional (**fecha Gate `G-M5`**) | **concluido** |
 
 ---
 
@@ -58,7 +58,7 @@ Plano derivado de [`b_interface.md`](../b_spc/a_ui/b_interface.md) (`UI01`–`UI
    - **Onda 12 (`T29`, `T31`, `T37`):** Workers em worktrees isoladas produzem seus módulos exclusivos (`omniroute_client.py`/`route_selector.py` vs `pty_runner.py`/`attachments.py`/`search_index.py`/`ui_contratos.md` vs `migration/0003` + `scheduler.py`); **apenas o líder** integra as rotas compartilhadas em `src/hydra_orch/server.py`, `src/hydra_orch/cli.py` e `doc/f_api/openapi.yaml`.
    - **Onda 13 (`T30` || `T32`):** Disjunta entre Python (`tui.py` + `cli.py`) e Frontend (`frontend/` + `stack.md`). `T32` executa a **Wave 0 do Frontend** (pinagem de dependências em `package.json`, tema e tipos base) antes de abrir a Wave 1 paralela da Onda 14.
    - **Onda 14 (`T33` || `T34` || `T38`):** Cada task atua apenas no próprio slice sob `frontend/src/feature/*` e `frontend/tests/*`; mudanças em tipos/rotas compartilhadas passam pelo líder.
-   - **Onda 15 (`T35` → `T36`):** Consolida painéis finais e fecha E2E, `axe-core`, PTY por SO e CI no `Gate G-M5`.
+   - **Onda 15 (`T35` → `T36` — concluído):** Consolidou painéis finais (`T35`) e fechou E2E 10 passos, `axe-core`, matriz PTY por SO (`posix_pty` / Windows `pipe_interactive_bridge`), CI M5 e manual operacional (`T36`) no `Gate G-M5`.
 2. **Invariantes Visuais e de Escopo (`d_figma.md` + `ideia_futura.md`):**
    - **Identidade Figma consolidada:** PT-BR, sem bolinhas de janela macOS, barra lateral estreita (`#181818`) + sidebar (`#1C1C1C`) + área principal (`#141414`) + cartões (`#202020`), `Inter` + `JetBrains Mono`, SVGs Lucide + logos dos provedores, rodapé compacto apenas com ícone + barra + `%` (nunca `0%` quando desconhecido).
    - **Taxonomia no Frontend (`taxonomia_file_system.md`):** Usar pastas internas no singular (`frontend/src/component/`, `feature/`, `hook/`, `page/`, `store/`, `type/`) e registrar a reconciliação com `doc/g_code/stack.md` (§4) em `T31`/`T32`.

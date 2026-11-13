@@ -348,8 +348,10 @@ export function PromptComposer({
           onKeyUp={syncCursorPosition}
           placeholder={placeholder}
           aria-label={textareaAriaLabel}
+          role={isPopoverOpen ? 'combobox' : undefined}
+          aria-autocomplete={isPopoverOpen ? 'list' : undefined}
           aria-haspopup={isPopoverOpen ? 'listbox' : undefined}
-          aria-expanded={isPopoverOpen}
+          aria-expanded={isPopoverOpen ? true : undefined}
           aria-controls={
             isMentionOpen
               ? `${listboxId}-mentions`

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import logging
 import os
 from pathlib import Path
+import shutil
 import signal
 import struct
 import subprocess
@@ -356,8 +357,15 @@ class PtyRunner:
         else:
             spawn_kwargs["start_new_session"] = True
 
+        exec_command = list(command)
+        if os.name == "nt" and exec_command:
+            # Windows CreateProcessW skips PATHEXT (.cmd/.bat, e.g. npm shims) unless resolved explicitly.
+            resolved = shutil.which(exec_command[0], path=env.get("PATH"))
+            if resolved:
+                exec_command[0] = resolved
+
         try:
-            process = await asyncio.create_subprocess_exec(*command, **spawn_kwargs)
+            process = await asyncio.create_subprocess_exec(*exec_command, **spawn_kwargs)
         except Exception as exc:
             raise ContractViolation("pty_spawn_failed", f"Failed to spawn terminal process: {redact_text(str(exc))}") from exc
 
