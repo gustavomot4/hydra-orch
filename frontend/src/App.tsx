@@ -14,9 +14,13 @@ import { AuthGate } from '@/component/AuthGate';
 import { PaneLayout } from '@/component/PaneLayout';
 import { Sidebar } from '@/component/Sidebar';
 import { AttachmentDropzone, AttachmentItemView } from '@/feature/attachment';
+import { AutomationsPage } from '@/feature/automation';
 import { ChatTimelinePage } from '@/feature/chat';
 import { PromptComposer, SlashCommandItem } from '@/feature/composer';
+import { ComputerUsePanel } from '@/feature/computer_use';
+import { DevicePanel } from '@/feature/device';
 import { DictationControl } from '@/feature/dictation';
+import { GovernancePage } from '@/feature/governance';
 import { QuickOpenDialog, QuickOpenSearchItem } from '@/feature/quickopen';
 import { QuotaAccountsPage } from '@/feature/quota';
 import { SplitTerminalView } from '@/feature/terminal';
@@ -26,7 +30,6 @@ import { useKeyboardShortcuts } from '@/hook/useKeyboardShortcuts';
 import { useWorkspaceHierarchy, WorkspaceTreeNode } from '@/hook/useWorkspaceHierarchy';
 import { ConfigPerfilPage } from '@/page/ConfigPerfilPage';
 import { NovoChatPage } from '@/page/NovoChatPage';
-import { PlaceholderFeaturePage } from '@/page/PlaceholderFeaturePage';
 import { WorkspaceWorkbenchPage } from '@/page/WorkspaceWorkbenchPage';
 import { useAuthStore } from '@/store/authStore';
 import { PaneId, TabKind, useLayoutStore, WorkspaceTab } from '@/store/layoutStore';
@@ -85,6 +88,7 @@ export function HydraShell() {
   const selectedHostId = useLayoutStore((s) => s.selectedHostId);
   const selectedWorkspaceId = useLayoutStore((s) => s.selectedWorkspaceId);
   const selectedProjectId = useLayoutStore((s) => s.selectedProjectId);
+  const selectedRunId = useLayoutStore((s) => s.selectedRunId);
   const openTab = useLayoutStore((s) => s.openTab);
   const selectHierarchy = useLayoutStore((s) => s.selectHierarchy);
   const setMobileDrawerOpen = useLayoutStore((s) => s.setMobileDrawerOpen);
@@ -147,6 +151,22 @@ export function HydraShell() {
         kind: 'automations',
         title: 'Automações',
         route: '/automacoes',
+        closable: true,
+      });
+    } else if (path === '/dispositivos') {
+      openTab({
+        id: 'tab:device',
+        kind: 'device',
+        title: 'Emulador móvel',
+        route: '/dispositivos',
+        closable: true,
+      });
+    } else if (path === '/computador') {
+      openTab({
+        id: 'tab:computer-use',
+        kind: 'computer_use',
+        title: 'Controle do computador',
+        route: '/computador',
         closable: true,
       });
     } else if (path === '/consumo') {
@@ -300,6 +320,41 @@ export function HydraShell() {
     [location.pathname, navigate, openTab, selectedHostId, selectedProjectId, selectedWorkspaceId],
   );
 
+  const handleOpenRunFromAutomation = useCallback(
+    (runId: string) => {
+      const route = `/chat/${encodeURIComponent(runId)}`;
+      selectHierarchy({
+        hostId: selectedHostId,
+        workspaceId: selectedWorkspaceId,
+        projectId: selectedProjectId,
+        runId,
+      });
+      openTab({
+        id: `tab:chat:${runId}`,
+        kind: 'chat',
+        title: `Run ${runId.slice(0, 12)}`,
+        route,
+        hostId: selectedHostId,
+        workspaceId: selectedWorkspaceId ?? undefined,
+        projectId: selectedProjectId ?? undefined,
+        runId,
+        closable: true,
+      });
+      if (location.pathname !== route) {
+        navigate(route);
+      }
+    },
+    [
+      location.pathname,
+      navigate,
+      openTab,
+      selectHierarchy,
+      selectedHostId,
+      selectedProjectId,
+      selectedWorkspaceId,
+    ],
+  );
+
   const renderTabPage = useCallback(
     (tab: WorkspaceTab | null, _paneId: PaneId) => {
       if (!tab) {
@@ -408,24 +463,27 @@ export function HydraShell() {
             />
           );
         case 'resources':
-          return (
-            <PlaceholderFeaturePage
-              kind="resources"
-              title="Recursos, skills e MCPs"
-              targetWave="Onda 15 (T35)"
-              targetModule="src/feature/governance/"
-              description="Inventário de skills, servidores MCP, descoberta opt-in, extensões e políticas de consentimento."
-            />
-          );
+          return <GovernancePage initialRunId={selectedRunId} />;
         case 'automations':
           return (
-            <PlaceholderFeaturePage
-              kind="automations"
-              title="Automações agendadas"
-              targetWave="Onda 15 (T35)"
-              targetModule="src/feature/automation/"
-              description="Agendador durável com fuso horário, política de sobreposição e histórico vinculado a runs."
-              capability="scheduler"
+            <AutomationsPage
+              onOpenRun={handleOpenRunFromAutomation}
+              defaultWorkspaceId={selectedWorkspaceId ?? undefined}
+              defaultProjectId={selectedProjectId ?? undefined}
+            />
+          );
+        case 'device':
+          return (
+            <DevicePanel
+              hostId={selectedHostId}
+              onHostChange={(nextHostId) => selectHierarchy({ hostId: nextHostId })}
+            />
+          );
+        case 'computer_use':
+          return (
+            <ComputerUsePanel
+              hostId={selectedHostId}
+              onHostChange={(nextHostId) => selectHierarchy({ hostId: nextHostId })}
             />
           );
         case 'usage':
@@ -457,8 +515,12 @@ export function HydraShell() {
       activeProjectRoot,
       draftAttachments,
       handleNavigate,
+      handleOpenRunFromAutomation,
       handleOpenTerminalFromRun,
+      selectHierarchy,
       selectedHostId,
+      selectedProjectId,
+      selectedRunId,
       selectedWorkspaceId,
     ],
   );
@@ -514,6 +576,8 @@ export function HydraShell() {
       <Route path="/workspace" element={shellContent} />
       <Route path="/recursos" element={shellContent} />
       <Route path="/automacoes" element={shellContent} />
+      <Route path="/dispositivos" element={shellContent} />
+      <Route path="/computador" element={shellContent} />
       <Route path="/consumo" element={shellContent} />
       <Route path="/busca" element={shellContent} />
       <Route path="/configuracoes" element={shellContent} />

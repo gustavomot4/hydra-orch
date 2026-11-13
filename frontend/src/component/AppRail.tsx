@@ -5,9 +5,11 @@ import {
   Gauge,
   LogOut,
   MessageSquarePlus,
+  Monitor,
   PanelLeft,
   Search,
   Settings,
+  Smartphone,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { TabKind, useLayoutStore } from '@/store/layoutStore';
@@ -25,6 +27,8 @@ const RAIL_NAV_ITEMS: RailNavItem[] = [
   { id: 'tab:workspaces', label: 'Workspaces', route: '/workspace', kind: 'workspace', Icon: FolderGit2 },
   { id: 'tab:resources', label: 'Recursos', route: '/recursos', kind: 'resources', Icon: Blocks },
   { id: 'tab:automations', label: 'Automações', route: '/automacoes', kind: 'automations', Icon: Clock },
+  { id: 'tab:device', label: 'Emulador móvel', route: '/dispositivos', kind: 'device', Icon: Smartphone },
+  { id: 'tab:computer-use', label: 'Controle do computador', route: '/computador', kind: 'computer_use', Icon: Monitor },
   { id: 'tab:usage', label: 'Contas e consumo', route: '/consumo', kind: 'usage', Icon: Gauge },
   { id: 'tab:search', label: 'Busca global', route: '/busca', kind: 'search', Icon: Search },
 ];

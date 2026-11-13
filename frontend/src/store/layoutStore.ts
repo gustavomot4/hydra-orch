@@ -12,6 +12,8 @@ export type TabKind =
   | 'workspace'
   | 'resources'
   | 'automations'
+  | 'device'
+  | 'computer_use'
   | 'usage'
   | 'search'
   | 'settings';
