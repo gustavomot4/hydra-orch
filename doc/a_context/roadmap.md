@@ -24,7 +24,7 @@ O produto evolui de um núcleo local comprovável de execução de código em Gi
 
 ## Incrementos iniciais validados
 
-Todas as **28 tasks (`T01`–`T28`, 204 SP)** dos horizontes **V0 a V4 (Marcos M1 a M4)** estão implementadas e validadas em suíte hermética offline (`python -m pytest tests -q` → **568 testes aprovados**, 0 falhas e 0 erros). O núcleo M1 (`T01`–`T08`, Gate `G-M1`) entregou configuração estrita, contratos tipados, store SQLite WAL, runner com `cwd`/tree-kill, Git worktrees isoladas, `RunService`, CLI/API e CI offline. O bloco M2–M3 (`T09`–`T16`, `T25`, `T26`, Gates `G-SEG`/`G-M2`/`G-M3`) entregou autenticação PBKDF2/CORS/redaction, migração `0002`, registries de áreas/agentes/perfis/sessões, replay SSE, métricas `observed`/`stale`/`unknown`, roteamento adaptativo, HITL e orquestração Swarm Wave 0+1 / Relay / Persist. O bloco V4 (`T17`–`T24`, `T27`, `T28`, Gate `G-M4`) consolidou memória consentida, discovery opt-in, SecretRef/MCP, extensões isoladas, preferências/WCAG AA, SSH estrito, conflitos 3-way, budget 80%/100%, PR packaging, 77 paths OpenAPI `3.0.3`, 21 subgrupos CLI, CI estendido e runbooks em [`doc/j_manual/README.md`](../j_manual/README.md). O foco ativo seguinte é o **Marco M5 (V5 — Experiência do Operador: `T29`–`T36`, `58 SP`)**, definindo o **OmniRoute** como camada responsável pelo roteamento de IA/quotas e entregando **CLI Interativa (TUI)** e **GUI Control Plane (`frontend/`)** para o operador acompanhar e controlar seus agentes com visibilidade total. Ideias exploratórias multimodais/voz/computer-use/GGUF permanecem no Parking Lot ([`ideia_futura.md`](ideia_futura.md)).
+Todas as **28 tasks (`T01`–`T28`, 204 SP)** dos horizontes **V0 a V4 (Marcos M1 a M4)** estão implementadas e validadas em suíte hermética offline (`python -m pytest tests -q` → **568 testes aprovados**, 0 falhas e 0 erros). O núcleo M1 (`T01`–`T08`, Gate `G-M1`) entregou configuração estrita, contratos tipados, store SQLite WAL, runner com `cwd`/tree-kill, Git worktrees isoladas, `RunService`, CLI/API e CI offline. O bloco M2–M3 (`T09`–`T16`, `T25`, `T26`, Gates `G-SEG`/`G-M2`/`G-M3`) entregou autenticação PBKDF2/CORS/redaction, migração `0002`, registries de áreas/agentes/perfis/sessões, replay SSE, métricas `observed`/`stale`/`unknown`, roteamento adaptativo, HITL e orquestração Swarm Wave 0+1 / Relay / Persist. O bloco V4 (`T17`–`T24`, `T27`, `T28`, Gate `G-M4`) consolidou memória consentida, discovery opt-in, SecretRef/MCP, extensões isoladas, preferências/WCAG AA, SSH estrito, conflitos 3-way, budget 80%/100%, PR packaging, 77 paths OpenAPI `3.0.3`, 21 subgrupos CLI, CI estendido e runbooks em [`doc/j_manual/README.md`](../j_manual/README.md). O foco ativo seguinte é o **Marco M5 (V5 — Experiência do Operador & UI `a_ui`: `T29`–`T38`, `74 SP`)**, definindo o **OmniRoute** como camada responsável pelo roteamento de IA/quotas e entregando **CLI Interativa (TUI)** e **GUI Control Plane (`frontend/`)** fiel às **18 telas Figma** e requisitos `UI01`–`UI11` em [`doc/b_spc/a_ui/`](../b_spc/a_ui/README.md). Ideias exploratórias multimodais/voz/computer-use/GGUF permanecem no Parking Lot ([`ideia_futura.md`](ideia_futura.md)).
 
 ## 2. Why: Mapa de Horizontes e Versões (V0 a V4)
 
@@ -38,7 +38,7 @@ A evolução do produto distribui-se em 5 horizontes arquiteturais enxutos, alin
 | **V3** | **M3b** | EP04 | T14–T16, T25 (34 SP) | **Coordenação Adaptativa & Orquestração Multi-Modo:** Swarm em Duas Ondas (Wave 0: Fundação Compilável $\rightarrow$ Wave 1: Swarm Paralelo com DAG acíclico e trava de dependências), Relay/Persistente com Handoff por Estado Git/Worktree e Retry de Turno Atômico, e observabilidade com métricas reais (`observed`/`stale`/`unknown`). | **P1** |
 | **G-SEG** | **Gate Transversal** | Transversal | S16, T09 | **Gate de Segurança e Proveniência:** Pré-requisito mandatório para liberação de qualquer task P2 (V4). Bloqueia path traversal, vazamento de segredos e ativações automáticas. | **Mandatório** |
 | **V4** | **M4** | EP05–EP08 | T17–T24, T27, T28 (76 SP) | **Governança Avançada & Entrega Automatizada:** Memória persistente com `ConsentRecord`, discovery local opt-in, plugins em sandbox isolada, resolução 3-way de merge + *Contract Amendment*, orçamento rigoroso e PR packaging automático. | **P2** *(Concluído)* |
-| **V5** | **M5** | EP09–EP10 | T29–T36 (58 SP) | **Controle do Operador (OmniRoute, CLI Interativa & GUI):** Roteamento de IA e quotas delegados ao OmniRoute, CLI interativa/TUI ao vivo (`hydra watch` / `ui`), contratos backend PTY/anexos/agenda e interface gráfica (`frontend/`) com chat SSE, terminal, diffs, HITL, conflitos e governança WCAG AA. | **P1/P2** *(Próximo)* |
+| **V5** | **M5** | EP09–EP10 | T29–T38 (74 SP) | **Controle do Operador (OmniRoute, TUI & GUI `a_ui`):** Roteamento de IA/quotas via OmniRoute, TUI ao vivo (`hydra watch`/`ui`), contratos PTY/anexos/preview/search/agenda e GUI React (`frontend/`) com 18 telas Figma e `UI01`–`UI11`. | **P1/P2** *(Próximo)* |
 
 ---
 
@@ -117,12 +117,12 @@ O avanço de um horizonte para o seguinte é governado por critérios binários 
 ### 3.7. Gate G-M5 (Marco M5 — OmniRoute, CLI Interativa & GUI Control Plane / V5)
 - **Entrada (DoR):** Gate G-M4 aprovado; [`doc/b_spc/a_ui/README.md`](../b_spc/a_ui/README.md) e [`doc/g_code/stack.md`](../g_code/stack.md) reconciliados com `openapi.yaml`.
 - **Critérios de Saída (DoD):**
-  1. Tasks **T29 a T36** com status `concluido` em [`backlog.md`](backlog.md).
+  1. Tasks **T29 a T38** com status `concluido` em [`backlog.md`](backlog.md).
   2. OmniRoute integrado ao fluxo de rotas/quotas (`observed`/`stale`/`unknown`), permitindo seleção de modelo/conta sem quebrar o modo direto offline.
   3. CLI interativa (`T30`) acompanha runs Swarm/Relay/Persist via SSE e executa `review`, HITL e `integrate` em fluxo guiado.
-  4. Backend expõe contratos autenticados de terminal PTY, `AttachmentRef` e agendamento idempotente no OpenAPI.
-  5. GUI em `frontend/` (React + TS + Vite) opera sobre REST/SSE autenticados e PTY real, exibindo workspaces, chat timeline sem duplicação no replay, terminal, diffs/conflitos, HITL, orçamento e governança sem segredos em plaintext.
-  6. Suíte Vitest/Playwright + `axe-core` WCAG AA e checks de lint/typecheck/build integrados ao CI hermético.
+  4. Backend expõe contratos autenticados de terminal PTY (Win ConPTY / Unix PTY sem órfãos), `AttachmentRef`, preview seguro, busca global `QuickOpen`, capacidades por host e agendamento idempotente no OpenAPI.
+  5. GUI em `frontend/` (React + TS + Vite + Tailwind/Radix) opera sobre REST/SSE autenticados e PTY real cobrindo as 18 telas Figma (`a_ui`) e `UI01`–`UI11` (workspaces, chat coordenador/workers sem duplicação no replay, terminal single/split, previews seguros, `QuickOpen`, anexos, ditado revisável, `Contas e consumo`/OmniRoute, `Automações`, `Recursos`/governança e painéis capability-gated sem simular bridge ausente).
+  6. Suíte Vitest/Playwright (cenário integrado de 10 passos de `c_process.md`) + `axe-core` WCAG AA (desktop e mobile) + lint/typecheck/build integrados ao CI hermético.
 
 ---
 
@@ -149,10 +149,10 @@ timeline
         Onda 10 : T20 Isolamento de extensões
         Onda 11 : T23 CLI estendida : T24 CI estendido : Gate G-M4
     section V5 / M5: OmniRoute, CLI Interativa & GUI
-        Onda 12 : T29 OmniRoute operacional : T31 Contratos PTY e Anexos
-        Onda 13 : T30 CLI Interativa TUI : T32 Fundação GUI Shell
-        Onda 14 : T33 Chat SSE OmniRoute HITL : T34 Terminal PTY Diffs Conflitos
-        Onda 15 : T35 Governança GUI : T36 E2E WCAG AA CI : Gate G-M5
+        Onda 12 : T29 OmniRoute operacional : T31 Contratos PTY Anexos Search : T37 Agendador Backend
+        Onda 13 : T30 CLI Interativa TUI : T32 Fundação GUI Figma/Shell
+        Onda 14 : T33 Chat SSE Workers Contas : T34 Terminal PTY Diffs Conflitos : T38 QuickOpen Anexos Ditado
+        Onda 15 : T35 Recursos Automações Gates : T36 E2E WCAG AA CI : Gate G-M5
 ```
 
 ### 4.2. Fluxo de Dependências entre Gates e Ondas
@@ -178,9 +178,9 @@ flowchart LR
     O9 --> O10[O10: T20]
     O10 --> O11[O11: T23, T24]
     O11 --> GM4{{Gate G-M4: Governança V4}}
-    GM4 --> O12[O12: T29, T31]
+    GM4 --> O12[O12: T29, T31, T37]
     O12 --> O13[O13: T30, T32]
-    O13 --> O14[O14: T33, T34]
+    O13 --> O14[O14: T33, T34, T38]
     O14 --> O15[O15: T35, T36]
     O15 --> GM5{{Gate G-M5: OmniRoute + TUI + GUI}}
 ```
