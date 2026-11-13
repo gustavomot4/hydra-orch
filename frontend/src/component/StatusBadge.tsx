@@ -149,9 +149,10 @@ export function StatusBadge({
   compact = false,
   className = '',
 }: StatusBadgeProps) {
-  const key = status.toLowerCase();
+  const safeStatus = typeof status === 'string' && status.trim().length > 0 ? status : 'unknown';
+  const key = safeStatus.toLowerCase();
   const meta = STATUS_MAP[key] ?? {
-    label: labelOverride ?? status,
+    label: labelOverride ?? safeStatus,
     classes: 'border-[#303030] bg-[#202020] text-[#969696]',
     Icon: HelpCircle,
   };
