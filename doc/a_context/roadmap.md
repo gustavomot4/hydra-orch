@@ -3,7 +3,7 @@
 **Identificador Formal:** `roadmap.md`  
 **Caminho Canônico:** `doc/a_context/roadmap.md`  
 **Versão:** `v02_00_0000`<br>
-**Status:** `CONCLUÍDO / MARCOS M1–M4 VALIDADO OFFLINE (V0 A V4)`<br>
+**Status:** `M1–M4 CONCLUÍDOS (G-M4 FECHADO) · M5 PLANEJADO (OMNIROUTE, CLI INTERATIVA & GUI)`<br>
 **Autoridade:** Derivado estratégico de [`doc/b_spc/prd_funcional.md`](../b_spc/prd_funcional.md), [`doc/b_spc/prd_tecnico.md`](../b_spc/prd_tecnico.md), [`doc/a_context/plano_desenvolvimento.md`](plano_desenvolvimento.md) e [`doc/g_code/architecture.md`](../g_code/architecture.md) (§6).  
 **Escopo:** Horizontes de produto focados em Engenharia de Software Autônoma (V0 a V4), marcos de entrega (M1 a M4), gates formais de aceitação (DoR/DoD de marco), timeline visual Mermaid e matriz de riscos arquiteturais. Ideias periféricas (antigos V5 e V6) estão isoladas em [`ideia_futura.md`](ideia_futura.md).
 
@@ -24,7 +24,7 @@ O produto evolui de um núcleo local comprovável de execução de código em Gi
 
 ## Incrementos iniciais validados
 
-Todas as **28 tasks (`T01`–`T28`, 204 SP)** dos horizontes **V0 a V4 (Marcos M1 a M4)** estão implementadas e validadas em suíte hermética offline (`python -m pytest tests -q` → **568 testes aprovados**, 0 falhas e 0 erros). O núcleo M1 (`T01`–`T08`, Gate `G-M1`) entregou configuração estrita, contratos tipados, store SQLite WAL, runner com `cwd`/tree-kill, Git worktrees isoladas, `RunService`, CLI/API e CI offline. O bloco M2–M3 (`T09`–`T16`, `T25`, `T26`, Gates `G-SEG`/`G-M2`/`G-M3`) entregou autenticação PBKDF2/CORS/redaction, migração `0002`, registries de áreas/agentes/perfis/sessões, replay SSE, métricas `observed`/`stale`/`unknown`, roteamento adaptativo, HITL e orquestração Swarm Wave 0+1 / Relay / Persist. O bloco V4 (`T17`–`T24`, `T27`, `T28`, Gate `G-M4`) consolidou memória consentida, discovery opt-in, SecretRef/MCP, extensões isoladas, preferências/WCAG AA, SSH estrito, conflitos 3-way, budget 80%/100%, PR packaging, 77 paths OpenAPI `3.0.3`, 21 subgrupos CLI, CI estendido e runbooks em [`doc/j_manual/README.md`](../j_manual/README.md). Permanecem fora do escopo offline a interface visual Web UI ([`a_ui/README.md`](../b_spc/a_ui/README.md)), a certificação opt-in de CLIs externas pagas e os itens de Parking Lot ([`ideia_futura.md`](ideia_futura.md)).
+Todas as **28 tasks (`T01`–`T28`, 204 SP)** dos horizontes **V0 a V4 (Marcos M1 a M4)** estão implementadas e validadas em suíte hermética offline (`python -m pytest tests -q` → **568 testes aprovados**, 0 falhas e 0 erros). O núcleo M1 (`T01`–`T08`, Gate `G-M1`) entregou configuração estrita, contratos tipados, store SQLite WAL, runner com `cwd`/tree-kill, Git worktrees isoladas, `RunService`, CLI/API e CI offline. O bloco M2–M3 (`T09`–`T16`, `T25`, `T26`, Gates `G-SEG`/`G-M2`/`G-M3`) entregou autenticação PBKDF2/CORS/redaction, migração `0002`, registries de áreas/agentes/perfis/sessões, replay SSE, métricas `observed`/`stale`/`unknown`, roteamento adaptativo, HITL e orquestração Swarm Wave 0+1 / Relay / Persist. O bloco V4 (`T17`–`T24`, `T27`, `T28`, Gate `G-M4`) consolidou memória consentida, discovery opt-in, SecretRef/MCP, extensões isoladas, preferências/WCAG AA, SSH estrito, conflitos 3-way, budget 80%/100%, PR packaging, 77 paths OpenAPI `3.0.3`, 21 subgrupos CLI, CI estendido e runbooks em [`doc/j_manual/README.md`](../j_manual/README.md). O foco ativo seguinte é o **Marco M5 (V5 — Experiência do Operador: `T29`–`T36`, `58 SP`)**, definindo o **OmniRoute** como camada responsável pelo roteamento de IA/quotas e entregando **CLI Interativa (TUI)** e **GUI Control Plane (`frontend/`)** para o operador acompanhar e controlar seus agentes com visibilidade total. Ideias exploratórias multimodais/voz/computer-use/GGUF permanecem no Parking Lot ([`ideia_futura.md`](ideia_futura.md)).
 
 ## 2. Why: Mapa de Horizontes e Versões (V0 a V4)
 
@@ -37,7 +37,8 @@ A evolução do produto distribui-se em 5 horizontes arquiteturais enxutos, alin
 | **V2** | **M3a** | EP03 | T10–T13 (23 SP) | **Workspaces e Catálogo de Perfis:** Hierarquia Area $\rightarrow$ Workspace $\rightarrow$ Project $\rightarrow$ Repo, catálogo declarativo de capacidades de agentes/modelos e snapshots imutáveis (`ProfileSnapshot`) com hash SHA-256. | **P1** |
 | **V3** | **M3b** | EP04 | T14–T16, T25 (34 SP) | **Coordenação Adaptativa & Orquestração Multi-Modo:** Swarm em Duas Ondas (Wave 0: Fundação Compilável $\rightarrow$ Wave 1: Swarm Paralelo com DAG acíclico e trava de dependências), Relay/Persistente com Handoff por Estado Git/Worktree e Retry de Turno Atômico, e observabilidade com métricas reais (`observed`/`stale`/`unknown`). | **P1** |
 | **G-SEG** | **Gate Transversal** | Transversal | S16, T09 | **Gate de Segurança e Proveniência:** Pré-requisito mandatório para liberação de qualquer task P2 (V4). Bloqueia path traversal, vazamento de segredos e ativações automáticas. | **Mandatório** |
-| **V4** | **M4** | EP05–EP08 | T17–T24, T27, T28 (76 SP) | **Governança Avançada & Entrega Automatizada:** Memória persistente com `ConsentRecord`, discovery local opt-in, plugins em sandbox isolada, resolução 3-way de merge + *Contract Amendment*, orçamento rigoroso e PR packaging automático. | **P2** |
+| **V4** | **M4** | EP05–EP08 | T17–T24, T27, T28 (76 SP) | **Governança Avançada & Entrega Automatizada:** Memória persistente com `ConsentRecord`, discovery local opt-in, plugins em sandbox isolada, resolução 3-way de merge + *Contract Amendment*, orçamento rigoroso e PR packaging automático. | **P2** *(Concluído)* |
+| **V5** | **M5** | EP09–EP10 | T29–T36 (58 SP) | **Controle do Operador (OmniRoute, CLI Interativa & GUI):** Roteamento de IA e quotas delegados ao OmniRoute, CLI interativa/TUI ao vivo (`hydra watch` / `ui`), contratos backend PTY/anexos/agenda e interface gráfica (`frontend/`) com chat SSE, terminal, diffs, HITL, conflitos e governança WCAG AA. | **P1/P2** *(Próximo)* |
 
 ---
 
@@ -113,6 +114,16 @@ O avanço de um horizonte para o seguinte é governado por critérios binários 
   8. Interface CLI estendida cobre 100% das operações de áreas, projetos, perfis, memórias e extensões.
 - **Status (Gate G-M4):** **CONCLUÍDO** — todas as tasks **T01 a T28 (204 SP)** estão em `concluido` em [`backlog.md`](backlog.md), com **568 testes offline aprovados** (`python -m pytest tests -q`) e runbooks verificados em [`doc/j_manual/README.md`](../j_manual/README.md#07-runbooks-operacionais-verificados-m2m4--gate-g-m4).
 
+### 3.7. Gate G-M5 (Marco M5 — OmniRoute, CLI Interativa & GUI Control Plane / V5)
+- **Entrada (DoR):** Gate G-M4 aprovado; [`doc/b_spc/a_ui/README.md`](../b_spc/a_ui/README.md) e [`doc/g_code/stack.md`](../g_code/stack.md) reconciliados com `openapi.yaml`.
+- **Critérios de Saída (DoD):**
+  1. Tasks **T29 a T36** com status `concluido` em [`backlog.md`](backlog.md).
+  2. OmniRoute integrado ao fluxo de rotas/quotas (`observed`/`stale`/`unknown`), permitindo seleção de modelo/conta sem quebrar o modo direto offline.
+  3. CLI interativa (`T30`) acompanha runs Swarm/Relay/Persist via SSE e executa `review`, HITL e `integrate` em fluxo guiado.
+  4. Backend expõe contratos autenticados de terminal PTY, `AttachmentRef` e agendamento idempotente no OpenAPI.
+  5. GUI em `frontend/` (React + TS + Vite) opera sobre REST/SSE autenticados e PTY real, exibindo workspaces, chat timeline sem duplicação no replay, terminal, diffs/conflitos, HITL, orçamento e governança sem segredos em plaintext.
+  6. Suíte Vitest/Playwright + `axe-core` WCAG AA e checks de lint/typecheck/build integrados ao CI hermético.
+
 ---
 
 ## 4. Diagramas Visuais de Alinhamento
@@ -137,6 +148,11 @@ timeline
         Onda 9 : T19 Skills e segredos : T21 Acessibilidade : T22 Transportes : T28 Budget e PR
         Onda 10 : T20 Isolamento de extensões
         Onda 11 : T23 CLI estendida : T24 CI estendido : Gate G-M4
+    section V5 / M5: OmniRoute, CLI Interativa & GUI
+        Onda 12 : T29 OmniRoute operacional : T31 Contratos PTY e Anexos
+        Onda 13 : T30 CLI Interativa TUI : T32 Fundação GUI Shell
+        Onda 14 : T33 Chat SSE OmniRoute HITL : T34 Terminal PTY Diffs Conflitos
+        Onda 15 : T35 Governança GUI : T36 E2E WCAG AA CI : Gate G-M5
 ```
 
 ### 4.2. Fluxo de Dependências entre Gates e Ondas
@@ -162,6 +178,11 @@ flowchart LR
     O9 --> O10[O10: T20]
     O10 --> O11[O11: T23, T24]
     O11 --> GM4{{Gate G-M4: Governança V4}}
+    GM4 --> O12[O12: T29, T31]
+    O12 --> O13[O13: T30, T32]
+    O13 --> O14[O14: T33, T34]
+    O14 --> O15[O15: T35, T36]
+    O15 --> GM5{{Gate G-M5: OmniRoute + TUI + GUI}}
 ```
 
 ---
