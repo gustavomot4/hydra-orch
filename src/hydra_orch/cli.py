@@ -243,6 +243,46 @@ def _parse_json_value(raw: str) -> Any:
         return raw
 
 
+def get_cli_run_service() -> RunService:
+    """Resolve the active CLI RunService instance (local mode)."""
+    return get_run_service()
+
+
+def _launch_tui(
+    *,
+    run_id: Optional[str] = None,
+    api_url: Optional[str] = None,
+    api_token_env: str = "HYDRA_API_TOKEN",
+    refresh_seconds: float = 2.0,
+    once: bool = False,
+    script: Optional[Path] = None,
+    no_alt_screen: bool = False,
+    max_steps: Optional[int] = None,
+    principal_id: Optional[str] = None,
+) -> None:
+    """Launch the interactive Rich TUI cockpit in local or remote HTTP mode."""
+    from hydra_orch.tui import run_cockpit
+
+    resolved_principal = _default_principal(principal_id)
+    svc = None if api_url else get_cli_run_service()
+    try:
+        run_cockpit(
+            run_service=svc,
+            api_url=api_url,
+            api_token_env=api_token_env,
+            run_id=run_id,
+            principal_id=resolved_principal,
+            console=None,
+            refresh_seconds=refresh_seconds,
+            no_alt_screen=no_alt_screen,
+            once=once,
+            script=script,
+            max_steps=max_steps,
+        )
+    except Exception as exc:
+        _handle_cli_exception(exc, as_json=False)
+
+
 def _run_cli_action(
     action: Callable[[RunService], Awaitable[Any]],
     *,
@@ -3177,6 +3217,90 @@ def automation_delete(
         as_json=as_json,
         output_file=output,
         render_summary=lambda res: f"deleted={res['schedule_id']}",
+    )
+
+
+@app.command("watch")
+def watch(
+    run_id: Optional[str] = typer.Option(
+        None, "--run-id", help="Target run ID to watch (defaults to latest run)"
+    ),
+    api_url: Optional[str] = typer.Option(
+        None, "--api-url", help="Remote Hydra REST/SSE base URL (Bearer token from env or prompt)"
+    ),
+    api_token_env: str = typer.Option(
+        "HYDRA_API_TOKEN", "--api-token-env", help="Environment variable holding Bearer token for --api-url"
+    ),
+    refresh_seconds: float = typer.Option(
+        2.0, "--refresh-seconds", help="Live refresh polling interval in seconds"
+    ),
+    once: bool = typer.Option(False, "--once", help="Render one snapshot and exit"),
+    script: Optional[Path] = typer.Option(
+        None, "--script", help="Path to deterministic line-command script file"
+    ),
+    no_alt_screen: bool = typer.Option(
+        False, "--no-alt-screen", help="Render directly without alternate screen buffer"
+    ),
+    max_steps: Optional[int] = typer.Option(
+        None, "--max-steps", help="Maximum interactive/scripted steps before exit"
+    ),
+    principal_id: Optional[str] = typer.Option(
+        None, "--principal-id", help="Operator principal ID recorded on governance actions"
+    ),
+) -> None:
+    """Launch the live orchestration cockpit watching runs, tasks, HITL, routes, and PR gates."""
+    _launch_tui(
+        run_id=run_id,
+        api_url=api_url,
+        api_token_env=api_token_env,
+        refresh_seconds=refresh_seconds,
+        once=once,
+        script=script,
+        no_alt_screen=no_alt_screen,
+        max_steps=max_steps,
+        principal_id=principal_id,
+    )
+
+
+@app.command("ui")
+def ui(
+    run_id: Optional[str] = typer.Option(
+        None, "--run-id", help="Target run ID to open (defaults to latest run)"
+    ),
+    api_url: Optional[str] = typer.Option(
+        None, "--api-url", help="Remote Hydra REST/SSE base URL (Bearer token from env or prompt)"
+    ),
+    api_token_env: str = typer.Option(
+        "HYDRA_API_TOKEN", "--api-token-env", help="Environment variable holding Bearer token for --api-url"
+    ),
+    refresh_seconds: float = typer.Option(
+        2.0, "--refresh-seconds", help="Live refresh polling interval in seconds"
+    ),
+    once: bool = typer.Option(False, "--once", help="Render one snapshot and exit"),
+    script: Optional[Path] = typer.Option(
+        None, "--script", help="Path to deterministic line-command script file"
+    ),
+    no_alt_screen: bool = typer.Option(
+        False, "--no-alt-screen", help="Render directly without alternate screen buffer"
+    ),
+    max_steps: Optional[int] = typer.Option(
+        None, "--max-steps", help="Maximum interactive/scripted steps before exit"
+    ),
+    principal_id: Optional[str] = typer.Option(
+        None, "--principal-id", help="Operator principal ID recorded on governance actions"
+    ),
+) -> None:
+    """Shortcut alias launching the interactive orchestration cockpit."""
+    _launch_tui(
+        run_id=run_id,
+        api_url=api_url,
+        api_token_env=api_token_env,
+        refresh_seconds=refresh_seconds,
+        once=once,
+        script=script,
+        no_alt_screen=no_alt_screen,
+        max_steps=max_steps,
+        principal_id=principal_id,
     )
 
 
