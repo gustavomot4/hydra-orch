@@ -1653,8 +1653,255 @@ def test_extended_auth_and_error_semantics(isolated_run_service):
         ("GET", "/v1/control-plane/runs/r1/conflicts"),
         ("GET", "/v1/control-plane/runs/r1/budget"),
         ("GET", "/v1/control-plane/runs/r1/pr-package"),
+        ("GET", "/v1/control-plane/omniroute/inventory"),
+        ("POST", "/v1/control-plane/omniroute/account"),
+        ("GET", "/v1/control-plane/pty/sessions"),
+        ("POST", "/v1/control-plane/pty/sessions"),
+        ("GET", "/v1/control-plane/sessions/s1/attachments"),
+        ("POST", "/v1/control-plane/sessions/s1/attachments"),
+        ("GET", "/v1/control-plane/runs/r1/artifacts/a1/content"),
+        ("GET", "/v1/control-plane/search"),
+        ("GET", "/v1/control-plane/automations"),
+        ("POST", "/v1/control-plane/automations"),
     ]:
         r = unauth.request(method, path)
         assert r.status_code == 401, f"{method} {path} expected 401, got {r.status_code}"
 
     assert client.post("/v1/control-plane/areas", json={"name": "A", "unexpected": 1}).status_code == 422
+def test_wave12_omniroute_pty_attachments_search_and_automations(isolated_run_service, tmp_path):
+    import asyncio
+    import base64
+    import time
+    from hydra_orch.bridge.pty_runner import PtyRunner
+    from hydra_orch.core.identifier import new_id
+    from hydra_orch.model import Artifact, CheckSpec, RunSpec, TaskSpec
+
+    svc, repo_root, base_sha = isolated_run_service
+    old_runner = getattr(app.state, "pty_runner", None)
+    old_mode = getattr(app.state, "omniroute_connection_mode", None)
+    app.state.pty_runner = PtyRunner()
+    app.state.omniroute_connection_mode = "optional"
+    try:
+        headers = {"Authorization": f"Bearer {TEST_API_TOKEN}"}
+        with BaseTestClient(app, headers=headers) as client:
+            # Bootstrap & Capabilities
+            boot = client.get("/v1/control-plane/bootstrap")
+            assert boot.status_code == 200
+            caps = boot.json()["capabilities"]["hosts"]["local"]["capabilities"]
+            assert caps["quickopen"]["status"] == "available"
+            assert caps["mobile_emulator"]["status"] == "unavailable"
+            assert caps["computer_use"]["status"] == "unavailable"
+
+            cap_resp = client.get("/v1/control-plane/capabilities")
+            assert cap_resp.status_code == 200
+            assert "hosts" in cap_resp.json()["host_capabilities"]
+
+            # OmniRoute inventory & account selection
+            inv = client.get("/v1/control-plane/omniroute/inventory")
+            assert inv.status_code == 200
+            assert inv.json()["connection_mode"] == "optional"
+
+            acct_ok = client.post(
+                "/v1/control-plane/omniroute/account",
+                json={"scope_id": "default", "provider": "codex", "account_id": "acct-work"},
+            )
+            assert acct_ok.status_code == 200, acct_ok.text
+            assert acct_ok.json()["account_id"] == "acct-work"
+            assert acct_ok.json()["applies_to"] == "next_run"
+
+            acct_secret = client.post(
+                "/v1/control-plane/omniroute/account",
+                json={"scope_id": "default", "provider": "codex", "account_id": "sk-secret-token-should-fail-1234567890"},
+            )
+            assert acct_secret.status_code == 400
+            assert acct_secret.json()["code"] == "secret_in_account_override"
+
+            # Register project + run + artifact for preview, search & automation dispatch
+            proj_resp = client.post(
+                "/v1/control-plane/projects",
+                json={
+                    "project_id": "proj-w12",
+                    "name": "Wave 12 Project",
+                    "canonical_root": str(repo_root),
+                    "base_branch": "main",
+                    "base_sha": base_sha,
+                },
+            )
+            assert proj_resp.status_code == 201, proj_resp.text
+
+            sample_rel = "src/preview_note.md"
+            (repo_root / sample_rel).write_text("# Hello\n<script>alert(1)</script>\nSafe text", encoding="utf-8")
+            run_id = "run-w12-" + new_id()[:6]
+            art_id = "art-w12-" + new_id()[:6]
+
+            async def _seed_run_artifact():
+                await svc.store.initialize()
+                await svc.submit_run(
+                    RunSpec(
+                        run_id=run_id,
+                        project_id="proj-w12",
+                        repo_root=str(repo_root),
+                        base_branch="main",
+                        base_sha=base_sha,
+                        objective="Wave 12 search and preview test",
+                        idempotency_key=f"w12-seed-{run_id}".ljust(16, "_"),
+                        tasks=(
+                            TaskSpec(
+                                task_id="t1",
+                                run_id=run_id,
+                                objective="Inspect",
+                                assigned_executor="codex",
+                                allowed_paths=("src",),
+                                acceptance_criteria=(CheckSpec(check_id="c1", command=(sys.executable, "-c", "print('ok')")),),
+                            ),
+                        ),
+                    )
+                )
+                import hashlib
+                raw_bytes = (repo_root / sample_rel).read_bytes()
+                await svc.store.save_artifact(
+                    Artifact(
+                        artifact_id=art_id,
+                        run_id=run_id,
+                        relative_path=sample_rel,
+                        kind="report",
+                        sha256=hashlib.sha256(raw_bytes).hexdigest(),
+                        size_bytes=len(raw_bytes),
+                    )
+                )
+
+            asyncio.run(_seed_run_artifact())
+
+            preview = client.get(f"/v1/control-plane/runs/{run_id}/artifacts/{art_id}/content")
+            assert preview.status_code == 200, preview.text
+            pv_data = preview.json()
+            assert pv_data["status"] == "ok"
+            assert pv_data["script_stripped"] is True
+            assert "<script>" not in (pv_data.get("sanitized_markdown") or "")
+
+            missing_pv = client.get(f"/v1/control-plane/runs/{run_id}/artifacts/missing-art/content")
+            assert missing_pv.status_code == 404
+
+            # Attachments upload + validation
+            txt_b64 = base64.b64encode(b"hello attachment\n").decode("ascii")
+            att_ok = client.post(
+                "/v1/control-plane/sessions/sess-w12/attachments",
+                json={"workspace_id": "ws-w12", "filename": "notes.txt", "content_base64": txt_b64},
+            )
+            assert att_ok.status_code == 201, att_ok.text
+            assert att_ok.json()["filename"] == "notes.txt"
+
+            att_list = client.get("/v1/control-plane/sessions/sess-w12/attachments")
+            assert att_list.status_code == 200
+            assert len(att_list.json()) == 1
+
+            att_bad_ext = client.post(
+                "/v1/control-plane/sessions/sess-w12/attachments",
+                json={"workspace_id": "ws-w12", "filename": "evil.html", "content_base64": txt_b64},
+            )
+            assert att_bad_ext.status_code == 400
+            assert att_bad_ext.json()["code"] == "unsupported_attachment_type"
+
+            # Global QuickOpen search
+            srch = client.get("/v1/control-plane/search", params={"q": "Wave 12"})
+            assert srch.status_code == 200, srch.text
+            assert any(item["id"] == "proj-w12" for item in srch.json()["items"])
+
+            # Automations CRUD + state + trigger + tick + delete
+            auto_bad = client.post(
+                "/v1/control-plane/automations",
+                json={"name": "Bad Cron", "prompt": "fail", "cron_expr": "bad cron"},
+            )
+            assert auto_bad.status_code == 400
+            assert auto_bad.json()["code"] == "invalid_schedule"
+
+            auto_cr = client.post(
+                "/v1/control-plane/automations",
+                json={
+                    "name": "Nightly Check",
+                    "prompt": "Run nightly check",
+                    "interval_seconds": 3600,
+                    "timezone": "UTC",
+                    "project_id": "proj-w12",
+                },
+            )
+            assert auto_cr.status_code == 201, auto_cr.text
+            sched_id = auto_cr.json()["id"]
+
+            assert client.post(f"/v1/control-plane/automations/{sched_id}/pause").json()["enabled"] is False
+            assert client.post(f"/v1/control-plane/automations/{sched_id}/resume").json()["enabled"] is True
+
+            trig = client.post(f"/v1/control-plane/automations/{sched_id}/trigger")
+            assert trig.status_code == 200, trig.text
+            assert trig.json()["status"] in {"dispatched", "queued"}, trig.text
+
+            runs_hist = client.get(f"/v1/control-plane/automations/{sched_id}/runs")
+            assert runs_hist.status_code == 200
+            assert len(runs_hist.json()) >= 1
+
+            tick_res = client.post("/v1/control-plane/automations/tick")
+            assert tick_res.status_code == 200
+            assert "dispatched_count" in tick_res.json()
+
+            del_res = client.delete(f"/v1/control-plane/automations/{sched_id}")
+            assert del_res.status_code == 200
+            assert del_res.json()["deleted"] is True
+
+            # PTY HTTP lifecycle + WS unauth rejection + WS authenticated echo
+            pty_script = "import sys; print('PTY_READY', flush=True); line=sys.stdin.readline().strip(); print('ECHO:' + line, flush=True)"
+            pty_cr = client.post(
+                "/v1/control-plane/pty/sessions",
+                json={
+                    "command": [sys.executable, "-c", pty_script],
+                    "cwd": str(repo_root),
+                    "workspace_id": "ws-w12",
+                    "cols": 90,
+                    "rows": 30,
+                },
+            )
+            assert pty_cr.status_code == 201, pty_cr.text
+            sid = pty_cr.json()["session_id"]
+
+            assert client.post(f"/v1/control-plane/pty/sessions/{sid}/resize", json={"cols": 100, "rows": 36}).status_code == 200
+            assert client.post(f"/v1/control-plane/pty/sessions/{sid}/input", json={"data": "ping\n"}).status_code == 200
+
+            collected = ""
+            for _ in range(30):
+                out = client.get(f"/v1/control-plane/pty/sessions/{sid}/output", params={"after_seq": 0})
+                assert out.status_code == 200
+                collected = "".join(c["text"] for c in out.json()["chunks"])
+                if "ECHO:ping" in collected:
+                    break
+                time.sleep(0.05)
+            assert "PTY_READY" in collected
+            assert "ECHO:ping" in collected
+
+            sse_resp = client.get(f"/v1/control-plane/pty/sessions/{sid}/stream", params={"after_seq": 0})
+            assert sse_resp.status_code == 200
+            assert "event: pty.state" in sse_resp.text
+
+            assert client.post(f"/v1/control-plane/pty/sessions/{sid}/close", json={"keep_running": False}).status_code == 200
+
+            # WebSocket auth check on a fresh interactive session
+            ws_cr = client.post(
+                "/v1/control-plane/pty/sessions",
+                json={"command": [sys.executable, "-c", "import time; print('WS_HI', flush=True); time.sleep(0.2)"], "cwd": str(repo_root)},
+            )
+            assert ws_cr.status_code == 201
+            ws_sid = ws_cr.json()["session_id"]
+
+            unauth_client = BaseTestClient(app)
+            with pytest.raises(Exception):
+                with unauth_client.websocket_connect(f"/v1/control-plane/pty/sessions/{ws_sid}/ws"):
+                    pass
+
+            with client.websocket_connect(f"/v1/control-plane/pty/sessions/{ws_sid}/ws", headers=headers) as ws:
+                msgs = [ws.receive_json()]
+                for _ in range(5):
+                    if any(m.get("type") == "state" or "WS_HI" in str(m) for m in msgs):
+                        break
+                    msgs.append(ws.receive_json())
+                assert any(m.get("type") in {"chunk", "state"} for m in msgs)
+    finally:
+        app.state.pty_runner = old_runner
+        app.state.omniroute_connection_mode = old_mode

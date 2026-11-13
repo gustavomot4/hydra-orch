@@ -110,6 +110,8 @@ def test_openapi_paths_match_fastapi_routes():
         "conflict",
         "budget",
         "pr-package",
+        "route",
+        "automation",
     ],
 )
 def test_cli_extended_groups_help_offline(group: str):

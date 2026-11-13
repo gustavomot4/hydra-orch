@@ -268,6 +268,8 @@ def test_cli_help_and_m1_project_and_runs_commands(cli_run_service, tmp_path: Pa
         "conflict",
         "budget",
         "pr-package",
+        "route",
+        "automation",
     ]
     root_help = runner.invoke(cli.app, ["--help"])
     assert root_help.exit_code == 0
@@ -1277,3 +1279,53 @@ def test_cli_budget_pr_package_and_conflict(cli_run_service, tmp_path: Path):
     # Re-discarding resolved/discarded conflict -> exit_code == 3
     c_disc2 = runner.invoke(cli.app, ["conflict", "discard", conflict_id, "--actor", "op-1", "--json"])
     assert c_disc2.exit_code == 3
+def test_cli_route_and_automation_wave12(cli_run_service):
+    _svc, _repo, _base_sha = cli_run_service
+    inv = runner.invoke(cli.app, ["route", "inventory", "--json"])
+    assert inv.exit_code == 0, inv.stdout
+    assert "connection_mode" in json.loads(inv.stdout)
+
+    sel = runner.invoke(cli.app, ["route", "select-account", "--provider", "codex", "--account-id", "acct-cli", "--json"])
+    assert sel.exit_code == 0, sel.stdout
+    assert json.loads(sel.stdout)["account_id"] == "acct-cli"
+
+    cr = runner.invoke(
+        cli.app,
+        [
+            "automation",
+            "create",
+            "--name",
+            "CLI Schedule",
+            "--prompt",
+            "Check repo",
+            "--interval-seconds",
+            "1800",
+            "--timezone",
+            "UTC",
+            "--json",
+        ],
+    )
+    assert cr.exit_code == 0, cr.stdout
+    sched_id = json.loads(cr.stdout)["id"]
+
+    ls = runner.invoke(cli.app, ["automation", "list", "--json"])
+    assert ls.exit_code == 0
+    assert any(item["id"] == sched_id for item in json.loads(ls.stdout))
+
+    ps = runner.invoke(cli.app, ["automation", "pause", sched_id, "--json"])
+    assert ps.exit_code == 0
+    assert json.loads(ps.stdout)["enabled"] is False
+
+    rs = runner.invoke(cli.app, ["automation", "resume", sched_id, "--json"])
+    assert rs.exit_code == 0
+    assert json.loads(rs.stdout)["enabled"] is True
+
+    tk = runner.invoke(cli.app, ["automation", "tick", "--json"])
+    assert tk.exit_code == 0
+
+    hs = runner.invoke(cli.app, ["automation", "history", sched_id, "--json"])
+    assert hs.exit_code == 0
+
+    dl = runner.invoke(cli.app, ["automation", "delete", sched_id, "--json"])
+    assert dl.exit_code == 0
+    assert json.loads(dl.stdout)["deleted"] is True

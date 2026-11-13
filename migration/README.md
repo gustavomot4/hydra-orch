@@ -15,6 +15,8 @@ Diretório canônico para scripts SQL versionados de evolução de esquema do SQ
 
 - `0002_control_plane.sql`: Hierarquia organizacional (`area_workspaces`), catálogo/perfis, sessões, consentimento, recursos, extensões, preferências, transportes, acesso e conflitos. Preserva `workspaces` de tentativa.
 - `rollback/0002_control_plane.sql`: Down explícito para 0001, com recusa de perda de dados e tentativas ativas. Scripts down não entram no glob de migração up.
+- `0003_ui_automation.sql`: Tabelas duráveis de automações (`automation_schedules`, `automation_runs`) para agendamentos cron/intervalo/one-shot na UI e CLI.
+- `rollback/0003_ui_automation.sql`: Down explícito de `0003_ui_automation.sql` para `0002`, preservando dados até confirmação/estado vazio.
 
 ## Operação T10
 

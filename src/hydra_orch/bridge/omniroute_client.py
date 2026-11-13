@@ -2,18 +2,57 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
-import copy
 import math
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
+
 import httpx
 
 from hydra_orch.config import normalize_gemini_argon_target
 from hydra_orch.model import ChatMessage
 
 logger = logging.getLogger(__name__)
+
+_QUOTA_PROVIDERS = ("claude_pro", "chatgpt_plus", "gemini_pro")
+
+
+def _redact(value: Any) -> Any:
+    # core.__init__ eagerly imports router -> omniroute_client; defer core.redaction import.
+    from hydra_orch.core.redaction import redact
+
+    return redact(value)
+
+
+def _unknown_quota_payload() -> Dict[str, Any]:
+    return {
+        "status": "unknown",
+        **{
+            name: {"status": "unknown", "remaining_percent": None, "resets_in_seconds": None}
+            for name in _QUOTA_PROVIDERS
+        },
+    }
+
+
+def _parse_quota_metrics(
+    entry: Dict[str, Any], *, default_status: str = "observed"
+) -> Optional[Tuple[str, Union[int, float], Optional[Union[int, float]]]]:
+    percent = entry.get("remaining_percent")
+    status = entry.get("status", default_status)
+    if (
+        isinstance(percent, bool)
+        or not isinstance(percent, (int, float))
+        or not math.isfinite(percent)
+        or not 0 <= percent <= 100
+        or status not in {"observed", "stale"}
+    ):
+        return None
+    reset = entry.get("resets_in_seconds")
+    if isinstance(reset, bool) or not isinstance(reset, (int, float)) or not math.isfinite(reset) or reset < 0:
+        reset = None
+    return status, percent, reset
 
 
 class OmniRouteClient:
@@ -25,12 +64,20 @@ class OmniRouteClient:
         quota_api_url: str = "http://127.0.0.1:20128/api/usage/quota",
         timeout: float = 120.0,
         enabled: bool = True,
+        transport: Optional[httpx.AsyncBaseTransport] = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.quota_api_url = quota_api_url
         self.timeout = timeout
         self.enabled = enabled
+        self._transport = transport
         self._last_quota: Optional[Dict[str, Any]] = None
+
+    def _build_client(self, timeout: float) -> httpx.AsyncClient:
+        kwargs: Dict[str, Any] = {"timeout": timeout}
+        if self._transport is not None:
+            kwargs["transport"] = self._transport
+        return httpx.AsyncClient(**kwargs)
 
     @staticmethod
     def normalize_model(model: str) -> str:
@@ -45,7 +92,7 @@ class OmniRouteClient:
         if not self.enabled:
             return False
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
+            async with self._build_client(2.0) as client:
                 resp = await client.get(f"{self.base_url}/models")
                 return resp.status_code == 200
         except Exception:
@@ -57,35 +104,32 @@ class OmniRouteClient:
         Conforms to RT09 / RT17 (GAP A03): When OmniRoute is offline, marks status as 'unknown'
         rather than claiming 100% observed availability.
         """
-        unknown = {
-            "status": "unknown",
-            **{name: {"status": "unknown", "remaining_percent": None, "resets_in_seconds": None}
-               for name in ("claude_pro", "chatgpt_plus", "gemini_pro")},
-        }
+        unknown = _unknown_quota_payload()
         if not self.enabled:
             return unknown
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
+            async with self._build_client(2.0) as client:
                 resp = await client.get(self.quota_api_url)
                 if resp.status_code == 200:
                     data = resp.json()
                     if isinstance(data, dict):
                         normalized = copy.deepcopy(unknown)
+                        default_status = str(data.get("status", "observed"))
                         for name, entry in data.items():
                             if not isinstance(entry, dict):
                                 continue
-                            percent = entry.get("remaining_percent")
-                            status = entry.get("status", data.get("status", "observed"))
-                            if (isinstance(percent, bool) or not isinstance(percent, (int, float))
-                                    or not math.isfinite(percent) or not 0 <= percent <= 100
-                                    or status not in {"observed", "stale"}):
+                            parsed = _parse_quota_metrics(entry, default_status=default_status)
+                            if parsed is None:
                                 continue
-                            reset = entry.get("resets_in_seconds")
-                            if isinstance(reset, bool) or not isinstance(reset, (int, float)) or not math.isfinite(reset) or reset < 0:
-                                reset = None
-                            normalized[name] = {"status": status, "remaining_percent": percent,
-                                "resets_in_seconds": reset, "observed_at": datetime.now(timezone.utc).isoformat(),
-                                "source": "omniroute:quota_api"}
+                            status, percent, reset = parsed
+                            safe_name = str(_redact(str(name)))
+                            normalized[safe_name] = {
+                                "status": status,
+                                "remaining_percent": percent,
+                                "resets_in_seconds": reset,
+                                "observed_at": datetime.now(timezone.utc).isoformat(),
+                                "source": "omniroute:quota_api",
+                            }
                         statuses = [v["status"] for v in normalized.values() if isinstance(v, dict)]
                         normalized["status"] = "observed" if "observed" in statuses else "stale" if "stale" in statuses else "unknown"
                         if normalized["status"] != "unknown":
@@ -101,6 +145,238 @@ class OmniRouteClient:
                     entry.update(status="stale", resets_in_seconds=None)
             return stale
         return unknown
+
+    async def list_models(self) -> Dict[str, Any]:
+        """Discover active model inventory from OmniRoute without fabricating offline entries."""
+        if not self.enabled:
+            return {"status": "unavailable", "source": "omniroute:disabled", "models": []}
+        try:
+            async with self._build_client(2.0) as client:
+                resp = await client.get(f"{self.base_url}/models")
+                if resp.status_code != 200:
+                    return {"status": "unavailable", "source": "omniroute:models_api", "models": []}
+                payload = resp.json()
+        except Exception as e:
+            logger.debug(f"Could not list OmniRoute models: {e}")
+            return {"status": "unavailable", "source": "omniroute:models_api", "models": []}
+
+        raw_models: Any = None
+        if isinstance(payload, dict):
+            if "data" in payload:
+                raw_models = payload.get("data")
+            elif "models" in payload:
+                raw_models = payload.get("models")
+        elif isinstance(payload, list):
+            raw_models = payload
+
+        if not isinstance(raw_models, list):
+            return {"status": "unavailable", "source": "omniroute:models_api", "models": []}
+
+        models: List[Dict[str, str]] = []
+        seen_ids: set[str] = set()
+        for entry in raw_models:
+            if isinstance(entry, str):
+                model_id = entry.strip()
+                if not model_id:
+                    continue
+                provider = model_id.split("/", 1)[0] if "/" in model_id else "unknown"
+                owned_by = provider
+            elif isinstance(entry, dict):
+                raw_id = entry.get("id") or entry.get("model") or entry.get("name")
+                if not isinstance(raw_id, str) or not raw_id.strip():
+                    continue
+                model_id = raw_id.strip()
+                inferred = model_id.split("/", 1)[0] if "/" in model_id else ""
+                raw_provider = entry.get("provider")
+                raw_owned_by = entry.get("owned_by")
+                provider = (
+                    raw_provider.strip()
+                    if isinstance(raw_provider, str) and raw_provider.strip()
+                    else (
+                        inferred
+                        or (raw_owned_by.strip() if isinstance(raw_owned_by, str) and raw_owned_by.strip() else "unknown")
+                    )
+                )
+                owned_by = (
+                    raw_owned_by.strip()
+                    if isinstance(raw_owned_by, str) and raw_owned_by.strip()
+                    else provider
+                )
+            else:
+                continue
+
+            normalized_item = _redact({"id": model_id, "provider": provider, "owned_by": owned_by})
+            if normalized_item["id"] in seen_ids:
+                continue
+            seen_ids.add(normalized_item["id"])
+            models.append(normalized_item)
+
+        return {
+            "status": "available",
+            "source": "omniroute:models_api",
+            "models": models,
+        }
+
+    @staticmethod
+    def _normalize_account_item(
+        entry: Dict[str, Any],
+        quota: Dict[str, Any],
+        now_iso: str,
+    ) -> Optional[Dict[str, Any]]:
+        scrubbed = _redact(entry)
+        raw_id = scrubbed.get("account_id") or scrubbed.get("id") or scrubbed.get("name")
+        if not isinstance(raw_id, str) or not raw_id.strip():
+            return None
+        account_id = raw_id.strip()
+
+        raw_provider = scrubbed.get("provider") or scrubbed.get("vendor") or scrubbed.get("quota_key")
+        provider = (
+            raw_provider.strip()
+            if isinstance(raw_provider, str) and raw_provider.strip()
+            else "unknown"
+        )
+        raw_label = scrubbed.get("label") or scrubbed.get("name") or scrubbed.get("email") or account_id
+        label = raw_label.strip() if isinstance(raw_label, str) and raw_label.strip() else account_id
+
+        raw_quota_key = scrubbed.get("quota_key")
+        if isinstance(raw_quota_key, str) and raw_quota_key.strip():
+            quota_key: Optional[str] = raw_quota_key.strip()
+        elif isinstance(quota.get(provider), dict):
+            quota_key = provider
+        else:
+            quota_key = None
+
+        inline_quota = _parse_quota_metrics(scrubbed)
+        quota_lookup = (
+            quota.get(quota_key)
+            if quota_key and isinstance(quota.get(quota_key), dict)
+            else quota.get(provider)
+            if isinstance(quota.get(provider), dict)
+            else None
+        )
+        fallback_quota = (
+            _parse_quota_metrics(quota_lookup, default_status=str(quota_lookup.get("status", "unknown")))
+            if isinstance(quota_lookup, dict)
+            else None
+        )
+
+        if inline_quota is not None:
+            status, percent, reset = inline_quota
+            observed_at = scrubbed.get("observed_at") if isinstance(scrubbed.get("observed_at"), str) else now_iso
+            source = (
+                scrubbed.get("source")
+                if isinstance(scrubbed.get("source"), str) and scrubbed.get("source").strip()
+                else "omniroute:accounts_api"
+            )
+            remaining_percent: Optional[float] = float(percent)
+        elif fallback_quota is not None:
+            status, percent, reset = fallback_quota
+            observed_at = quota_lookup.get("observed_at") if isinstance(quota_lookup, dict) else None
+            source = (
+                str(quota_lookup.get("source", "omniroute:quota_api"))
+                if isinstance(quota_lookup, dict)
+                else "omniroute:quota_api"
+            )
+            remaining_percent = float(percent)
+        else:
+            status = "unknown"
+            remaining_percent = None
+            reset = None
+            observed_at = None
+            source = "omniroute:accounts_api"
+
+        return _redact(
+            {
+                "account_id": account_id,
+                "provider": provider,
+                "label": label,
+                "quota_key": quota_key,
+                "status": status,
+                "remaining_percent": remaining_percent,
+                "resets_in_seconds": reset,
+                "observed_at": observed_at,
+                "source": source,
+            }
+        )
+
+    async def list_accounts(self) -> Dict[str, Any]:
+        """List discovered OmniRoute accounts merged with quota telemetry without leaking credentials."""
+        if not self.enabled:
+            return {"status": "unknown", "source": "omniroute:disabled", "accounts": []}
+
+        raw_accounts: Optional[List[Any]] = None
+        try:
+            async with self._build_client(2.0) as client:
+                resp = await client.get(f"{self.base_url}/accounts")
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    if isinstance(payload, list):
+                        raw_accounts = payload
+                    elif isinstance(payload, dict):
+                        if isinstance(payload.get("accounts"), list):
+                            raw_accounts = payload["accounts"]
+                        elif isinstance(payload.get("data"), list):
+                            raw_accounts = payload["data"]
+        except Exception as e:
+            logger.debug(f"Could not reach OmniRoute accounts API: {e}")
+
+        quota = await self.get_quota_status()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        accounts: List[Dict[str, Any]] = []
+        source = "omniroute:accounts_api"
+
+        if raw_accounts is not None:
+            seen_accounts: set[Tuple[str, str]] = set()
+            for entry in raw_accounts:
+                if not isinstance(entry, dict):
+                    continue
+                normalized = self._normalize_account_item(entry, quota, now_iso)
+                if normalized is None:
+                    continue
+                identity = (normalized["provider"], normalized["account_id"])
+                if identity in seen_accounts:
+                    continue
+                seen_accounts.add(identity)
+                accounts.append(normalized)
+        else:
+            for quota_key, entry in quota.items():
+                if not isinstance(entry, dict):
+                    continue
+                parsed = _parse_quota_metrics(entry, default_status=str(entry.get("status", "unknown")))
+                if parsed is None:
+                    continue
+                status, percent, reset = parsed
+                accounts.append(
+                    _redact(
+                        {
+                            "account_id": str(quota_key),
+                            "provider": str(quota_key),
+                            "label": str(quota_key),
+                            "quota_key": str(quota_key),
+                            "status": status,
+                            "remaining_percent": float(percent),
+                            "resets_in_seconds": reset,
+                            "observed_at": entry.get("observed_at"),
+                            "source": str(entry.get("source", "omniroute:quota_api")),
+                        }
+                    )
+                )
+            if accounts:
+                source = "omniroute:quota_api"
+
+        statuses = [acc["status"] for acc in accounts]
+        overall = (
+            "observed"
+            if "observed" in statuses
+            else "stale"
+            if "stale" in statuses
+            else "unknown"
+        )
+        return {
+            "status": overall,
+            "source": source,
+            "accounts": accounts,
+        }
 
     async def stream_chat_completion(
         self,
@@ -125,7 +401,7 @@ class OmniRouteClient:
 
         url = f"{self.base_url}/chat/completions"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._build_client(self.timeout) as client:
                 async with client.stream("POST", url, json=payload) as response:
                     if response.status_code == 429:
                         raise RuntimeError(f"OmniRoute 429 Quota Exhausted for model {model}")

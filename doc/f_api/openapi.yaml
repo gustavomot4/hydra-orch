@@ -87,6 +87,16 @@ tags:
     description: Transportes certificados (expansão V4)
   - name: Tokens
     description: Tokens de acesso locais (expansão V4)
+  - name: OmniRoute
+    description: Inventário de modelos, quotas 5h e seleção de conta OmniRoute (V5 / Onda 12)
+  - name: PTY
+    description: Sessões interativas de terminal PTY autenticadas (V5 / Onda 12)
+  - name: Attachments
+    description: Anexos AttachmentRef escopados por sessão/workspace (V5 / Onda 12)
+  - name: Search
+    description: Busca global QuickOpen indexada no SQLite WAL (V5 / Onda 12)
+  - name: Automations
+    description: Agendador durável AutomationSchedule e histórico de disparos (V5 / Onda 12)
   - name: Inference
     description: Proxy de inferência compatível OpenAI
 
@@ -4609,4 +4619,399 @@ paths:
         '200':
           description: Pacote publicado
         '403':
-          description: Publica??o n?o autorizada
+          description: Publicação não autorizada
+  /omniroute/inventory:
+    get:
+      tags: [OmniRoute]
+      summary: Consultar inventário de modelos, contas, quotas 5h e overrides OmniRoute
+      operationId: getOmniRouteInventory
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: scope_id
+          in: query
+          schema: {type: string, default: default}
+      responses:
+        '200':
+          description: Inventário não-secreto do gateway e modo direto
+  /omniroute/account:
+    post:
+      tags: [OmniRoute]
+      summary: Selecionar conta de provedor para próximas execuções sem mutar runs ativas
+      operationId: selectOmniRouteAccount
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Preferência de conta persistida para a próxima run
+        '409':
+          description: Conta indisponível no gateway
+  /pty/sessions:
+    get:
+      tags: [PTY]
+      summary: Listar sessões PTY ativas ou preservadas
+      operationId: listPtySessions
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Lista de sessões PTY
+    post:
+      tags: [PTY]
+      summary: Abrir nova sessão PTY interativa isolada em cwd autorizado
+      operationId: openPtySession
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: Sessão PTY iniciada
+        '400':
+          description: Caminho cwd ou comando inválido
+  /pty/sessions/{session_id}:
+    get:
+      tags: [PTY]
+      summary: Consultar metadados e estado de uma sessão PTY
+      operationId: getPtySession
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Estado da sessão PTY
+        '404':
+          description: Sessão não encontrada
+  /pty/sessions/{session_id}/input:
+    post:
+      tags: [PTY]
+      summary: Enviar entrada interativa para sessão PTY em execução
+      operationId: writePtyInput
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Bytes gravados na sessão PTY
+        '409':
+          description: Sessão PTY encerrada
+  /pty/sessions/{session_id}/resize:
+    post:
+      tags: [PTY]
+      summary: Redimensionar dimensões cols/rows da sessão PTY
+      operationId: resizePtySession
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Dimensões atualizadas
+  /pty/sessions/{session_id}/interrupt:
+    post:
+      tags: [PTY]
+      summary: Enviar interrupção SIGINT/CTRL_BREAK para a sessão PTY
+      operationId: interruptPtySession
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Interrupção entregue
+  /pty/sessions/{session_id}/output:
+    get:
+      tags: [PTY]
+      summary: Ler chunks PTY acumulados após cursor after_seq
+      operationId: readPtyOutput
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: after_seq
+          in: query
+          schema: {type: integer, default: 0}
+      responses:
+        '200':
+          description: Chunks e snapshot da sessão PTY
+        '410':
+          description: Cursor expirado do ring buffer
+  /pty/sessions/{session_id}/stream:
+    get:
+      tags: [PTY]
+      summary: Acompanhar saída PTY via SSE com replay por after_seq/Last-Event-ID
+      operationId: streamPtyOutput
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: after_seq
+          in: query
+          schema: {type: integer}
+      responses:
+        '200':
+          description: Stream SSE text/event-stream de chunks PTY
+  /pty/sessions/{session_id}/close:
+    post:
+      tags: [PTY]
+      summary: Fechar sessão PTY optando por manter em segundo plano ou encerrar árvore
+      operationId: closePtySession
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Sessão desconectada ou encerrada sem órfãos
+  /sessions/{session_id}/attachments:
+    get:
+      tags: [Attachments]
+      summary: Listar AttachmentRef pertencentes à sessão
+      operationId: listSessionAttachments
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Lista de anexos escopados
+    post:
+      tags: [Attachments]
+      summary: Enviar anexo seguro validado por MIME/tamanho/SHA-256
+      operationId: createSessionAttachment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '201':
+          description: Anexo gravado com SHA-256
+        '413':
+          description: Anexo excede o tamanho máximo
+        '422':
+          description: Tipo de arquivo proibido ou inválido
+  /sessions/{session_id}/attachments/{attachment_id}/confirm-transfer:
+    post:
+      tags: [Attachments]
+      summary: Confirmar transferência explícita de anexo para host remoto
+      operationId: confirmSessionAttachmentTransfer
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: attachment_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Transferência confirmada
+        '403':
+          description: Anexo pertence a outra sessão
+  /runs/{run_id}/artifacts/{artifact_id}/content:
+    get:
+      tags: [Artifacts]
+      summary: Obter preview seguro de artefato da run (com isolamento anti-XSS e traversal)
+      operationId: getRunArtifactContent
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Conteúdo sanitizado ou metadados de tipo não suportado
+        '404':
+          description: Run ou artefato não encontrado
+        '413':
+          description: Artefato excede o limite de preview
+  /search:
+    get:
+      tags: [Search]
+      summary: Busca global QuickOpen em áreas, workspaces, projetos, runs, sessões e artefatos
+      operationId: globalSearch
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string, default: ""}
+        - name: scope
+          in: query
+          schema: {type: string}
+        - name: limit
+          in: query
+          schema: {type: integer, default: 25}
+      responses:
+        '200':
+          description: Resultados indexados com contexto de navegação
+  /automations:
+    get:
+      tags: [Automations]
+      summary: Listar agendas duráveis AutomationSchedule
+      operationId: listAutomations
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Lista de agendas
+    post:
+      tags: [Automations]
+      summary: Criar agenda durável com cron ou intervalo e fuso IANA
+      operationId: createAutomation
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: Agenda criada
+        '400':
+          description: Expressão cron ou timezone inválidos
+  /automations/tick:
+    post:
+      tags: [Automations]
+      summary: Avaliar agendas vencidas e despachar com idempotência por ocorrência
+      operationId: tickAutomations
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Resultado dos disparos avaliados
+  /automations/{schedule_id}:
+    get:
+      tags: [Automations]
+      summary: Consultar agenda durável por ID
+      operationId: getAutomation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: schedule_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Detalhes da agenda
+    put:
+      tags: [Automations]
+      summary: Atualizar configuração da agenda durável
+      operationId: updateAutomation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: schedule_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Agenda atualizada
+    delete:
+      tags: [Automations]
+      summary: Remover agenda durável
+      operationId: deleteAutomation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: schedule_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Agenda removida
+  /automations/{schedule_id}/pause:
+    post:
+      tags: [Automations]
+      summary: Pausar agenda durável
+      operationId: pauseAutomation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: schedule_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Agenda pausada
+  /automations/{schedule_id}/resume:
+    post:
+      tags: [Automations]
+      summary: Retomar agenda durável
+      operationId: resumeAutomation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: schedule_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Agenda retomada
+  /automations/{schedule_id}/trigger:
+    post:
+      tags: [Automations]
+      summary: Disparar agenda imediatamente com histórico rastreável
+      operationId: triggerAutomation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: schedule_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Disparo registrado
+  /automations/{schedule_id}/runs:
+    get:
+      tags: [Automations]
+      summary: Listar histórico de disparos e falhas de uma agenda
+      operationId: listAutomationRuns
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: schedule_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Histórico de disparos

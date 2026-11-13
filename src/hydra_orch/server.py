@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Literal, Optional, Sequence
 import uuid
 
-from fastapi import APIRouter, FastAPI, Header, Query, Request
+from fastapi import APIRouter, FastAPI, Header, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse as BaseJSONResponse, StreamingResponse
@@ -42,6 +42,8 @@ from hydra_orch.core.workspace_registry import WorkspaceRegistry
 from hydra_orch.core.ssh_tunnel import SshTunnelManager
 import secrets
 import shutil
+from hydra_orch.bridge.omniroute_client import OmniRouteClient
+from hydra_orch.bridge.pty_runner import PtyRunner
 from hydra_orch.bridge.transport_registry import (
     TransportCertificationReport,
     TransportDefinition,
@@ -57,6 +59,11 @@ from hydra_orch.core.extension_host import ExtensionHost, ExtensionManifest
 from hydra_orch.core.packaging import PRPackager
 from hydra_orch.core.preferences import PreferenceService
 from hydra_orch.core.profile_service import MemoryPolicy, ProfileDefinition, ProfileService
+import base64
+import binascii
+from hydra_orch.core.attachments import AttachmentService, read_safe_preview
+from hydra_orch.core.scheduler import SchedulerService
+from hydra_orch.core.search_index import SearchService, build_host_capabilities
 from hydra_orch.core.skill_registry import (
     DeclaredTool,
     McpDefinition,
@@ -168,6 +175,9 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         deadline_task.cancel()
         with suppress(asyncio.CancelledError):
             await deadline_task
+        pty_runner = getattr(app.state, "pty_runner", None)
+        if pty_runner is not None:
+            await pty_runner.close_all()
         shutdown_event()
 
 
@@ -188,7 +198,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=app.state.cors_allow_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "Last-Event-ID"],
 )
 
@@ -444,14 +454,24 @@ async def orchestrator_status() -> Dict[str, Any]:
 
 @app.get("/v1/quota")
 async def quota_status() -> Dict[str, Any]:
-    from hydra_orch.bridge.omniroute_client import OmniRouteClient
-
     client = OmniRouteClient(
         base_url=config.omniroute.base_url,
         quota_api_url=config.omniroute.quota_api_url,
         enabled=not config.is_direct_mode,
+        transport=getattr(app.state, "omniroute_transport", None),
     )
     return await client.get_quota_status()
+
+
+async def _collect_host_capabilities() -> Dict[str, Any]:
+    transports: Sequence[Any] = ()
+    try:
+        store = get_run_service().store
+        if store._initialized or Path(store.db_path).exists():
+            transports = await TransportRegistry(store).list_transports()
+    except Exception:
+        transports = ()
+    return build_host_capabilities(config, transports=transports)
 
 
 # ============================================================================
@@ -487,15 +507,22 @@ async def control_plane_bootstrap() -> Dict[str, Any]:
             },
             "ssh_gpu": {"enabled": config.remote_ssh_gpu.enabled},
         },
+        "capabilities": await _collect_host_capabilities(),
         "implemented_read_models": {
             "health": True,
             "models": True,
             "orchestrator_status": True,
             "quota": True,
+            "omniroute_inventory": True,
             "projects": True,
             "runs": True,
             "worktrees": True,
             "diffs": True,
+            "artifacts": True,
+            "pty": True,
+            "attachments": True,
+            "search": True,
+            "automations": True,
             "areas": True,
             "workspaces": True,
             "repositories": True,
@@ -1619,6 +1646,7 @@ async def list_capabilities_endpoint() -> Dict[str, Any]:
         "certification_checks": list(CERTIFICATION_CHECKS),
         "drivers": sorted(DRIVERS),
         "agents": agent_entries,
+        "host_capabilities": await _collect_host_capabilities(),
     }
 @app.get("/v1/control-plane/profiles")
 async def list_profiles_endpoint() -> List[ProfileDefinition]:
@@ -2411,6 +2439,529 @@ async def publish_pr_package_endpoint(
 
 
 # ============================================================================
+# ONDA 12 CONTROL PLANE: OMNIROUTE, PTY, ATTACHMENTS, PREVIEW, SEARCH, SCHEDULER
+# ============================================================================
+
+
+def get_pty_runner() -> PtyRunner:
+    runner = getattr(app.state, "pty_runner", None)
+    if runner is None:
+        runner = PtyRunner()
+        app.state.pty_runner = runner
+    return runner
+
+
+def get_attachment_service() -> AttachmentService:
+    root_dir = getattr(app.state, "attachment_root_dir", None)
+    if root_dir is None:
+        root_dir = get_run_service().runtime_dir / "attachments"
+    return AttachmentService(Path(root_dir))
+
+
+def _get_omniroute_selector() -> RouteSelector:
+    svc = get_run_service()
+    transport = getattr(app.state, "omniroute_transport", None)
+    gateway = OmniRouteClient(
+        base_url=config.omniroute.base_url,
+        quota_api_url=config.omniroute.quota_api_url,
+        enabled=not config.is_direct_mode,
+        transport=transport,
+    )
+    conn_mode = getattr(app.state, "omniroute_connection_mode", None) or config.omniroute.connection_mode
+    return RouteSelector(
+        svc.store,
+        _get_agent_registry(),
+        MetricsService(svc.store),
+        gateway=gateway,
+        connection_mode=conn_mode,
+    )
+
+
+async def _default_automation_dispatcher(schedule: Any, occurrence_key: str) -> Dict[str, Any]:
+    svc = get_run_service()
+    if not schedule.project_id:
+        raise ContractViolation(
+            "automation_dispatch_unavailable",
+            f"Schedule '{schedule.id}' requires project_id when no custom dispatcher is configured",
+        )
+    proj = await svc.get_project(schedule.project_id)
+    if proj is None:
+        raise ContractViolation(
+            "automation_dispatch_unavailable",
+            f"Registered project '{schedule.project_id}' was not found for schedule '{schedule.id}'",
+        )
+    repo_root = str(proj["canonical_root"])
+    base_branch = str(proj.get("base_branch") or "main")
+    base_sha = str(proj["base_sha"])
+    run_id = f"auto-{schedule.id[:8]}-{uuid.uuid4().hex[:8]}"
+    task = TaskSpec(
+        task_id="task-1",
+        run_id=run_id,
+        objective=schedule.prompt,
+        acceptance_criteria=(CheckSpec(check_id="chk-auto", command=("python", "-c", "print('scheduled')")),),
+        allowed_paths=("*",),
+        assigned_executor=schedule.executor_id,
+    )
+    idem_key = f"auto:{occurrence_key}".replace(" ", "_")[:64].ljust(16, "_")
+    spec = RunSpec(
+        run_id=run_id,
+        project_id=schedule.project_id,
+        repo_root=repo_root,
+        base_branch=base_branch,
+        base_sha=base_sha,
+        objective=schedule.prompt,
+        orchestration_mode="relay",
+        tasks=(task,),
+        idempotency_key=idem_key,
+    )
+    _, res = await svc.submit_run(spec)
+    return {"run_id": str(res.get("run_id") or res.get("id") or run_id), "status": "dispatched"}
+
+
+def get_scheduler_service() -> SchedulerService:
+    svc = get_run_service()
+    dispatcher = getattr(app.state, "automation_dispatcher", None) or _default_automation_dispatcher
+    return SchedulerService(svc.store, dispatcher=dispatcher)
+
+
+class OmniRouteAccountPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scope_id: str = Field(default="default", min_length=1, max_length=128)
+    provider: str = Field(min_length=1, max_length=64)
+    account_id: str = Field(min_length=1, max_length=128)
+    validate_against_gateway: bool = False
+
+
+class PtySessionCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command: List[str] = Field(min_length=1)
+    cwd: str = Field(min_length=1)
+    session_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    workspace_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    host_id: str = Field(default="local", min_length=1, max_length=64)
+    cols: int = Field(default=80, ge=1, le=1000, strict=True)
+    rows: int = Field(default=24, ge=1, le=1000, strict=True)
+    allowed_env: Optional[Dict[str, str]] = None
+
+
+class PtyInputPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    data: str
+
+
+class PtyResizePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    cols: int = Field(ge=1, le=1000, strict=True)
+    rows: int = Field(ge=1, le=1000, strict=True)
+
+
+class PtyClosePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    keep_running: bool = False
+
+
+class AttachmentCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    workspace_id: str = Field(min_length=1, max_length=128)
+    filename: str = Field(min_length=1, max_length=255)
+    content_base64: str = Field(min_length=1)
+    mime_type: Optional[str] = Field(default=None, max_length=128)
+    host_id: str = Field(default="local", min_length=1, max_length=64)
+    attachment_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+
+
+class AutomationCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=128)
+    prompt: str = Field(min_length=1, max_length=10000)
+    cron_expr: Optional[str] = None
+    interval_seconds: Optional[int] = Field(default=None, ge=60, strict=True)
+    timezone: str = Field(default="UTC", min_length=1, max_length=64)
+    workspace_id: Optional[str] = None
+    project_id: Optional[str] = None
+    target_host: str = Field(default="local", min_length=1, max_length=64)
+    executor_id: str = Field(default="codex", min_length=1, max_length=64)
+    enabled: bool = True
+    overlap_policy: Literal["skip", "queue", "allow"] = "skip"
+    missed_policy: Literal["skip", "run_once"] = "skip"
+    max_retries: int = Field(default=0, ge=0, le=5, strict=True)
+
+
+class AutomationUpdatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    prompt: Optional[str] = Field(default=None, min_length=1, max_length=10000)
+    cron_expr: Optional[str] = None
+    interval_seconds: Optional[int] = Field(default=None, ge=60, strict=True)
+    timezone: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    workspace_id: Optional[str] = None
+    project_id: Optional[str] = None
+    target_host: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    executor_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    enabled: Optional[bool] = None
+    overlap_policy: Optional[Literal["skip", "queue", "allow"]] = None
+    missed_policy: Optional[Literal["skip", "run_once"]] = None
+    max_retries: Optional[int] = Field(default=None, ge=0, le=5, strict=True)
+    expected_revision: Optional[int] = Field(default=None, ge=1, strict=True)
+
+
+class AutomationStatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: Optional[int] = Field(default=None, ge=1, strict=True)
+
+
+@app.get("/v1/control-plane/omniroute/inventory")
+async def get_omniroute_inventory_endpoint(
+    scope_id: str = Query(default="default", min_length=1, max_length=128),
+) -> Dict[str, Any]:
+    return await _get_omniroute_selector().gateway_inventory(scope_id=scope_id)
+
+
+@app.post("/v1/control-plane/omniroute/account")
+async def select_omniroute_account_endpoint(payload: OmniRouteAccountPayload) -> Dict[str, Any]:
+    selector = _get_omniroute_selector()
+    available_ids: Optional[List[str]] = None
+    if payload.validate_against_gateway:
+        inv = await selector.gateway_inventory(scope_id=payload.scope_id)
+        available_ids = [
+            str(entry["account_id"])
+            for entry in inv.get("accounts", [])
+            if isinstance(entry, dict) and entry.get("provider") == payload.provider and entry.get("account_id")
+        ]
+    return await selector.select_next_account(
+        payload.scope_id,
+        payload.provider,
+        payload.account_id,
+        principal_id=app.state.local_principal_id,
+        available_account_ids=available_ids,
+    )
+
+
+@app.post("/v1/control-plane/pty/sessions", status_code=201)
+async def open_pty_session_endpoint(payload: PtySessionCreatePayload) -> Any:
+    runner = get_pty_runner()
+    return await runner.open_session(
+        payload.command,
+        cwd=payload.cwd,
+        session_id=payload.session_id,
+        workspace_id=payload.workspace_id,
+        host_id=payload.host_id,
+        cols=payload.cols,
+        rows=payload.rows,
+        allowed_env=payload.allowed_env,
+    )
+
+
+@app.get("/v1/control-plane/pty/sessions")
+async def list_pty_sessions_endpoint() -> List[Any]:
+    return get_pty_runner().list_sessions()
+
+
+@app.get("/v1/control-plane/pty/sessions/{session_id}")
+async def get_pty_session_endpoint(session_id: str) -> Any:
+    return get_pty_runner().get_session(session_id)
+
+
+@app.post("/v1/control-plane/pty/sessions/{session_id}/input")
+async def write_pty_input_endpoint(session_id: str, payload: PtyInputPayload) -> Dict[str, Any]:
+    written = await get_pty_runner().write_input(session_id, payload.data)
+    return {"session_id": session_id, "bytes_written": written}
+
+
+@app.post("/v1/control-plane/pty/sessions/{session_id}/resize")
+async def resize_pty_session_endpoint(session_id: str, payload: PtyResizePayload) -> Any:
+    return await get_pty_runner().resize(session_id, cols=payload.cols, rows=payload.rows)
+
+
+@app.post("/v1/control-plane/pty/sessions/{session_id}/interrupt")
+async def interrupt_pty_session_endpoint(session_id: str) -> Any:
+    return await get_pty_runner().interrupt(session_id)
+
+
+@app.get("/v1/control-plane/pty/sessions/{session_id}/output")
+async def read_pty_output_endpoint(
+    session_id: str,
+    after_seq: int = Query(default=0),
+) -> Dict[str, Any]:
+    runner = get_pty_runner()
+    chunks = runner.read_output(session_id, after_seq=after_seq)
+    info = runner.get_session(session_id)
+    return {
+        "session": info.model_dump(mode="json"),
+        "chunks": [c.model_dump(mode="json") for c in chunks],
+    }
+
+
+@app.get("/v1/control-plane/pty/sessions/{session_id}/stream")
+async def stream_pty_output_endpoint(
+    session_id: str,
+    after_seq: Optional[int] = Query(default=None),
+    last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
+) -> StreamingResponse:
+    cursor = 0
+    if after_seq is not None:
+        cursor = after_seq
+    elif last_event_id is not None:
+        try:
+            cursor = int(last_event_id)
+        except ValueError as exc:
+            raise ContractViolation("invalid_cursor", "Last-Event-ID must be an integer sequence") from exc
+
+    runner = get_pty_runner()
+    # Validate existence and cursor before opening SSE stream
+    runner.read_output(session_id, after_seq=cursor)
+
+    async def event_stream() -> AsyncIterator[str]:
+        async for chunk in runner.stream(session_id, after_seq=cursor):
+            yield f"id: {chunk.seq}\nevent: pty.chunk\ndata: {chunk.model_dump_json()}\n\n"
+        info = runner.get_session(session_id)
+        yield f"event: pty.state\ndata: {info.model_dump_json()}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/v1/control-plane/pty/sessions/{session_id}/close")
+async def close_pty_session_endpoint(
+    session_id: str,
+    payload: Optional[PtyClosePayload] = None,
+) -> Any:
+    req = payload or PtyClosePayload()
+    return await get_pty_runner().close_session(session_id, keep_running=req.keep_running)
+
+
+@app.websocket("/v1/control-plane/pty/sessions/{session_id}/ws")
+async def pty_websocket_endpoint(
+    websocket: WebSocket,
+    session_id: str,
+    after_seq: int = Query(default=0),
+) -> None:
+    try:
+        allowed_origins = validate_cors_origins(app.state.cors_allow_origins)
+    except ValueError:
+        await websocket.close(code=1011)
+        return
+    origin = websocket.headers.get("origin")
+    if origin is not None and origin not in allowed_origins:
+        await websocket.close(code=1008)
+        return
+    auth_header = websocket.headers.get("authorization", "")
+    scheme, _, token = auth_header.partition(" ")
+    verifier = getattr(app.state, "token_verifier", None)
+    if scheme.lower() != "bearer" or verifier is None or not await asyncio.to_thread(verifier.verify, token):
+        await websocket.close(code=1008)
+        return
+
+    runner = get_pty_runner()
+    try:
+        runner.read_output(session_id, after_seq=after_seq)
+    except ContractViolation:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    async def _pump_output() -> None:
+        async for chunk in runner.stream(session_id, after_seq=after_seq):
+            await websocket.send_json({"type": "chunk", "chunk": chunk.model_dump(mode="json")})
+        info = runner.get_session(session_id)
+        await websocket.send_json({"type": "state", "session": info.model_dump(mode="json")})
+
+    pump = asyncio.create_task(_pump_output())
+    try:
+        while True:
+            raw = await websocket.receive_json()
+            op = raw.get("type")
+            if op == "input":
+                await runner.write_input(session_id, str(raw.get("data", "")))
+            elif op == "resize":
+                await runner.resize(session_id, cols=int(raw.get("cols", 80)), rows=int(raw.get("rows", 24)))
+            elif op == "interrupt":
+                await runner.interrupt(session_id)
+            elif op == "close":
+                await runner.close_session(session_id, keep_running=bool(raw.get("keep_running", False)))
+                break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        pump.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await pump
+
+
+@app.post("/v1/control-plane/sessions/{session_id}/attachments", status_code=201)
+async def create_session_attachment_endpoint(session_id: str, payload: AttachmentCreatePayload) -> Any:
+    try:
+        raw_bytes = base64.b64decode(payload.content_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ContractViolation("invalid_attachment", "content_base64 must be valid base64") from exc
+    return get_attachment_service().save_attachment(
+        payload.workspace_id,
+        session_id,
+        payload.filename,
+        raw_bytes,
+        mime_type=payload.mime_type,
+        host_id=payload.host_id,
+        attachment_id=payload.attachment_id,
+    )
+
+
+@app.get("/v1/control-plane/sessions/{session_id}/attachments")
+async def list_session_attachments_endpoint(session_id: str) -> List[Any]:
+    return get_attachment_service().list_attachments(session_id)
+
+
+@app.post("/v1/control-plane/sessions/{session_id}/attachments/{attachment_id}/confirm-transfer")
+async def confirm_session_attachment_transfer_endpoint(session_id: str, attachment_id: str) -> Any:
+    return get_attachment_service().confirm_remote_transfer(attachment_id, session_id=session_id)
+
+
+@app.get("/v1/control-plane/runs/{run_id}/artifacts/{artifact_id}/content")
+async def get_run_artifact_content_endpoint(
+    run_id: str,
+    artifact_id: str,
+    max_bytes: int = Query(default=512 * 1024, ge=1, le=4 * 1024 * 1024),
+) -> Dict[str, Any]:
+    svc = get_run_service()
+    run_rec = await svc.store.get_run(run_id)
+    if run_rec is None:
+        raise ContractViolation("resource_not_found", f"Run '{run_id}' does not exist")
+    artifacts = await svc.store.get_artifacts(run_id)
+    target = next((art for art in artifacts if art.artifact_id == artifact_id), None)
+    if target is None:
+        raise ContractViolation("resource_not_found", f"Artifact '{artifact_id}' not found in run '{run_id}'")
+
+    candidates: List[Path] = []
+    if run_rec.get("repo_root"):
+        candidates.append(Path(str(run_rec["repo_root"])))
+    if svc.repo_root not in candidates:
+        candidates.append(svc.repo_root)
+
+    last_not_found: Optional[ContractViolation] = None
+    for base_dir in candidates:
+        try:
+            preview = read_safe_preview(base_dir, target.relative_path, max_bytes=max_bytes)
+            preview["artifact_id"] = target.artifact_id
+            preview["run_id"] = target.run_id
+            return preview
+        except ContractViolation as exc:
+            if exc.code == "resource_not_found":
+                last_not_found = exc
+                continue
+            raise
+    if last_not_found is not None:
+        raise last_not_found
+    raise ContractViolation("resource_not_found", f"Artifact '{artifact_id}' content not found")
+
+
+@app.get("/v1/control-plane/search")
+async def global_search_endpoint(
+    q: str = Query(default=""),
+    scope: Optional[str] = Query(default=None),
+    host_id: str = Query(default="local"),
+    limit: int = Query(default=25, ge=1, le=100),
+) -> Dict[str, Any]:
+    svc = get_run_service()
+    items = await SearchService(svc.store).search(q, scope=scope, host_id=host_id, limit=limit)
+    return {"query": q, "scope": scope, "items": items}
+
+
+@app.get("/v1/control-plane/automations")
+async def list_automations_endpoint(
+    workspace_id: Optional[str] = Query(default=None),
+    project_id: Optional[str] = Query(default=None),
+    enabled: Optional[bool] = Query(default=None),
+) -> List[Any]:
+    return await get_scheduler_service().list_schedules(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        enabled=enabled,
+    )
+
+
+@app.post("/v1/control-plane/automations", status_code=201)
+async def create_automation_endpoint(payload: AutomationCreatePayload) -> Any:
+    return await get_scheduler_service().create_schedule(
+        payload.name,
+        payload.prompt,
+        cron_expr=payload.cron_expr,
+        interval_seconds=payload.interval_seconds,
+        timezone=payload.timezone,
+        workspace_id=payload.workspace_id,
+        project_id=payload.project_id,
+        target_host=payload.target_host,
+        executor_id=payload.executor_id,
+        enabled=payload.enabled,
+        overlap_policy=payload.overlap_policy,
+        missed_policy=payload.missed_policy,
+        max_retries=payload.max_retries,
+    )
+
+
+@app.post("/v1/control-plane/automations/tick")
+async def tick_automations_endpoint() -> Dict[str, Any]:
+    dispatches = await get_scheduler_service().tick()
+    return {"dispatched_count": len(dispatches), "results": dispatches}
+
+
+@app.get("/v1/control-plane/automations/{schedule_id}")
+async def get_automation_endpoint(schedule_id: str) -> Any:
+    return await get_scheduler_service().get_schedule(schedule_id)
+
+
+@app.put("/v1/control-plane/automations/{schedule_id}")
+async def update_automation_endpoint(schedule_id: str, payload: AutomationUpdatePayload) -> Any:
+    kwargs: Dict[str, Any] = {}
+    for field_name in payload.model_fields_set:
+        kwargs[field_name] = getattr(payload, field_name)
+    return await get_scheduler_service().update_schedule(schedule_id, **kwargs)
+
+
+@app.delete("/v1/control-plane/automations/{schedule_id}")
+async def delete_automation_endpoint(schedule_id: str) -> Dict[str, Any]:
+    await get_scheduler_service().delete_schedule(schedule_id)
+    return {"deleted": True, "schedule_id": schedule_id}
+
+
+@app.post("/v1/control-plane/automations/{schedule_id}/pause")
+async def pause_automation_endpoint(
+    schedule_id: str,
+    payload: Optional[AutomationStatePayload] = None,
+) -> Any:
+    req = payload or AutomationStatePayload()
+    return await get_scheduler_service().set_enabled(
+        schedule_id,
+        False,
+        expected_revision=req.expected_revision,
+    )
+
+
+@app.post("/v1/control-plane/automations/{schedule_id}/resume")
+async def resume_automation_endpoint(
+    schedule_id: str,
+    payload: Optional[AutomationStatePayload] = None,
+) -> Any:
+    req = payload or AutomationStatePayload()
+    return await get_scheduler_service().set_enabled(
+        schedule_id,
+        True,
+        expected_revision=req.expected_revision,
+    )
+
+
+@app.post("/v1/control-plane/automations/{schedule_id}/trigger")
+async def trigger_automation_endpoint(schedule_id: str) -> Dict[str, Any]:
+    return await get_scheduler_service().trigger_now(schedule_id)
+
+
+@app.get("/v1/control-plane/automations/{schedule_id}/runs")
+async def list_automation_runs_endpoint(
+    schedule_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> List[Any]:
+    return await get_scheduler_service().list_runs(schedule_id, limit=limit)
+
+
+# ============================================================================
 # EXCEPTION HANDLERS (CANONICAL ERROR ENVELOPE)
 # ============================================================================
 
@@ -2469,6 +3020,26 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         "secret_value_rejected",
         "token_invalid",
         "message_invalid",
+        "path_traversal_blocked",
+        "invalid_workspace_cwd",
+        "invalid_schedule",
+        "invalid_timezone",
+        "invalid_account_override",
+        "secret_in_account_override",
+        "invalid_pty_request",
+        "invalid_attachment",
+        "attachment_invalid",
+        "unsupported_attachment_type",
+        "preview_invalid",
+        "invalid_search_host",
+        "invalid_search_limit",
+        "invalid_search_query",
+        "invalid_search_scope",
+        "invalid_pty_command",
+        "invalid_pty_config",
+        "invalid_pty_dimensions",
+        "invalid_session_id",
+        "route_invalid",
     }
     conflict_codes |= {
         "session_state_conflict",
@@ -2507,6 +3078,13 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         "revalidation_base_mismatch",
         "empty_patch",
         "a11y_contract_violation",
+        "pty_session_closed",
+        "schedule_overlap",
+        "account_not_available",
+        "attachment_conflict",
+        "attachment_not_remote",
+        "attachment_index_corrupt",
+        "pty_session_conflict",
     }
     forbidden_codes = {
         "authorization_denied",
@@ -2518,6 +3096,7 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         "extension_permission_denied",
         "publish_not_authorized",
         "profile_scope_mismatch",
+        "forbidden_scope",
     }
     if exc.code in forbidden_codes:
         status_code = 403
@@ -2525,6 +3104,8 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         status_code = 404
     elif exc.code == "cursor_expired":
         status_code = 410
+    elif exc.code in {"attachment_too_large", "preview_too_large"}:
+        status_code = 413
     elif exc.code == "invalid_cursor":
         status_code = 400
     elif exc.code in conflict_codes:

@@ -3,7 +3,7 @@
 **Identificador Formal:** `b_spc`
 **Caminho Canônico:** `doc/b_spc/`
 **Versão:** `v02_00_0000`
-**Status:** `IMPLEMENTADO / VALIDADO OFFLINE (M1–M4 · 28/28 TASKS)`
+**Status:** `EM EXECUÇÃO M5 (M1–M4 CONCLUÍDOS · T29–T38 EM ANDAMENTO)`
 **Autoridade:** Arquitetura do hydra-orch, norma para implementação e testes.
 **Escopo:** Especificações formais normativas, PRDs, contratos e diretrizes arquiteturais.
 
@@ -34,7 +34,8 @@ Para implementação e testes, seguir a sequência:
 
 | Arquivo | Tipo | Descrição | Versão |
 |---------|------|-----------|--------|
-| [`cli_ci_manual.md`](cli_ci_manual.md) | S20 / M4 / T23–T24 (DBC-9) | CLI estendida (21 subgrupos), CI hermética M1–M4 e manuais/runbooks | `verified` |
+| [`ui_contratos.md`](ui_contratos.md) | M5 / T31–T38 (DBC-9) | Contratos DBC-9 da UI Web (`UI01`–`UI11`), mapeamento Figma, PTY, anexos, preview seguro, busca e capacidades | `v01_00_0000` |
+| [`cli_ci_manual.md`](cli_ci_manual.md) | S20 / M4 / T23–T24 (DBC-9) | CLI estendida (23 subgrupos), CI hermética M1–M4 e manuais/runbooks | `verified` |
 | [`budget_packaging.md`](budget_packaging.md) | S19 / M4 / T28 (DBC-9) | Governança de orçamento 80%/100% e empacotamento seguro de PR (`PRPackager`) | `v01_00_0000` |
 | [`acessibilidade_preferences.md`](acessibilidade_preferences.md) | S18a / M4 / T21 (DBC-9) | Preferências escopadas reversíveis, snapshot por run e validação WCAG AA | `v01_00_0000` |
 | [`transportes_certificados.md`](transportes_certificados.md) | S18b / M4 / T22 (DBC-9) | Registry de transportes certificados e túnel SSH com `StrictHostKeyChecking=yes` | `v01_00_0000` |

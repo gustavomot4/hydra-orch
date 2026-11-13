@@ -1838,6 +1838,8 @@ token_app = typer.Typer(help="Create hashed access tokens and revoke tokens.")
 conflict_app = typer.Typer(help="Analyze, auto-repair, manually resolve, or discard integration conflicts.")
 budget_app = typer.Typer(help="Inspect and extend run execution budgets.")
 pr_package_app = typer.Typer(help="Build and publish run PR packages.")
+route_app = typer.Typer(help="Inspect OmniRoute models/quotas and select next-run provider accounts.")
+automation_app = typer.Typer(help="Manage durable automation schedules and view trigger history.")
 
 app.add_typer(skill_app, name="skill")
 app.add_typer(mcp_app, name="mcp")
@@ -1849,6 +1851,8 @@ app.add_typer(token_app, name="token")
 app.add_typer(conflict_app, name="conflict")
 app.add_typer(budget_app, name="budget")
 app.add_typer(pr_package_app, name="pr-package")
+app.add_typer(route_app, name="route")
+app.add_typer(automation_app, name="automation")
 
 
 @skill_app.command("register")
@@ -2867,6 +2871,312 @@ def pr_package_publish(
         as_json=as_json,
         output_file=output,
         render_summary=lambda res: f"package={res.package_id} published={res.published} remote={res.remote}",
+    )
+
+
+def _load_cli_config(svc: RunService):
+    cfg_path = svc.repo_root / "config.yaml"
+    return load_config(cfg_path) if cfg_path.is_file() else load_config()
+
+
+def _build_route_selector(svc: RunService):
+    from hydra_orch.bridge.omniroute_client import OmniRouteClient
+    from hydra_orch.core.agent_registry import AgentRegistry
+    from hydra_orch.core.metrics import MetricsService
+    from hydra_orch.core.route_selector import RouteSelector
+
+    cfg = _load_cli_config(svc)
+    gateway = OmniRouteClient(
+        base_url=cfg.omniroute.base_url,
+        quota_api_url=cfg.omniroute.quota_api_url,
+        enabled=not cfg.is_direct_mode,
+    )
+    return RouteSelector(
+        svc.store,
+        AgentRegistry(svc.store),
+        MetricsService(svc.store),
+        gateway=gateway,
+        connection_mode=cfg.omniroute.connection_mode,
+    )
+
+
+def _build_scheduler_service(svc: RunService):
+    from hydra_orch.core.scheduler import SchedulerService
+
+    async def _dispatch(schedule, occurrence_key: str):
+        if not schedule.project_id:
+            raise ContractViolation(
+                "automation_dispatch_unavailable",
+                f"Schedule '{schedule.id}' requires project_id",
+            )
+        proj = await svc.get_project(schedule.project_id)
+        if proj is None:
+            raise ContractViolation(
+                "automation_dispatch_unavailable",
+                f"Registered project '{schedule.project_id}' was not found",
+            )
+        run_id = f"auto-{schedule.id[:8]}-{uuid.uuid4().hex[:8]}"
+        task = TaskSpec(
+            task_id="task-1",
+            run_id=run_id,
+            objective=schedule.prompt,
+            acceptance_criteria=(CheckSpec(check_id="chk-auto", command=("python", "-c", "print('scheduled')")),),
+            allowed_paths=("*",),
+            assigned_executor=schedule.executor_id,
+        )
+        idem_key = f"auto:{occurrence_key}".replace(" ", "_")[:64].ljust(16, "_")
+        spec = RunSpec(
+            run_id=run_id,
+            project_id=schedule.project_id,
+            repo_root=str(proj["canonical_root"]),
+            base_branch=str(proj.get("base_branch") or "main"),
+            base_sha=str(proj["base_sha"]),
+            objective=schedule.prompt,
+            orchestration_mode="relay",
+            tasks=(task,),
+            idempotency_key=idem_key,
+        )
+        _, res = await svc.submit_run(spec)
+        return {"run_id": str(res.get("run_id") or res.get("id") or run_id), "status": "dispatched"}
+
+    return SchedulerService(svc.store, dispatcher=_dispatch)
+
+
+@route_app.command("inventory")
+def route_inventory(
+    scope_id: str = typer.Option("default", "--scope-id", help="Target scope or run ID"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Inspect OmniRoute gateway availability, discovered models, quotas, and account overrides."""
+
+    async def _action(svc: RunService):
+        return await _build_route_selector(svc).gateway_inventory(scope_id=scope_id)
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"mode={res['connection_mode']} available={res['available']} models={len(res['models'])} accounts={len(res['accounts'])}",
+    )
+
+
+@route_app.command("select-account")
+def route_select_account(
+    provider: str = typer.Option(..., "--provider", help="Provider identifier"),
+    account_id: str = typer.Option(..., "--account-id", help="Non-secret account label/identifier for next runs"),
+    scope_id: str = typer.Option("default", "--scope-id", help="Target scope or run ID"),
+    principal_id: Optional[str] = typer.Option(None, "--principal-id", help="Acting operator ID"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Select an OmniRoute/provider account for future runs without mutating running attempts."""
+    actor = _default_principal(principal_id)
+
+    async def _action(svc: RunService):
+        return await _build_route_selector(svc).select_next_account(
+            scope_id,
+            provider,
+            account_id,
+            principal_id=actor,
+        )
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"provider={res['provider']} account={res['account_id']} applies_to={res['applies_to']}",
+    )
+
+
+@automation_app.command("list")
+def automation_list(
+    workspace_id: Optional[str] = typer.Option(None, "--workspace-id", help="Filter by workspace ID"),
+    project_id: Optional[str] = typer.Option(None, "--project-id", help="Filter by project ID"),
+    enabled: Optional[bool] = typer.Option(None, "--enabled/--disabled", help="Filter by enabled status"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """List persisted automation schedules."""
+
+    async def _action(svc: RunService):
+        return await _build_scheduler_service(svc).list_schedules(
+            workspace_id=workspace_id,
+            project_id=project_id,
+            enabled=enabled,
+        )
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"schedules={len(res)}",
+    )
+
+
+@automation_app.command("create")
+def automation_create(
+    name: str = typer.Option(..., "--name", help="Schedule name"),
+    prompt: str = typer.Option(..., "--prompt", help="Automation objective/prompt"),
+    cron_expr: Optional[str] = typer.Option(None, "--cron", help="5-field cron expression"),
+    interval_seconds: Optional[int] = typer.Option(None, "--interval-seconds", help="Interval in seconds (>=60)"),
+    timezone_name: str = typer.Option("UTC", "--timezone", help="IANA timezone identifier"),
+    workspace_id: Optional[str] = typer.Option(None, "--workspace-id", help="Optional workspace ID"),
+    project_id: Optional[str] = typer.Option(None, "--project-id", help="Optional registered project ID"),
+    target_host: str = typer.Option("local", "--target-host", help="Target host identifier"),
+    executor_id: str = typer.Option("codex", "--executor", help="Executor ID"),
+    overlap_policy: str = typer.Option("skip", "--overlap-policy", help="skip | queue | allow"),
+    missed_policy: str = typer.Option("skip", "--missed-policy", help="skip | run_once"),
+    max_retries: int = typer.Option(0, "--max-retries", help="Max retries (0..5)"),
+    disabled: bool = typer.Option(False, "--disabled", help="Create schedule initially disabled"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Create a durable automation schedule."""
+
+    async def _action(svc: RunService):
+        return await _build_scheduler_service(svc).create_schedule(
+            name,
+            prompt,
+            cron_expr=cron_expr,
+            interval_seconds=interval_seconds,
+            timezone=timezone_name,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            target_host=target_host,
+            executor_id=executor_id,
+            enabled=not disabled,
+            overlap_policy=overlap_policy,  # type: ignore[arg-type]
+            missed_policy=missed_policy,  # type: ignore[arg-type]
+            max_retries=max_retries,
+        )
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"schedule={res.id} enabled={res.enabled} tz={res.timezone} next={res.next_run_at}",
+    )
+
+
+@automation_app.command("pause")
+def automation_pause(
+    schedule_id: str = typer.Argument(..., help="Schedule ID"),
+    expected_revision: Optional[int] = typer.Option(None, "--expected-revision", help="Expected revision"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Pause an automation schedule."""
+
+    async def _action(svc: RunService):
+        return await _build_scheduler_service(svc).set_enabled(
+            schedule_id, False, expected_revision=expected_revision
+        )
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"schedule={res.id} enabled={res.enabled}",
+    )
+
+
+@automation_app.command("resume")
+def automation_resume(
+    schedule_id: str = typer.Argument(..., help="Schedule ID"),
+    expected_revision: Optional[int] = typer.Option(None, "--expected-revision", help="Expected revision"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Resume a paused automation schedule."""
+
+    async def _action(svc: RunService):
+        return await _build_scheduler_service(svc).set_enabled(
+            schedule_id, True, expected_revision=expected_revision
+        )
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"schedule={res.id} enabled={res.enabled}",
+    )
+
+
+@automation_app.command("trigger")
+def automation_trigger(
+    schedule_id: str = typer.Argument(..., help="Schedule ID"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Trigger an automation schedule immediately."""
+
+    async def _action(svc: RunService):
+        return await _build_scheduler_service(svc).trigger_now(schedule_id)
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"schedule={schedule_id} status={res.get('status')} run_id={res.get('run_id')}",
+    )
+
+
+@automation_app.command("history")
+def automation_history(
+    schedule_id: str = typer.Argument(..., help="Schedule ID"),
+    limit: int = typer.Option(50, "--limit", help="Maximum records"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Inspect run dispatch history for an automation schedule."""
+
+    async def _action(svc: RunService):
+        return await _build_scheduler_service(svc).list_runs(schedule_id, limit=limit)
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"schedule={schedule_id} runs={len(res)}",
+    )
+
+
+@automation_app.command("tick")
+def automation_tick(
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Evaluate due automation schedules idempotently."""
+
+    async def _action(svc: RunService):
+        return await _build_scheduler_service(svc).tick()
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"dispatches={len(res)}",
+    )
+
+
+@automation_app.command("delete")
+def automation_delete(
+    schedule_id: str = typer.Argument(..., help="Schedule ID"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Delete an automation schedule."""
+
+    async def _action(svc: RunService):
+        await _build_scheduler_service(svc).delete_schedule(schedule_id)
+        return {"deleted": True, "schedule_id": schedule_id}
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"deleted={res['schedule_id']}",
     )
 
 

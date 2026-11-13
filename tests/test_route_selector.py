@@ -1,4 +1,4 @@
-"""T16 eligibility, direct mode, uncertain quota and reproducible route audit."""
+"""T16/T29 eligibility, direct mode, uncertain quota, OmniRoute inventory, and next-run account overrides."""
 
 from datetime import datetime, timezone
 import json
@@ -8,10 +8,12 @@ import pytest
 import pytest_asyncio
 
 from hydra_orch.bridge.omniroute_client import OmniRouteClient
-from hydra_orch.core.agent_registry import AgentDefinition, DriverCertificationReport
+from hydra_orch.core.agent_registry import AgentDefinition, AgentRegistry, DriverCertificationReport
+from hydra_orch.core.checkpointer import ExecutionStore
 from hydra_orch.core.metrics import MetricsService, MetricSample
-from hydra_orch.core.route_selector import RouteCandidate, RouteSelector
-from hydra_orch.model import ContractViolation, ExecutorCapability as Capability, ProcessStatus, TaskAttempt
+from hydra_orch.core.route_selector import AccountOverride, RouteCandidate, RouteDecision, RouteSelector
+from hydra_orch.model import ChatMessage, ContractViolation, ExecutorCapability as Capability, ProcessStatus, RunSpec, TaskAttempt
+from test_checkpointer import _make_run_spec
 from test_profile import profiles
 
 
@@ -167,3 +169,362 @@ async def test_authenticated_route_audit_endpoint(routes,monkeypatch):
     path=f'/v1/control-plane/runs/{run.run_id}/route-decisions'
     assert client.get(path).json()[0]['id']==decision.decision_id
     assert TestClient(server.app).get(path).status_code==401
+
+
+@pytest.mark.asyncio
+async def test_omniroute_client_list_models_online_disabled_and_connection_refused():
+    calls = []
+    state = {"mode": "online"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if state["mode"] == "refused":
+            raise httpx.ConnectError("connection refused", request=request)
+        if state["mode"] == "error":
+            return httpx.Response(503, json={"error": "gateway down"})
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [
+                        {"id": "agy/gemini-4-argon-high", "owned_by": "google"},
+                        {"id": "claude-3-7-sonnet", "provider": "claude_pro", "owned_by": "anthropic"},
+                        {"id": "claude-3-7-sonnet", "provider": "claude_pro", "owned_by": "anthropic"},
+                        {"id": "", "owned_by": "invalid"},
+                    ],
+                },
+            )
+        if request.url.path == "/v1/chat/completions":
+            return httpx.Response(
+                200,
+                content=b'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n',
+                headers={"content-type": "text/event-stream"},
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    client = OmniRouteClient(transport=transport)
+
+    assert await client.is_available() is True
+    listed = await client.list_models()
+    assert listed["status"] == "available"
+    assert listed["source"] == "omniroute:models_api"
+    assert listed["models"] == [
+        {"id": "agy/gemini-4-argon-high", "provider": "agy", "owned_by": "google"},
+        {"id": "claude-3-7-sonnet", "provider": "claude_pro", "owned_by": "anthropic"},
+    ]
+
+    streamed = [chunk async for chunk in client.stream_chat_completion("gemini-4-argon", [ChatMessage(role="user", content="hi")])]
+    assert streamed == ["ok"]
+
+    state["mode"] = "error"
+    err_res = await client.list_models()
+    assert err_res["status"] == "unavailable"
+    assert err_res["models"] == []
+
+    state["mode"] = "refused"
+    assert await client.is_available() is False
+    refused_res = await client.list_models()
+    assert refused_res["status"] == "unavailable"
+    assert refused_res["models"] == []
+
+    before_disabled_calls = len(calls)
+    disabled = OmniRouteClient(enabled=False, transport=transport)
+    disabled_res = await disabled.list_models()
+    assert disabled_res == {"status": "unavailable", "source": "omniroute:disabled", "models": []}
+    assert len(calls) == before_disabled_calls
+
+
+@pytest.mark.asyncio
+async def test_omniroute_client_list_accounts_online_redaction_fallback_disabled_and_refused():
+    calls = []
+    state = {"accounts_mode": "online", "quota_mode": "online"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.url.path == "/v1/accounts":
+            if state["accounts_mode"] == "refused":
+                raise httpx.ConnectError("connection refused", request=request)
+            if state["accounts_mode"] == "missing":
+                return httpx.Response(404, json={"detail": "not found"})
+            return httpx.Response(
+                200,
+                json={
+                    "accounts": [
+                        {
+                            "id": "acct-claude-work",
+                            "provider": "claude_pro",
+                            "label": "Work Bearer secret-bearer-999",
+                            "quota_key": "claude_pro",
+                            "access_token": "sk-ant-secret-token-12345678",
+                            "refresh_token": "rt-super-secret-value",
+                            "api_key": "api-key-secret",
+                            "password": "pw-secret",
+                            "secret": "top-secret",
+                            "token": "tok-secret",
+                        },
+                        {
+                            "id": "acct-openai-backup",
+                            "provider": "openai",
+                            "label": "OpenAI Backup",
+                            "access_token": "sk-openai-secret-987654321",
+                        },
+                    ]
+                },
+            )
+        if request.url.path == "/api/usage/quota":
+            if state["quota_mode"] == "refused":
+                raise httpx.ConnectError("connection refused", request=request)
+            return httpx.Response(
+                200,
+                json={
+                    "claude_pro": {"remaining_percent": 62.5, "resets_in_seconds": 420},
+                },
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    client = OmniRouteClient(transport=transport)
+
+    online = await client.list_accounts()
+    serialized = json.dumps(online)
+    for forbidden in (
+        "sk-ant-secret-token-12345678",
+        "rt-super-secret-value",
+        "api-key-secret",
+        "pw-secret",
+        "top-secret",
+        "tok-secret",
+        "sk-openai-secret-987654321",
+        "secret-bearer-999",
+        "access_token",
+        "refresh_token",
+        "api_key",
+        "password",
+    ):
+        assert forbidden not in serialized
+
+    assert online["status"] == "observed"
+    by_id = {item["account_id"]: item for item in online["accounts"]}
+    assert set(by_id) == {"acct-claude-work", "acct-openai-backup"}
+    assert by_id["acct-claude-work"]["status"] == "observed"
+    assert by_id["acct-claude-work"]["remaining_percent"] == 62.5
+    assert by_id["acct-claude-work"]["resets_in_seconds"] == 420
+    assert by_id["acct-claude-work"]["observed_at"] is not None
+    assert "Bearer [REDACTED]" in by_id["acct-claude-work"]["label"]
+    # Absent quota for acct-openai-backup must remain unknown/None, never 0 or 100
+    assert by_id["acct-openai-backup"]["status"] == "unknown"
+    assert by_id["acct-openai-backup"]["remaining_percent"] is None
+    assert by_id["acct-openai-backup"]["resets_in_seconds"] is None
+
+    # Fallback to quota API when /v1/accounts returns 404
+    state["accounts_mode"] = "missing"
+    fallback = await client.list_accounts()
+    assert fallback["status"] == "observed"
+    assert fallback["source"] == "omniroute:quota_api"
+    assert fallback["accounts"][0]["account_id"] == "claude_pro"
+    assert fallback["accounts"][0]["remaining_percent"] == 62.5
+
+    # Fresh client with connection refused on both endpoints -> unknown & empty, never 0 or 100
+    state["accounts_mode"] = "refused"
+    state["quota_mode"] = "refused"
+    fresh_offline = OmniRouteClient(transport=transport)
+    refused = await fresh_offline.list_accounts()
+    assert refused["status"] == "unknown"
+    assert refused["accounts"] == []
+
+    # Disabled client -> zero network calls, status unknown
+    before_disabled_calls = len(calls)
+    disabled = OmniRouteClient(enabled=False, transport=transport)
+    disabled_res = await disabled.list_accounts()
+    assert disabled_res == {"status": "unknown", "source": "omniroute:disabled", "accounts": []}
+    assert len(calls) == before_disabled_calls
+
+
+@pytest.mark.asyncio
+async def test_route_selector_gateway_inventory_disabled_optional_required_and_online(routes):
+    selector, _, _, _ = routes
+    calls = []
+    state = {"mode": "refused"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if state["mode"] == "refused":
+            raise httpx.ConnectError("connection refused", request=request)
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": "claude_pro/claude-3-7-sonnet", "owned_by": "anthropic"}]})
+        if request.url.path == "/v1/accounts":
+            return httpx.Response(200, json={"accounts": [{"id": "acct-1", "provider": "claude_pro", "access_token": "sk-secret-value-123456"}]})
+        if request.url.path == "/api/usage/quota":
+            return httpx.Response(200, json={"claude_pro": {"remaining_percent": 77, "resets_in_seconds": 300}})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+
+    # disabled mode with configured gateway must make ZERO network calls
+    selector.connection_mode = "disabled"
+    selector.gateway = OmniRouteClient(enabled=True, transport=transport)
+    inv_disabled = await selector.gateway_inventory()
+    assert len(calls) == 0
+    assert inv_disabled["connection_mode"] == "disabled"
+    assert inv_disabled["direct_mode_supported"] is True
+    assert inv_disabled["available"] is False
+    assert inv_disabled["models"] == []
+    assert inv_disabled["accounts"] == []
+    assert inv_disabled["quota"]["status"] == "unknown"
+    assert inv_disabled["quota"]["claude_pro"]["remaining_percent"] is None
+
+    # gateway=None in optional mode makes zero network calls
+    selector.connection_mode = "optional"
+    selector.gateway = None
+    inv_none = await selector.gateway_inventory()
+    assert len(calls) == 0
+    assert inv_none["available"] is False
+    assert inv_none["quota"]["status"] == "unknown"
+
+    # optional & required modes offline cleanly report unavailable + unknown quota
+    selector.gateway = OmniRouteClient(enabled=True, transport=transport)
+    for mode in ("optional", "required"):
+        selector.connection_mode = mode
+        inv_off = await selector.gateway_inventory()
+        assert inv_off["connection_mode"] == mode
+        assert inv_off["direct_mode_supported"] is True
+        assert inv_off["available"] is False
+        assert inv_off["models"] == []
+        assert inv_off["accounts"] == []
+        assert inv_off["quota"]["status"] == "unknown"
+        assert inv_off["quota"]["claude_pro"]["remaining_percent"] is None
+
+    # online inventory returns discovered models, redacted accounts, and observed quota
+    state["mode"] = "online"
+    selector.connection_mode = "optional"
+    inv_on = await selector.gateway_inventory()
+    assert inv_on["available"] is True
+    assert inv_on["models"] == [{"id": "claude_pro/claude-3-7-sonnet", "provider": "claude_pro", "owned_by": "anthropic"}]
+    assert inv_on["accounts"][0]["account_id"] == "acct-1"
+    assert inv_on["accounts"][0]["remaining_percent"] == 77.0
+    assert "sk-secret-value-123456" not in json.dumps(inv_on)
+    assert inv_on["quota"]["status"] == "observed"
+
+
+@pytest.mark.asyncio
+async def test_select_next_account_persists_without_mutating_active_attempt_and_rejects_secrets(routes):
+    selector, direct, run, service = routes
+    now = datetime.now(timezone.utc)
+
+    # Create an active RUNNING attempt on run_001 and an initial decision before changing next-run account
+    running_attempt = TaskAttempt(
+        attempt_id="running-attempt-1",
+        task_id=run.tasks[0].task_id,
+        run_id=run.run_id,
+        ordinal=1,
+        executor_id="codex",
+        provider="fixture",
+        model=direct.model_ref,
+        base_sha=run.base_sha,
+        process_status=ProcessStatus.RUNNING,
+        started_at=now,
+    )
+    await service.store.save_attempt_atomic(running_attempt)
+    initial_decision = await selector.select(run.run_id, (direct,))
+
+    # Reject empty, secret-like, and unavailable account IDs
+    for bad_account in (
+        "",
+        "   ",
+        "sk-ant-1234567890abcdef",
+        "ghp_1234567890abcdef",
+        "Bearer my-secret-token",
+        "access_token=secret123",
+        "api_key",
+    ):
+        with pytest.raises(ContractViolation):
+            await selector.select_next_account("default", "claude_pro", bad_account)
+
+    with pytest.raises(ContractViolation):
+        await selector.select_next_account("default", "access_token", "acct-clean-1")
+
+    with pytest.raises(ContractViolation) as avail_err:
+        await selector.select_next_account(
+            "default",
+            "claude_pro",
+            "acct-missing",
+            available_account_ids=["acct-work-1", "acct-work-2"],
+        )
+    assert avail_err.value.code == "account_not_available"
+
+    # Persist default next-run account (scope_id="default" is not in runs; must not fail FK)
+    saved_default = await selector.select_next_account(
+        "default",
+        "claude_pro",
+        "acct-work-2",
+        principal_id="operator",
+        available_account_ids=["acct-work-1", "acct-work-2"],
+    )
+    parsed_override = AccountOverride.model_validate(saved_default)
+    assert parsed_override.account_id == "acct-work-2"
+    assert parsed_override.applies_to == "next_run"
+
+    # Active running attempt and earlier route decision must remain completely untouched
+    stored_attempt = await service.store.get_attempt(running_attempt.attempt_id)
+    assert stored_attempt == running_attempt
+    prior_decisions = await selector.list_decisions(run.run_id)
+    assert len(prior_decisions) == 1
+    assert prior_decisions[0]["id"] == initial_decision.decision_id
+    assert "selected_account_id" not in json.loads(prior_decisions[0]["candidates_json"])[0]
+
+    # Create next run and restart RouteSelector on a fresh ExecutionStore
+    next_run_data = _make_run_spec(
+        run.repo_root,
+        run_id="run-002",
+        project_id=run.project_id,
+        idempotency_key="idemp-key-0002-efgh",
+    ).model_dump(mode="json")
+    next_run_data["base_sha"] = run.base_sha
+    next_run = RunSpec.model_validate(next_run_data)
+    await service.store.submit_run_idempotent(next_run)
+
+    restarted_store = ExecutionStore(service.store.db_path)
+    restarted_agents = AgentRegistry(
+        restarted_store,
+        certification_root=service.agents.certification_root,
+        executable_locator=service.agents.locate,
+    )
+    restarted_selector = RouteSelector(
+        restarted_store,
+        restarted_agents,
+        MetricsService(restarted_store),
+        gateway=Gateway(available=True, quota={"claude_pro": {"status": "observed", "remaining_percent": 80}}),
+        connection_mode="optional",
+    )
+
+    overrides_from_default = await restarted_selector.get_next_account_overrides(next_run.run_id)
+    assert overrides_from_default["claude_pro"]["account_id"] == "acct-work-2"
+
+    # Run-scoped override for next_run emits audit event on next_run and overrides default
+    await restarted_selector.select_next_account(next_run.run_id, "claude_pro", "acct-work-3")
+    next_events = await restarted_store.get_events(next_run.run_id)
+    assert any(
+        e.event_type == "route.selected" and e.redacted_payload.get("account_id") == "acct-work-3"
+        for e in next_events
+    )
+
+    gateway_route = RouteCandidate.model_validate(
+        {
+            **direct.model_dump(mode="json"),
+            "route_id": "gateway",
+            "mode": "gateway",
+            "priority": 0,
+            "quota_key": "claude_pro",
+        }
+    )
+    next_decision = await restarted_selector.select(next_run.run_id, (gateway_route, direct))
+    assert isinstance(next_decision, RouteDecision)
+    assert next_decision.selected_route == "gateway"
+    audit_entries = {c["route_id"]: c for c in json.loads(next_decision.candidates_json)}
+    assert audit_entries["gateway"]["selected_account_id"] == "acct-work-3"
+    assert "selected_account_id" not in audit_entries["direct"]
+
+    # Active attempt in run-001 is STILL untouched after next_run selection
+    assert await restarted_store.get_attempt(running_attempt.attempt_id) == running_attempt

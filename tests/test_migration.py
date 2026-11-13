@@ -65,11 +65,11 @@ async def test_fresh_schema_repeated_startup_and_foreign_keys(tmp_path):
     first = ExecutionStore(path)
     await first.initialize()
     versions = await first.get_applied_migrations()
-    assert [v["version"] for v in versions] == ["0001", "0002"]
+    assert [v["version"] for v in versions] == ["0001", "0002", "0003"]
     assert len(versions[1]["checksum"]) == 64
     tables = {r[0] for r in read_db(path, "SELECT name FROM sqlite_master WHERE type='table'")}
     assert EXPANSION_TABLES <= tables
-    assert {"workspaces", "handoff_checkpoints", "metric_samples", "budget_policies", "pr_packages"} <= tables
+    assert {"workspaces", "handoff_checkpoints", "metric_samples", "budget_policies", "pr_packages", "automation_schedules", "automation_runs"} <= tables
     assert (await first.get_pragmas())["foreign_keys"] == 1
     assert read_db(path, "PRAGMA foreign_key_check") == []
     assert read_db(path, "PRAGMA integrity_check") == [("ok",)]
@@ -117,15 +117,15 @@ async def test_empty_expansion_roundtrip_rollback_is_audited(baseline):
     store = ExecutionStore(path)
     await store.initialize()
     backup = path.parent / "explicit-backup.sqlite"
-    assert await store.rollback_migrations("0001", backup_path=backup) == ["0002"]
+    assert await store.rollback_migrations("0001", backup_path=backup) == ["0003", "0002"]
     assert [v["version"] for v in await store.get_applied_migrations()] == ["0001"]
     tables = {r[0] for r in read_db(path, "SELECT name FROM sqlite_master WHERE type='table'")}
-    assert not EXPANSION_TABLES & tables
+    assert not (EXPANSION_TABLES | {"automation_schedules", "automation_runs"}) & tables
     assert read_db(path, "SELECT canonical_path FROM workspaces") == [("/preserved/worktree",)]
     assert (await store.get_run(spec.run_id))["id"] == spec.run_id
     assert await store.get_checkpoint("legacy-stream") is not None
     assert read_db(path, "PRAGMA foreign_key_check") == []
-    assert read_db(backup, "SELECT version FROM schema_migrations ORDER BY version") == [("0001",), ("0002",)]
+    assert read_db(backup, "SELECT version FROM schema_migrations ORDER BY version") == [("0001",), ("0002",), ("0003",)]
     history = await store.get_migration_history()
     assert history[-1]["direction"] == "down"
     assert history[-1]["status"] == "applied"
@@ -135,7 +135,7 @@ async def test_empty_expansion_roundtrip_rollback_is_audited(baseline):
     # A fresh startup deliberately restores the current checkout schema.
     restarted = ExecutionStore(path)
     await restarted.initialize()
-    assert [v["version"] for v in await restarted.get_applied_migrations()] == ["0001", "0002"]
+    assert [v["version"] for v in await restarted.get_applied_migrations()] == ["0001", "0002", "0003"]
 
 
 @pytest.mark.asyncio
@@ -156,7 +156,7 @@ async def test_rollback_refuses_data_loss_or_live_attempt(baseline, data):
             await db.execute("UPDATE attempts SET process_status='running'")
     with pytest.raises(MigrationError, match="Failed rolling back"):
         await store.rollback_migrations("0001")
-    assert read_db(path, "SELECT version FROM schema_migrations ORDER BY version") == [("0001",), ("0002",)]
+    assert read_db(path, "SELECT version FROM schema_migrations ORDER BY version") == [("0001",), ("0002",), ("0003",)]
     audit = (await store.get_migration_history())[-1]
     assert (audit["direction"], audit["status"]) == ("down", "failed")
     assert Path(audit["backup_path"]).exists()
@@ -250,6 +250,7 @@ async def test_concurrent_startups_apply_once(baseline):
     path, _, _ = baseline
     stores = [ExecutionStore(path) for _ in range(3)]
     await asyncio.gather(*(store.initialize() for store in stores))
+    assert read_db(path, "SELECT COUNT(*) FROM schema_migrations WHERE version='0003'") == [(1,)]
     assert read_db(path, "SELECT COUNT(*) FROM schema_migrations WHERE version='0002'") == [(1,)]
     assert read_db(path, "SELECT COUNT(*) FROM migration_history WHERE version='0002' AND status='applied'") == [(1,)]
 
