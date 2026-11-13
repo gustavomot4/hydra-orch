@@ -792,3 +792,869 @@ def test_discard_preserves_retention(isolated_run_service):
     tampered_disc = client.post("/v1/control-plane/runs/run-discard-1/discard", json={"force": True})
     assert tampered_disc.status_code == 409
     assert tampered_disc.json()["code"] == "artifact_tampered"
+
+
+def _init_extra_repo(base_dir: Path, name: str) -> tuple[Path, str]:
+    repo = base_dir / name
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=str(repo), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Hydra Test Operator"], cwd=str(repo), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "operator@hydra.local"], cwd=str(repo), check=True, capture_output=True)
+    (repo / "README.md").write_text(f"# {name}\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=str(repo), check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), check=True, capture_output=True)
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(repo), text=True).strip()
+    return repo, sha
+
+
+def _write_cert_report(cert_root: Path, filename: str, payload: dict) -> Path:
+    cert_root.mkdir(parents=True, exist_ok=True)
+    path = cert_root / filename
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _sha256_bytes(data: bytes) -> str:
+    import hashlib
+
+    return hashlib.sha256(data).hexdigest()
+
+
+def test_multi_repo_project(isolated_run_service, tmp_path: Path):
+    _svc, repo_root, _base_sha = isolated_run_service
+    client = TestClient(app)
+    parent_root = repo_root.parent
+    repo_two, sha_two = _init_extra_repo(parent_root, "repo-two")
+
+    old_roots = getattr(app.state, "workspace_allowed_roots", None)
+    app.state.workspace_allowed_roots = [repo_root, repo_two]
+    try:
+        area_resp = client.post("/v1/control-plane/areas", json={"name": "Engineering", "description": "Main area"})
+        assert area_resp.status_code == 201, area_resp.text
+        area = area_resp.json()
+
+        areas_resp = client.get("/v1/control-plane/areas")
+        assert areas_resp.status_code == 200
+        assert any(a["id"] == area["id"] for a in areas_resp.json())
+
+        ws_resp = client.post("/v1/control-plane/workspaces", json={"area_id": area["id"], "name": "Backend"})
+        assert ws_resp.status_code == 201, ws_resp.text
+        ws = ws_resp.json()
+
+        ws_list = client.get("/v1/control-plane/workspaces", params={"area_id": area["id"]})
+        assert ws_list.status_code == 200
+        assert len(ws_list.json()) == 1
+
+        proj_resp = client.post(
+            "/v1/control-plane/projects",
+            json={
+                "workspace_id": ws["id"],
+                "name": "hydra-multi",
+                "canonical_root": str(repo_root),
+                "base_branch": "main",
+            },
+        )
+        assert proj_resp.status_code == 201, proj_resp.text
+        project = proj_resp.json()
+
+        r1 = client.post(
+            f"/v1/control-plane/projects/{project['id']}/repositories",
+            json={"root_canonical": str(repo_root), "scopes": ["read", "write"], "allowed_paths": ["src/*"]},
+        )
+        r2 = client.post(
+            f"/v1/control-plane/projects/{project['id']}/repositories",
+            json={"root_canonical": str(repo_two), "scopes": ["read"], "allowed_paths": ["*"], "base_sha": sha_two},
+        )
+        assert r1.status_code == 201, r1.text
+        assert r2.status_code == 201, r2.text
+
+        repos_resp = client.get(f"/v1/control-plane/projects/{project['id']}/repositories")
+        assert repos_resp.status_code == 200
+        assert len(repos_resp.json()) == 2
+
+        repo1_id = r1.json()["id"]
+        grant_resp = client.post(
+            f"/v1/control-plane/repositories/{repo1_id}/grant",
+            json={"authorized_principal_id": "reviewer-1", "scopes": ["read"]},
+        )
+        assert grant_resp.status_code == 201, grant_resp.text
+        auth_id = grant_resp.json()["authorization_id"]
+
+        revoke_resp = client.post(
+            f"/v1/control-plane/repositories/{repo1_id}/revoke",
+            json={"authorization_id": auth_id},
+        )
+        assert revoke_resp.status_code == 200, revoke_resp.text
+        assert revoke_resp.json()["revoked"] is True
+
+        arch_resp = client.post(
+            f"/v1/control-plane/workspaces/{ws['id']}/archive",
+            json={"expected_revision": ws["revision"]},
+        )
+        assert arch_resp.status_code == 200, arch_resp.text
+
+        blocked_proj = client.post(
+            "/v1/control-plane/projects",
+            json={"workspace_id": ws["id"], "name": "blocked", "canonical_root": str(repo_root)},
+        )
+        assert blocked_proj.status_code == 409
+        assert blocked_proj.json()["code"] == "workspace_archived"
+    finally:
+        app.state.workspace_allowed_roots = old_roots
+
+
+def test_profile_resolve_pre_exec(isolated_run_service, tmp_path: Path):
+    _svc, repo_root, _base_sha = isolated_run_service
+    client = TestClient(app)
+    cert_root = tmp_path / "certs"
+    fake_bin = tmp_path / "bin" / "codex"
+    fake_bin.parent.mkdir(parents=True, exist_ok=True)
+    fake_bin.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
+
+    old_cert_root = getattr(app.state, "certification_root", None)
+    old_locator = getattr(app.state, "executable_locator", None)
+    old_ws_roots = getattr(app.state, "workspace_allowed_roots", None)
+    app.state.certification_root = cert_root
+    app.state.executable_locator = lambda exe: str(fake_bin) if exe == "codex" else None
+    app.state.workspace_allowed_roots = [repo_root]
+    try:
+        area = client.post("/v1/control-plane/areas", json={"name": "ProfilesArea"}).json()
+        ws = client.post("/v1/control-plane/workspaces", json={"area_id": area["id"], "name": "ProfWS"}).json()
+        proj = client.post(
+            "/v1/control-plane/projects",
+            json={"workspace_id": ws["id"], "name": "prof-proj", "canonical_root": str(repo_root)},
+        ).json()
+        repo = client.post(
+            f"/v1/control-plane/projects/{proj['id']}/repositories",
+            json={"root_canonical": str(repo_root), "scopes": ["read", "write", "execute"]},
+        ).json()
+
+        agent_payload = {
+            "agent_id": "agent-codex-1",
+            "name": "Codex Local",
+            "version": "1.0.0",
+            "driver_type": "codex",
+            "declared_capabilities": ["workspace_execution", "cancel_process_tree", "tool_execution"],
+        }
+        reg_resp = client.post("/v1/control-plane/agents", json=agent_payload)
+        assert reg_resp.status_code == 201, reg_resp.text
+
+        agents_resp = client.get("/v1/control-plane/agents")
+        assert agents_resp.status_code == 200
+        assert any(a["agent_id"] == "agent-codex-1" for a in agents_resp.json())
+
+        execs_resp = client.get("/v1/control-plane/executors")
+        assert execs_resp.status_code == 200
+        assert execs_resp.json()[0]["agent_id"] == "agent-codex-1"
+        assert execs_resp.json()[0]["status"] == "unavailable"
+
+        caps_resp = client.get("/v1/control-plane/capabilities")
+        assert caps_resp.status_code == 200
+        assert "drivers" in caps_resp.json()
+
+        import platform as _platform
+        from datetime import datetime, timezone
+        from hydra_orch.core.agent_registry import CERTIFICATION_CHECKS
+
+        report_path = _write_cert_report(
+            cert_root,
+            "codex.json",
+            {
+                "agent_id": "agent-codex-1",
+                "driver_type": "codex",
+                "agent_version": "1.0.0",
+                "platform": _platform.system(),
+                "executable_sha256": _sha256_bytes(fake_bin.read_bytes()),
+                "capabilities": ["workspace_execution", "cancel_process_tree", "tool_execution"],
+                "passed_checks": sorted(CERTIFICATION_CHECKS),
+                "simulated": False,
+                "issued_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        cert_resp = client.post(
+            "/v1/control-plane/agents/agent-codex-1/certificate",
+            json={"report_path": str(report_path)},
+        )
+        assert cert_resp.status_code == 201, cert_resp.text
+
+        profile_payload = {
+            "profile_id": "prof-1",
+            "name": "Safe Profile",
+            "agent_ref": "agent-codex-1",
+            "executor_ref": "agent-codex-1",
+            "model_ref": "gpt-5-codex",
+            "required_capabilities": ["workspace_execution", "cancel_process_tree"],
+        }
+        prof_resp = client.post("/v1/control-plane/profiles", json=profile_payload)
+        assert prof_resp.status_code == 201, prof_resp.text
+
+        profs_list = client.get("/v1/control-plane/profiles")
+        assert profs_list.status_code == 200
+        assert any(p["profile_id"] == "prof-1" for p in profs_list.json())
+
+        resolved = client.post(
+            "/v1/control-plane/profiles/prof-1/resolve",
+            json={"repository_id": repo["id"]},
+        )
+        assert resolved.status_code == 200, resolved.text
+        assert resolved.json()["profile"]["profile_id"] == "prof-1"
+        assert resolved.json()["agent"]["definition"]["agent_id"] == "agent-codex-1"
+
+        missing_prof = client.post(
+            "/v1/control-plane/profiles/nonexistent/resolve",
+            json={"repository_id": repo["id"]},
+        )
+        assert missing_prof.status_code == 404
+    finally:
+        app.state.certification_root = old_cert_root
+        app.state.executable_locator = old_locator
+        app.state.workspace_allowed_roots = old_ws_roots
+
+
+def test_session_events_sse(isolated_run_service):
+    _svc, repo_root, base_sha = isolated_run_service
+    client = TestClient(app)
+    proj = client.post(
+        "/v1/control-plane/projects",
+        json={"canonical_root": str(repo_root), "name": "sse-sess-proj", "base_branch": "main", "base_sha": base_sha},
+    ).json()
+    run_resp = client.post(
+        "/v1/control-plane/runs",
+        headers={"Idempotency-Key": "sse-sess-run-idem-0001"},
+        json={
+            "project_id": proj["id"],
+            "objective": "Session SSE test",
+            "mode": "relay",
+            "execute": False,
+            "task_spec": {"task_id": "t1", "objective": "op", "acceptance_criteria": [{"check_id": "c1", "command": ["echo", "ok"]}]},
+        },
+    )
+    assert run_resp.status_code == 202, run_resp.text
+    run_id = run_resp.json()["run_id"]
+
+    sess_resp = client.post(
+        f"/v1/control-plane/runs/{run_id}/sessions",
+        json={"origin_ref": "ui://panel"},
+    )
+    assert sess_resp.status_code == 201, sess_resp.text
+    session_id = sess_resp.json()["id"]
+
+    assert client.post(f"/v1/control-plane/runs/{run_id}/sessions/{session_id}/state", json={"state": "running", "expected_state": "created"}).status_code == 200
+    th_resp = client.post(f"/v1/control-plane/runs/{run_id}/sessions/{session_id}/threads", json={})
+    assert th_resp.status_code == 201
+    thread_id = th_resp.json()["id"]
+    assert client.post(f"/v1/control-plane/runs/{run_id}/sessions/{session_id}/threads/{thread_id}/state", json={"state": "running", "expected_state": "created"}).status_code == 200
+
+    msg_resp = client.post(
+        f"/v1/control-plane/runs/{run_id}/sessions/{session_id}/threads/{thread_id}/messages",
+        headers={"Idempotency-Key": "sess-msg-idem-00000001"},
+        json={"content": "Hello session stream", "expected_last_seq": th_resp.json()["last_seq"]},
+    )
+    assert msg_resp.status_code == 200, msg_resp.text
+    msg_seq = msg_resp.json()["seq"]
+
+    top_sessions = client.get("/v1/control-plane/sessions")
+    assert top_sessions.status_code == 200
+    assert any(s["id"] == session_id for s in top_sessions.json())
+
+    top_threads = client.get(f"/v1/control-plane/sessions/{session_id}/threads")
+    assert top_threads.status_code == 200
+    assert any(t["id"] == thread_id for t in top_threads.json())
+
+    sse_all = client.get(f"/v1/control-plane/sessions/{session_id}/events")
+    assert sse_all.status_code == 200
+    assert f"id: {msg_seq}" in sse_all.text
+    assert "event: heartbeat" in sse_all.text
+
+    sse_resume = client.get(
+        f"/v1/control-plane/sessions/{session_id}/events",
+        headers={"Last-Event-ID": str(msg_seq - 1)},
+    )
+    assert sse_resume.status_code == 200
+    assert f"id: {msg_seq}" in sse_resume.text
+
+    old_cursors = getattr(app.state, "expired_cursors", {}).copy()
+    app.state.expired_cursors = {session_id: msg_seq + 1}
+    try:
+        expired_resp = client.get(
+            f"/v1/control-plane/sessions/{session_id}/events",
+            headers={"Last-Event-ID": str(msg_seq)},
+        )
+        assert expired_resp.status_code == 410
+        assert expired_resp.json()["code"] == "cursor_expired"
+    finally:
+        app.state.expired_cursors = old_cursors
+
+    invalid_resp = client.get(
+        f"/v1/control-plane/sessions/{session_id}/events",
+        headers={"Last-Event-ID": "abc"},
+    )
+    assert invalid_resp.status_code == 400
+    assert invalid_resp.json()["code"] == "invalid_cursor"
+    assert client.get("/v1/control-plane/sessions/does-not-exist/events").status_code == 404
+
+
+def test_discovery_approve_reject(isolated_run_service, tmp_path: Path):
+    _svc, repo_root, _base_sha = isolated_run_service
+    client = TestClient(app)
+    skill_dir = repo_root / ".agents" / "skills" / "demo-skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: demo-skill\n---\nRun checks.\n", encoding="utf-8")
+
+    mcp_file = repo_root / "mcp.json"
+    mcp_file.write_text(
+        json.dumps({"mcpServers": {"local-tools": {"command": "python", "args": ["-m", "http.server"]}}}),
+        encoding="utf-8",
+    )
+
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir(parents=True, exist_ok=True)
+
+    bad_scan = client.post("/v1/control-plane/discovery/scan", json={"authorized_root": str(outside_dir)})
+    assert bad_scan.status_code == 403
+    assert bad_scan.json()["code"] == "discovery_scope"
+
+    disabled_scan = client.post("/v1/control-plane/discovery/scan", json={"authorized_root": str(repo_root), "opt_in": False})
+    assert disabled_scan.status_code == 403
+    assert disabled_scan.json()["code"] == "discovery_disabled"
+
+    scan_resp = client.post("/v1/control-plane/discovery/scan", json={"authorized_root": str(repo_root)})
+    assert scan_resp.status_code == 200, scan_resp.text
+    discovered = scan_resp.json()
+    assert len(discovered) >= 2
+
+    listed = client.get("/v1/control-plane/discovery/resources")
+    assert listed.status_code == 200
+    assert len(listed.json()) == len(discovered)
+
+    first, second = discovered[0], discovered[1]
+    approve_resp = client.post(
+        f"/v1/control-plane/discovery/resources/{first['discovery_id']}/approve",
+        json={"expected_hash": first["content_hash"]},
+    )
+    assert approve_resp.status_code == 200, approve_resp.text
+    assert approve_resp.json()["trust_status"] in {"approved", "active"}
+
+    reject_resp = client.post(f"/v1/control-plane/discovery/resources/{second['discovery_id']}/reject")
+    assert reject_resp.status_code == 200, reject_resp.text
+    assert reject_resp.json()["trust_status"] == "rejected"
+
+
+def test_skills_mcps_secrets_endpoints(isolated_run_service):
+    _svc, _repo_root, _base_sha = isolated_run_service
+    client = TestClient(app)
+
+    raw_extra = client.post(
+        "/v1/control-plane/secrets",
+        json={"secret_name": "api", "provider_type": "env", "source_key": "API_KEY", "value": "sk-raw-secret-value-12345"},
+    )
+    assert raw_extra.status_code == 422
+
+    raw_literal = client.post(
+        "/v1/control-plane/secrets",
+        json={"secret_name": "api", "provider_type": "env", "source_key": "sk-1234567890abcdef"},
+    )
+    assert raw_literal.status_code == 400
+    assert raw_literal.json()["code"] == "secret_value_rejected"
+
+    sec_resp = client.post(
+        "/v1/control-plane/secrets",
+        json={"secret_name": "github_token", "provider_type": "env", "source_key": "HYDRA_GH_TOKEN", "secret_id": "sec-gh-1"},
+    )
+    assert sec_resp.status_code == 201, sec_resp.text
+
+    skill_payload = {
+        "skill_id": "skill-1",
+        "name": "code-lint",
+        "version": "1.0.0",
+        "manifest_ref": "skills/code-lint/SKILL.md",
+        "permissions_declared": ["fs:read"],
+        "checksum": _sha256_bytes(b"skill-1"),
+    }
+    sk_resp = client.post("/v1/control-plane/skills", json=skill_payload)
+    assert sk_resp.status_code == 201, sk_resp.text
+
+    mcp_payload = {
+        "mcp_id": "mcp-1",
+        "server_name": "github-mcp",
+        "transport_type": "stdio",
+        "endpoint": "stdio://github-mcp",
+        "secret_ref": "sec-gh-1",
+        "declared_tools": [{"name": "get_issue", "description": "Fetch issue"}],
+        "permissions": ["secret:sec-gh-1"],
+    }
+    mcp_resp = client.post("/v1/control-plane/mcps", json=mcp_payload)
+    assert mcp_resp.status_code == 201, mcp_resp.text
+
+    assert any(s["skill_id"] == "skill-1" for s in client.get("/v1/control-plane/skills").json())
+    assert any(m["mcp_id"] == "mcp-1" for m in client.get("/v1/control-plane/mcps").json())
+    assert any(sec["secret_id"] == "sec-gh-1" for sec in client.get("/v1/control-plane/secrets").json())
+
+    assert client.post("/v1/control-plane/skills/skill-1/revoke").json()["revoked"] is True
+    assert client.post("/v1/control-plane/mcps/mcp-1/revoke").json()["revoked"] is True
+    assert client.post("/v1/control-plane/secrets/sec-gh-1/revoke").json()["revoked"] is True
+    assert any(s["skill_id"] == "skill-1" and s["revoked"] is True for s in client.get("/v1/control-plane/skills").json())
+
+
+def test_extension_lifecycle(isolated_run_service, tmp_path: Path):
+    _svc, repo_root, _base_sha = isolated_run_service
+    client = TestClient(app)
+    ext_dir = repo_root / "extensions"
+    ext_dir.mkdir(parents=True, exist_ok=True)
+    ep1 = ext_dir / "ext_v1.py"
+    ep2 = ext_dir / "ext_v2.py"
+    b1 = b"def run(ctx):\n    return {'v': 1}\n"
+    b2 = b"def run(ctx):\n    return {'v': 2}\n"
+    ep1.write_bytes(b1)
+    ep2.write_bytes(b2)
+
+    m1 = {
+        "extension_id": "ext-m1",
+        "name": "sample-ext",
+        "version": "1.0.0",
+        "entrypoint": "extensions/ext_v1.py",
+        "permissions_required": ["fs:read"],
+        "compatible_api_version": "1.0",
+        "checksum": _sha256_bytes(b1),
+    }
+    m2 = {
+        "extension_id": "ext-m2",
+        "name": "sample-ext",
+        "version": "2.0.0",
+        "entrypoint": "extensions/ext_v2.py",
+        "permissions_required": ["fs:read"],
+        "compatible_api_version": "1.0",
+        "checksum": _sha256_bytes(b2),
+    }
+
+    reg_resp = client.post("/v1/control-plane/extensions", json=m1)
+    assert reg_resp.status_code == 201, reg_resp.text
+
+    c_req = client.post("/v1/control-plane/consents", json={"scope_type": "extension", "scope_id": "sample-ext"})
+    assert c_req.status_code == 201, c_req.text
+    consent_id = c_req.json()["consent_id"]
+
+    unconsented = client.post(
+        "/v1/control-plane/extensions/install",
+        json={"manifest_id": "ext-m1", "consent_id": consent_id},
+    )
+    assert unconsented.status_code == 409
+    assert unconsented.json()["code"] == "consent_required"
+
+    c_grant = client.post(f"/v1/control-plane/consents/{consent_id}", json={"action": "granted"})
+    assert c_grant.status_code == 200
+
+    inst1 = client.post(
+        "/v1/control-plane/extensions/install",
+        json={"manifest_id": "ext-m1", "consent_id": consent_id, "activate": True},
+    )
+    assert inst1.status_code == 201, inst1.text
+    assert inst1.json()["status"] == "active"
+
+    inst2 = client.post(
+        "/v1/control-plane/extensions/install",
+        json={"manifest": m2, "consent_id": consent_id, "activate": True},
+    )
+    assert inst2.status_code == 201, inst2.text
+    install2_id = inst2.json()["install_id"]
+
+    rb_resp = client.post(f"/v1/control-plane/extensions/{install2_id}/rollback")
+    assert rb_resp.status_code == 200, rb_resp.text
+    assert rb_resp.json()["extension_manifest_id"] == "ext-m1"
+    assert rb_resp.json()["status"] == "active"
+
+    listed = client.get("/v1/control-plane/extensions")
+    assert listed.status_code == 200
+    active_ids = [item["install_id"] for item in listed.json() if item["status"] == "active"]
+    assert len(active_ids) == 1
+
+    rev_resp = client.post(f"/v1/control-plane/extensions/{active_ids[0]}/revoke", json={"reason": "audit_revoke"})
+    assert rev_resp.status_code == 200, rev_resp.text
+    assert rev_resp.json()["status"] == "revoked"
+
+
+def test_preference_snapshot_run(isolated_run_service):
+    _svc, repo_root, base_sha = isolated_run_service
+    client = TestClient(app)
+    proj = client.post(
+        "/v1/control-plane/projects",
+        json={"canonical_root": str(repo_root), "name": "pref-proj", "base_branch": "main", "base_sha": base_sha},
+    ).json()
+    run_resp = client.post(
+        "/v1/control-plane/runs",
+        headers={"Idempotency-Key": "pref-run-idem-000001"},
+        json={
+            "project_id": proj["id"],
+            "objective": "Preference snapshot run",
+            "mode": "relay",
+            "execute": False,
+            "task_spec": {"task_id": "t1", "objective": "op", "acceptance_criteria": [{"check_id": "c1", "command": ["echo", "ok"]}]},
+        },
+    )
+    assert run_resp.status_code == 202, run_resp.text
+    run_id = run_resp.json()["run_id"]
+
+    bad_pref = client.put(
+        "/v1/control-plane/preferences",
+        json={"scope_type": "user", "scope_id": "operator", "key": "theme", "value": "dark", "source": "inferred_opt_in"},
+    )
+    assert bad_pref.status_code == 400
+    assert bad_pref.json()["code"] == "opt_in_required"
+
+    p1 = client.put(
+        "/v1/control-plane/preferences",
+        json={"scope_type": "user", "scope_id": "operator", "key": "model_tier", "value": "fast"},
+    )
+    assert p1.status_code == 200
+    assert p1.json()["version"] == 1
+
+    p2 = client.put(
+        "/v1/control-plane/preferences",
+        json={"scope_type": "user", "scope_id": "operator", "key": "model_tier", "value": "deep", "expected_version": 1},
+    )
+    assert p2.status_code == 200
+    assert p2.json()["version"] == 2
+
+    stale = client.put(
+        "/v1/control-plane/preferences",
+        json={"scope_type": "user", "scope_id": "operator", "key": "model_tier", "value": "other", "expected_version": 1},
+    )
+    assert stale.status_code == 409
+
+    rev = client.post(
+        "/v1/control-plane/preferences/revert",
+        json={"scope_type": "user", "scope_id": "operator", "key": "model_tier", "target_version": 1},
+    )
+    assert rev.status_code == 200
+    assert json.loads(rev.json()["preference"]["value_json"]) == "fast"
+
+    listed = client.get("/v1/control-plane/preferences", params={"scope_type": "user", "scope_id": "operator"})
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+
+    snap = client.post(
+        f"/v1/control-plane/runs/{run_id}/preferences/snapshot",
+        json={"user_id": "operator", "project_id": proj["id"]},
+    )
+    assert snap.status_code == 201, snap.text
+    assert json.loads(snap.json()["resolved_preferences_json"])["preferences"]["model_tier"] == "fast"
+
+
+def test_transports_and_tokens(isolated_run_service):
+    svc, _repo_root, _base_sha = isolated_run_service
+    client = TestClient(app)
+    import platform as _platform
+    from hydra_orch.bridge.transport_registry import REQUIRED_CHECKS_BY_TYPE
+
+    old_probe = getattr(app.state, "transport_health_probe", None)
+    app.state.transport_health_probe = lambda _d: {"status": "healthy"}
+    try:
+        tr_resp = client.post(
+            "/v1/control-plane/transports",
+            json={"transport_id": "tr-local-1", "type": "local", "target_identity": "127.0.0.1:local"},
+        )
+        assert tr_resp.status_code == 201, tr_resp.text
+
+        health = client.get("/v1/control-plane/transports/tr-local-1/health")
+        assert health.status_code == 200, health.text
+        assert health.json()["status"] == "healthy"
+
+        bad_cert = client.post(
+            "/v1/control-plane/transports/tr-local-1/certify",
+            json={
+                "transport_id": "tr-local-1",
+                "transport_type": "local",
+                "target_identity": "127.0.0.1:local",
+                "platform": _platform.system(),
+                "version": "1.0.0", "passed_checks": list(REQUIRED_CHECKS_BY_TYPE["local"]),
+                "simulated": True,
+            },
+        )
+        assert bad_cert.status_code == 422
+
+        missing_check_cert = client.post(
+            "/v1/control-plane/transports/tr-local-1/certify",
+            json={
+                "transport_id": "tr-local-1",
+                "transport_type": "local",
+                "target_identity": "127.0.0.1:wrong",
+                "platform": _platform.system(),
+                "version": "1.0.0", "passed_checks": list(REQUIRED_CHECKS_BY_TYPE["local"]),
+                "simulated": False,
+            },
+        )
+        assert missing_check_cert.status_code == 400
+        assert missing_check_cert.json()["code"] == "certification_invalid"
+
+        cert = client.post(
+            "/v1/control-plane/transports/tr-local-1/certify",
+            json={
+                "transport_id": "tr-local-1",
+                "transport_type": "local",
+                "target_identity": "127.0.0.1:local",
+                "platform": _platform.system(),
+                "version": "1.0.0", "passed_checks": list(REQUIRED_CHECKS_BY_TYPE["local"]),
+                "simulated": False,
+            },
+        )
+        assert cert.status_code == 201, cert.text
+        assert cert.json()["certified"] is True
+
+        certified_list = client.get("/v1/control-plane/transports", params={"certified_only": True})
+        assert certified_list.status_code == 200
+        assert any(t["transport_id"] == "tr-local-1" for t in certified_list.json())
+    finally:
+        app.state.transport_health_probe = old_probe
+
+    from datetime import datetime, timedelta, timezone
+
+    future_iso = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    tok_resp = client.post(
+        "/v1/control-plane/tokens",
+        json={"principal_id": "ui-local", "scopes": ["control-plane:read"], "expires_at": future_iso},
+    )
+    assert tok_resp.status_code == 201, tok_resp.text
+    tok_data = tok_resp.json()
+    raw_token = tok_data["token"]
+    assert raw_token.startswith("hydra_tok_")
+    assert tok_data["token_hash"].startswith("pbkdf2_sha256$")
+    assert TokenVerifier.decode(tok_data["token_hash"]).verify(raw_token)
+
+    import sqlite3
+
+    with sqlite3.connect(str(svc.store.db_path)) as conn:
+        row = conn.execute("SELECT token_hash, revoked_at FROM access_tokens WHERE id = ?", (tok_data["id"],)).fetchone()
+        assert row is not None
+        assert row[0] == tok_data["token_hash"]
+        assert row[1] is None
+        cmd_count = conn.execute("SELECT COUNT(*) FROM commands WHERE response_json LIKE ?", (f"%{raw_token}%",)).fetchone()[0]
+        assert cmd_count == 0
+
+    redacted_resp = client.post(
+        "/v1/control-plane/tokens",
+        json={"principal_id": "ui-local", "scopes": ["control-plane:read"], "expires_at": future_iso, "redact_token": True},
+    )
+    assert redacted_resp.status_code == 201
+    assert redacted_resp.json()["token"] == "[REDACTED]"
+
+    rev_resp = client.post(f"/v1/control-plane/tokens/{tok_data['id']}/revoke")
+    assert rev_resp.status_code == 200, rev_resp.text
+    assert rev_resp.json()["revoked_at"] is not None
+
+    past_iso = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    assert client.post(
+        "/v1/control-plane/tokens",
+        json={"principal_id": "ui-local", "scopes": ["control-plane:read"], "expires_at": past_iso},
+    ).status_code == 400
+
+
+def test_conflict_resolution_endpoints(isolated_run_service):
+    svc, repo_root, base_sha = isolated_run_service
+    client = TestClient(app)
+    proj = client.post(
+        "/v1/control-plane/projects",
+        json={"canonical_root": str(repo_root), "name": "conf-proj", "base_branch": "main", "base_sha": base_sha},
+    ).json()
+    run_resp = client.post(
+        "/v1/control-plane/runs",
+        headers={"Idempotency-Key": "conf-run-idem-000001"},
+        json={
+            "project_id": proj["id"],
+            "objective": "Conflict endpoints test",
+            "mode": "relay",
+            "execute": False,
+            "task_spec": {"task_id": "t1", "objective": "op", "acceptance_criteria": [{"check_id": "c1", "command": ["echo", "ok"]}]},
+        },
+    )
+    assert run_resp.status_code == 202, run_resp.text
+    run_id = run_resp.json()["run_id"]
+
+    import sqlite3
+
+    with sqlite3.connect(str(svc.store.db_path)) as conn:
+        conn.execute(
+            "INSERT INTO integrations (id, run_id, workspace_path, expected_base_sha, status) VALUES (?, ?, ?, ?, ?)",
+            ("int-1", run_id, str(repo_root), base_sha, "conflicted"),
+        )
+        conn.execute(
+            """
+            INSERT INTO conflict_reports (
+                id, integration_id, base_sha, ours_sha, theirs_sha,
+                conflicted_files_json, resolution_options_json, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("conf-1", "int-1", base_sha, base_sha, base_sha, json.dumps(["README.md"]), json.dumps(["auto_repair", "manual", "discarded"]), "open"),
+        )
+        conn.execute(
+            """
+            INSERT INTO conflict_reports (
+                id, integration_id, base_sha, ours_sha, theirs_sha,
+                conflicted_files_json, resolution_options_json, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("conf-2", "int-1", base_sha, base_sha, base_sha, json.dumps(["other.txt"]), json.dumps(["auto_repair", "manual", "discarded"]), "open"),
+        )
+        conn.commit()
+
+    listed = client.get(f"/v1/control-plane/runs/{run_id}/conflicts")
+    assert listed.status_code == 200, listed.text
+    assert len(listed.json()) == 2
+
+    manual_resp = client.post(
+        f"/v1/control-plane/runs/{run_id}/conflicts/conf-1/manual",
+        json={"finalize": False},
+    )
+    assert manual_resp.status_code == 200, manual_resp.text
+    assert manual_resp.json()["status"] == "manual"
+
+    discard_resp = client.post(
+        f"/v1/control-plane/runs/{run_id}/conflicts/conf-2/discard",
+        json={"reason": "operator_rejected"},
+    )
+    assert discard_resp.status_code == 200, discard_resp.text
+    assert discard_resp.json()["status"] == "discarded"
+    assert client.get("/v1/control-plane/runs/missing-run/conflicts").status_code == 404
+    assert client.post(f"/v1/control-plane/runs/{run_id}/conflicts/missing-conf/discard").status_code == 404
+
+
+def test_budget_governor_events(isolated_run_service):
+    svc, repo_root, base_sha = isolated_run_service
+    client = TestClient(app)
+    proj = client.post(
+        "/v1/control-plane/projects",
+        json={"canonical_root": str(repo_root), "name": "bud-proj", "base_branch": "main", "base_sha": base_sha},
+    ).json()
+    run_resp = client.post(
+        "/v1/control-plane/runs",
+        headers={"Idempotency-Key": "bud-run-idem-0000001"},
+        json={
+            "project_id": proj["id"],
+            "objective": "Budget endpoints test",
+            "mode": "relay",
+            "execute": False,
+            "task_spec": {"task_id": "t1", "objective": "op", "acceptance_criteria": [{"check_id": "c1", "command": ["echo", "ok"]}]},
+        },
+    )
+    assert run_resp.status_code == 202, run_resp.text
+    run_id = run_resp.json()["run_id"]
+
+    import asyncio
+    from hydra_orch.core.budget import BudgetGovernor
+
+    gov = BudgetGovernor(svc.store)
+    asyncio.run(gov.configure(run_id, max_usd=1.0, alert_threshold_pct=80.0))
+
+    status_resp = client.get(f"/v1/control-plane/runs/{run_id}/budget")
+    assert status_resp.status_code == 200, status_resp.text
+    assert status_resp.json()["status"] == "active"
+
+    asyncio.run(gov.freeze(run_id, reason="limit_reached"))
+    assert client.get(f"/v1/control-plane/runs/{run_id}/budget").json()["status"] == "frozen"
+
+    ext_resp = client.post(
+        f"/v1/control-plane/runs/{run_id}/budget/extend",
+        json={"additional_usd": 4.0, "approved": True, "reason": "approved_topup"},
+    )
+    assert ext_resp.status_code == 200, ext_resp.text
+    assert ext_resp.json()["status"] == "active"
+    assert ext_resp.json()["budget_status"]["max_usd"] == 5.0
+
+    deny_resp = client.post(
+        f"/v1/control-plane/runs/{run_id}/budget/extend",
+        json={"approved": False, "reason": "budget_cap_denied"},
+    )
+    assert deny_resp.status_code == 200, deny_resp.text
+    assert deny_resp.json()["status"] == "exhausted"
+
+    exhausted_resp = client.post(
+        f"/v1/control-plane/runs/{run_id}/budget/extend",
+        json={"additional_usd": 2.0, "approved": True, "reason": "too_late"},
+    )
+    assert exhausted_resp.status_code == 409
+    assert exhausted_resp.json()["code"] == "budget_exhausted"
+
+
+def test_pr_package_endpoint(isolated_run_service, tmp_path: Path):
+    _svc, repo_root, base_sha = isolated_run_service
+    client = TestClient(app)
+    proj = client.post(
+        "/v1/control-plane/projects",
+        json={"canonical_root": str(repo_root), "name": "pr-proj", "base_branch": "main", "base_sha": base_sha},
+    ).json()
+    run_resp = client.post(
+        "/v1/control-plane/runs",
+        headers={"Idempotency-Key": "pr-pkg-run-idem-0001"},
+        json={
+            "project_id": proj["id"],
+            "objective": "PR package endpoint test",
+            "mode": "relay",
+            "execute": False,
+            "task_spec": {
+                "task_id": "t1",
+                "objective": "Create feature module",
+                "acceptance_criteria": [{"check_id": "ok", "command": [sys.executable, "-c", "print('ok')"]}],
+                "allowed_paths": ["src/*"],
+            },
+        },
+    )
+    assert run_resp.status_code == 202, run_resp.text
+    run_id = run_resp.json()["run_id"]
+
+    old_rt = getattr(app.state, "pr_package_runtime_dir", None)
+    app.state.pr_package_runtime_dir = tmp_path / "pr_runtime"
+    try:
+        assert client.get(f"/v1/control-plane/runs/{run_id}/pr-package").status_code == 404
+
+        build_resp = client.post(
+            f"/v1/control-plane/runs/{run_id}/pr-package",
+            json={"pr_branch": f"hydra/pr-{run_id[:8]}", "create_git_branch": True},
+        )
+        assert build_resp.status_code == 201, build_resp.text
+        pkg = build_resp.json()
+        assert pkg["run_id"] == run_id
+        assert pkg["pr_branch"] == f"hydra/pr-{run_id[:8]}"
+
+        get_resp = client.get(f"/v1/control-plane/runs/{run_id}/pr-package")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["package_id"] == pkg["package_id"]
+
+        dup_resp = client.post(f"/v1/control-plane/runs/{run_id}/pr-package", json={"create_git_branch": False})
+        assert dup_resp.status_code == 409
+        assert dup_resp.json()["code"] == "pr_package_exists"
+
+        pub_resp = client.post(f"/v1/control-plane/runs/{run_id}/pr-package/publish", json={"authorized": False})
+        assert pub_resp.status_code == 403
+        assert pub_resp.json()["code"] == "publish_not_authorized"
+    finally:
+        app.state.pr_package_runtime_dir = old_rt
+
+
+def test_extended_auth_and_error_semantics(isolated_run_service):
+    _svc, _repo_root, _base_sha = isolated_run_service
+    client = TestClient(app)
+    unauth = BaseTestClient(app)
+
+    for method, path in [
+        ("GET", "/v1/control-plane/areas"),
+        ("GET", "/v1/control-plane/workspaces"),
+        ("GET", "/v1/control-plane/agents"),
+        ("GET", "/v1/control-plane/executors"),
+        ("GET", "/v1/control-plane/capabilities"),
+        ("GET", "/v1/control-plane/profiles"),
+        ("GET", "/v1/control-plane/sessions"),
+        ("GET", "/v1/control-plane/discovery/resources"),
+        ("GET", "/v1/control-plane/skills"),
+        ("GET", "/v1/control-plane/mcps"),
+        ("GET", "/v1/control-plane/secrets"),
+        ("GET", "/v1/control-plane/extensions"),
+        ("GET", "/v1/control-plane/preferences"),
+        ("GET", "/v1/control-plane/transports"),
+        ("POST", "/v1/control-plane/tokens"),
+        ("GET", "/v1/control-plane/runs/r1/conflicts"),
+        ("GET", "/v1/control-plane/runs/r1/budget"),
+        ("GET", "/v1/control-plane/runs/r1/pr-package"),
+    ]:
+        r = unauth.request(method, path)
+        assert r.status_code == 401, f"{method} {path} expected 401, got {r.status_code}"
+
+    assert client.post("/v1/control-plane/areas", json={"name": "A", "unexpected": 1}).status_code == 422

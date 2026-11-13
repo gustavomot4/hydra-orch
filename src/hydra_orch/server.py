@@ -40,6 +40,30 @@ from hydra_orch.core.consent import ConsentService, ConsentRecord, MemoryScope, 
 from hydra_orch.core.memory_store import MemoryStore, MemoryWrite, MemoryEntry
 from hydra_orch.core.workspace_registry import WorkspaceRegistry
 from hydra_orch.core.ssh_tunnel import SshTunnelManager
+import secrets
+import shutil
+from hydra_orch.bridge.transport_registry import (
+    TransportCertificationReport,
+    TransportDefinition,
+    TransportRegistry,
+)
+from hydra_orch.core.auth import TokenVerifier
+from hydra_orch.core.agent_registry import AgentDefinition, CERTIFICATION_CHECKS, DRIVERS
+from hydra_orch.core.budget import BudgetGovernor
+from hydra_orch.core.conflict_resolver import ConflictResolver
+from hydra_orch.core.consent import ConsentPurpose
+from hydra_orch.core.discovery import DiscoveryService, KNOWN_CAPABILITIES
+from hydra_orch.core.extension_host import ExtensionHost, ExtensionManifest
+from hydra_orch.core.packaging import PRPackager
+from hydra_orch.core.preferences import PreferenceService
+from hydra_orch.core.profile_service import MemoryPolicy, ProfileDefinition, ProfileService
+from hydra_orch.core.skill_registry import (
+    DeclaredTool,
+    McpDefinition,
+    SecretRef,
+    SkillDefinition,
+    SkillRegistry,
+)
 from hydra_orch.model import (
     BudgetPolicy,
     ChatChoice,
@@ -55,6 +79,8 @@ from hydra_orch.model import (
     ModelCard,
     ModelListResponse,
     RunSpec,
+    ExecutorCapability,
+    Sha256,
     TaskSpec,
 )
 
@@ -234,6 +260,8 @@ class ProjectCreatePayload(BaseModel):
     base_branch: str = Field(default="main", min_length=1)
     base_sha: Optional[str] = Field(default=None)
     project_id: Optional[str] = Field(default=None)
+    workspace_id: Optional[str] = Field(default=None)
+    metadata: Optional[Dict[str, Any]] = Field(default=None)
 
 
 class TaskSpecPayload(BaseModel):
@@ -468,6 +496,25 @@ async def control_plane_bootstrap() -> Dict[str, Any]:
             "runs": True,
             "worktrees": True,
             "diffs": True,
+            "areas": True,
+            "workspaces": True,
+            "repositories": True,
+            "agents": True,
+            "executors": True,
+            "capabilities": True,
+            "profiles": True,
+            "sessions": True,
+            "discovery": True,
+            "skills": True,
+            "mcps": True,
+            "secrets": True,
+            "extensions": True,
+            "preferences": True,
+            "transports": True,
+            "tokens": True,
+            "conflicts": True,
+            "budget": True,
+            "pr_package": True,
         },
     }
 
@@ -475,6 +522,16 @@ async def control_plane_bootstrap() -> Dict[str, Any]:
 @app.post("/v1/control-plane/projects", status_code=201)
 @app.post("/projects", status_code=201)
 async def create_project_endpoint(payload: ProjectCreatePayload) -> Dict[str, Any]:
+    if payload.workspace_id is not None:
+        return await _get_workspace_registry().create_project(
+            payload.workspace_id,
+            payload.name,
+            payload.canonical_root,
+            principal_id=app.state.local_principal_id,
+            base_branch=payload.base_branch,
+            base_sha=payload.base_sha,
+            metadata=payload.metadata,
+        )
     svc = get_run_service()
     return await svc.create_project(
         canonical_root=payload.canonical_root,
@@ -702,21 +759,118 @@ class SessionCreatePayload(BaseModel):
     agent_ref: Optional[str] = Field(default=None, max_length=128)
 
 
+def _allowed_roots(attr: str) -> List[Path]:
+    svc = get_run_service()
+    configured = getattr(app.state, attr, None)
+    if configured:
+        return [Path(root) for root in configured]
+    return [svc.repo_root]
+
+
+def _get_workspace_registry() -> WorkspaceRegistry:
+    runs = get_run_service()
+    return WorkspaceRegistry(runs.store, allowed_roots=_allowed_roots("workspace_allowed_roots"))
+
+
+def _get_agent_registry() -> AgentRegistry:
+    runs = get_run_service()
+    cert_root = getattr(app.state, "certification_root", None)
+    locator = getattr(app.state, "executable_locator", None)
+    kwargs: Dict[str, Any] = {}
+    if cert_root is not None:
+        kwargs["certification_root"] = Path(cert_root)
+    if locator is not None:
+        kwargs["executable_locator"] = locator
+    return AgentRegistry(runs.store, **kwargs)
+
+
+def _get_discovery_service(*, opt_in: Optional[bool] = None) -> DiscoveryService:
+    runs = get_run_service()
+    app_enabled = getattr(app.state, "discovery_enabled", None)
+    if app_enabled is not None:
+        enabled = bool(app_enabled) if opt_in is None else bool(app_enabled and opt_in)
+    else:
+        enabled = True if opt_in is None else bool(opt_in)
+    return DiscoveryService(
+        runs.store,
+        allowed_roots=_allowed_roots("discovery_allowed_roots"),
+        enabled=enabled,
+        principal_id=app.state.local_principal_id,
+    )
+
+
+def _get_profile_service() -> ProfileService:
+    runs = get_run_service()
+    return ProfileService(
+        runs.store,
+        _get_agent_registry(),
+        _get_workspace_registry(),
+        discovery=_get_discovery_service(),
+    )
+
+
+def _get_skill_registry() -> SkillRegistry:
+    runs = get_run_service()
+    return SkillRegistry(runs.store, discovery=_get_discovery_service())
+
+
+def _get_extension_host() -> ExtensionHost:
+    runs = get_run_service()
+    workspaces = _get_workspace_registry()
+    consents = ConsentService(runs.store, workspaces)
+    runtime_dir = getattr(app.state, "extension_runtime_dir", None)
+    kwargs: Dict[str, Any] = {"allowed_roots": _allowed_roots("extension_allowed_roots")}
+    if runtime_dir is not None:
+        kwargs["runtime_dir"] = Path(runtime_dir)
+    return ExtensionHost(runs.store, consents, **kwargs)
+
+
+def _get_transport_registry() -> TransportRegistry:
+    return TransportRegistry(get_run_service().store)
+
+
+class ConsentCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "1.0"
+    scope_type: ScopeType
+    scope_id: str = Field(min_length=1, max_length=128)
+    purpose: Optional[ConsentPurpose] = None
+
+
 def get_memory_store() -> MemoryStore:
     runs = get_run_service()
-    registry = WorkspaceRegistry(runs.store, allowed_roots=[runs.repo_root])
-    return MemoryStore(ConsentService(runs.store, registry))
+    return MemoryStore(ConsentService(runs.store, _get_workspace_registry()))
 
 
 @app.post("/v1/control-plane/consents", status_code=201)
-async def create_consent_endpoint(payload: MemoryScope) -> ConsentRecord:
-    return await get_memory_store().consents.request(payload, principal_id=app.state.local_principal_id)
+async def create_consent_endpoint(payload: ConsentCreatePayload) -> ConsentRecord:
+    purpose: ConsentPurpose = payload.purpose or ("extension" if payload.scope_type == "extension" else "memory")
+    return await get_memory_store().consents.request(
+        MemoryScope(scope_type=payload.scope_type, scope_id=payload.scope_id),
+        principal_id=app.state.local_principal_id,
+        purpose=purpose,
+    )
+
+
+
 
 
 @app.get("/v1/control-plane/consents")
-async def list_consents_endpoint(scope_type: ScopeType, scope_id: str) -> tuple[ConsentRecord, ...]:
-    return await get_memory_store().consents.list(MemoryScope(scope_type=scope_type, scope_id=scope_id),
-        principal_id=app.state.local_principal_id)
+async def list_consents_endpoint(
+    scope_type: ScopeType,
+    scope_id: str,
+    purpose: Optional[ConsentPurpose] = Query(default=None),
+) -> tuple[ConsentRecord, ...]:
+    resolved_purpose: ConsentPurpose = purpose or ("extension" if scope_type == "extension" else "memory")
+    return await get_memory_store().consents.list(
+        MemoryScope(scope_type=scope_type, scope_id=scope_id),
+        principal_id=app.state.local_principal_id,
+        purpose=resolved_purpose,
+    )
+
+
+
 
 
 class ConsentActionPayload(BaseModel):
@@ -873,17 +1027,16 @@ async def append_thread_message_endpoint(run_id: str, session_id: str, thread_id
         payload.content, idempotency_key=idempotency_key, expected_last_seq=payload.expected_last_seq)
 
 
-@app.get("/v1/control-plane/runs/{run_id}/events")
-@app.get("/runs/{run_id}/events")
-async def stream_run_events_endpoint(
+async def _stream_events_response(
     request: Request,
     run_id: str,
-    last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
-    after_seq: Optional[int] = Query(default=None, ge=0),
-    session_id: Optional[str] = Query(default=None),
-    thread_id: Optional[str] = Query(default=None),
-    follow: bool = Query(default=False),
-    limit: int = Query(default=1000, ge=1, le=1000),
+    *,
+    last_event_id: Optional[str] = None,
+    after_seq: Optional[int] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    follow: bool = False,
+    limit: int = 1000,
 ) -> Any:
     svc = get_run_service()
     run_rec = await svc.store.get_run(run_id)
@@ -910,7 +1063,10 @@ async def stream_run_events_endpoint(
             )
 
     expired_map: Dict[str, int] = getattr(app.state, "expired_cursors", {})
-    min_valid_seq = expired_map.get(run_id, 0)
+    min_valid_seq = max(
+        expired_map.get(run_id, 0),
+        expired_map.get(session_id, 0) if session_id else 0,
+    )
     if cursor_seq > 0 and cursor_seq < min_valid_seq:
         return _error_response(
             410,
@@ -936,6 +1092,8 @@ async def stream_run_events_endpoint(
             now = asyncio.get_running_loop().time()
             if not follow or now >= heartbeat_at:
                 heartbeat_obj = {"run_id": run_id, "timestamp": datetime.now(timezone.utc).isoformat()}
+                if session_id is not None:
+                    heartbeat_obj["session_id"] = session_id
                 yield f"event: heartbeat\ndata: {json.dumps(heartbeat_obj)}\n\n"
                 heartbeat_at = now + 15
             if not follow or await request.is_disconnected():
@@ -945,6 +1103,30 @@ async def stream_run_events_endpoint(
             batch = await sessions.replay(run_id, after_seq=cursor, session_id=session_id, thread_id=thread_id, limit=limit)
 
     return StreamingResponse(sse_generator(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/v1/control-plane/runs/{run_id}/events")
+@app.get("/runs/{run_id}/events")
+async def stream_run_events_endpoint(
+    request: Request,
+    run_id: str,
+    last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
+    after_seq: Optional[int] = Query(default=None, ge=0),
+    session_id: Optional[str] = Query(default=None),
+    thread_id: Optional[str] = Query(default=None),
+    follow: bool = Query(default=False),
+    limit: int = Query(default=1000, ge=1, le=1000),
+) -> Any:
+    return await _stream_events_response(
+        request,
+        run_id,
+        last_event_id=last_event_id,
+        after_seq=after_seq,
+        session_id=session_id,
+        thread_id=thread_id,
+        follow=follow,
+        limit=limit,
+    )
 
 
 @app.post("/v1/control-plane/runs/{run_id}/cancel")
@@ -1163,6 +1345,1072 @@ async def discard_run_endpoint(
 
 
 # ============================================================================
+# EXTENDED CONTROL PLANE ENDPOINTS (T23)
+# ============================================================================
+
+
+class AreaCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=128)
+    description: Optional[str] = Field(default=None, max_length=1000)
+
+
+class WorkspaceCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    area_id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=128)
+
+
+class WorkspaceArchivePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=1, strict=True)
+
+
+class ProjectAdoptPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    workspace_id: str = Field(min_length=1, max_length=128)
+    expected_revision: int = Field(ge=1, strict=True)
+    base_branch: str = Field(default="main", min_length=1, max_length=128)
+
+
+class RepositoryCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    root_canonical: str = Field(min_length=1)
+    authorized_principal_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    scopes: List[str] = Field(default_factory=lambda: ["read", "write"])
+    allowed_paths: List[str] = Field(default_factory=lambda: ["*"])
+    base_branch: str = Field(default="main", min_length=1, max_length=128)
+    base_sha: Optional[str] = Field(default=None)
+
+
+class RepositoryGrantPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    authorized_principal_id: str = Field(min_length=1, max_length=128)
+    scopes: List[str] = Field(min_length=1)
+
+
+class RepositoryRevokePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    authorization_id: str = Field(min_length=1, max_length=128)
+
+
+@app.get("/v1/control-plane/areas")
+async def list_areas_endpoint() -> List[Dict[str, Any]]:
+    return await _get_workspace_registry().list_areas(principal_id=app.state.local_principal_id)
+
+
+@app.post("/v1/control-plane/areas", status_code=201)
+async def create_area_endpoint(payload: AreaCreatePayload) -> Dict[str, Any]:
+    return await _get_workspace_registry().create_area(
+        payload.name,
+        principal_id=app.state.local_principal_id,
+        description=payload.description,
+    )
+
+
+@app.get("/v1/control-plane/workspaces")
+async def list_workspaces_endpoint(area_id: Optional[str] = Query(default=None)) -> List[Dict[str, Any]]:
+    reg = _get_workspace_registry()
+    principal_id = app.state.local_principal_id
+    if area_id is not None:
+        return await reg.list_workspaces(area_id, principal_id=principal_id)
+    areas = await reg.list_areas(principal_id=principal_id)
+    workspaces: List[Dict[str, Any]] = []
+    for area in areas:
+        workspaces.extend(await reg.list_workspaces(area["id"], principal_id=principal_id))
+    return workspaces
+
+
+@app.post("/v1/control-plane/workspaces", status_code=201)
+async def create_workspace_endpoint(payload: WorkspaceCreatePayload) -> Dict[str, Any]:
+    return await _get_workspace_registry().create_workspace(
+        payload.area_id,
+        payload.name,
+        principal_id=app.state.local_principal_id,
+    )
+
+
+@app.post("/v1/control-plane/workspaces/{workspace_id}/archive")
+async def archive_workspace_endpoint(workspace_id: str, payload: WorkspaceArchivePayload) -> Dict[str, Any]:
+    await _get_workspace_registry().archive_workspace(
+        workspace_id,
+        principal_id=app.state.local_principal_id,
+        expected_revision=payload.expected_revision,
+    )
+    return {
+        "workspace_id": workspace_id,
+        "status": "archived",
+        "revision": payload.expected_revision + 1,
+    }
+
+
+@app.post("/v1/control-plane/projects/{project_id}/adopt")
+async def adopt_project_endpoint(project_id: str, payload: ProjectAdoptPayload) -> Dict[str, Any]:
+    return await _get_workspace_registry().adopt_legacy_project(
+        project_id,
+        payload.workspace_id,
+        principal_id=app.state.local_principal_id,
+        expected_revision=payload.expected_revision,
+        base_branch=payload.base_branch,
+    )
+
+
+@app.get("/v1/control-plane/projects/{project_id}/repositories")
+async def list_project_repositories_endpoint(project_id: str) -> List[Dict[str, Any]]:
+    return await _get_workspace_registry().list_repositories(
+        project_id,
+        principal_id=app.state.local_principal_id,
+    )
+
+
+@app.post("/v1/control-plane/projects/{project_id}/repositories", status_code=201)
+async def register_project_repository_endpoint(project_id: str, payload: RepositoryCreatePayload) -> Dict[str, Any]:
+    return await _get_workspace_registry().register_repository(
+        project_id,
+        payload.root_canonical,
+        principal_id=app.state.local_principal_id,
+        authorized_principal_id=payload.authorized_principal_id or app.state.local_principal_id,
+        scopes=payload.scopes,
+        allowed_paths=payload.allowed_paths,
+        base_branch=payload.base_branch,
+        base_sha=payload.base_sha,
+    )
+
+
+@app.post("/v1/control-plane/repositories/{repository_id}/grant", status_code=201)
+async def grant_repository_endpoint(repository_id: str, payload: RepositoryGrantPayload) -> Dict[str, Any]:
+    authorization_id = await _get_workspace_registry().grant_repository(
+        repository_id,
+        principal_id=app.state.local_principal_id,
+        authorized_principal_id=payload.authorized_principal_id,
+        scopes=payload.scopes,
+    )
+    return {
+        "authorization_id": authorization_id,
+        "repository_id": repository_id,
+        "principal_id": payload.authorized_principal_id,
+        "scopes": payload.scopes,
+    }
+
+
+@app.post("/v1/control-plane/repositories/{repository_id}/revoke")
+async def revoke_repository_endpoint(repository_id: str, payload: RepositoryRevokePayload) -> Dict[str, Any]:
+    await _get_workspace_registry().revoke_authorization(
+        payload.authorization_id,
+        principal_id=app.state.local_principal_id,
+    )
+    return {
+        "authorization_id": payload.authorization_id,
+        "repository_id": repository_id,
+        "revoked": True,
+    }
+
+
+class AgentCertificatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    report_path: str = Field(min_length=1)
+
+
+class ProfileResolvePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    repository_id: str = Field(min_length=1, max_length=128)
+    run_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+
+
+@app.get("/v1/control-plane/agents")
+async def list_agents_endpoint() -> List[AgentDefinition]:
+    return list(await _get_agent_registry().list_agents())
+
+
+@app.post("/v1/control-plane/agents", status_code=201)
+async def register_agent_endpoint(payload: AgentDefinition) -> AgentDefinition:
+    return await _get_agent_registry().register_agent(payload)
+
+
+@app.post("/v1/control-plane/agents/{agent_id}/certificate", status_code=201)
+async def import_agent_certificate_endpoint(agent_id: str, payload: AgentCertificatePayload) -> Dict[str, Any]:
+    cert_id = await _get_agent_registry().import_certificate(
+        agent_id,
+        Path(payload.report_path),
+        principal_id=app.state.local_principal_id,
+    )
+    return {"certificate_id": cert_id, "agent_id": agent_id}
+
+
+@app.get("/v1/control-plane/executors")
+async def list_executors_endpoint() -> List[Dict[str, Any]]:
+    registry = _get_agent_registry()
+    agents = await registry.list_agents()
+    executors: List[Dict[str, Any]] = []
+    for agent in agents:
+        resolved_bin: Optional[str] = None
+        is_certified = False
+        platform_name: Optional[str] = None
+        reason: Optional[str] = None
+        try:
+            resolved = await registry.resolve_capabilities(agent.agent_id)
+            resolved_bin = resolved.executable
+            is_certified = True
+            platform_name = resolved.platform
+        except ContractViolation as exc:
+            reason = exc.code
+            with suppress(ContractViolation):
+                resolved_bin = str(registry._executable(agent))
+        executors.append(
+            {
+                "id": agent.agent_id,
+                "agent_id": agent.agent_id,
+                "name": agent.name,
+                "version": agent.version,
+                "driver": agent.driver_type,
+                "driver_type": agent.driver_type,
+                "executable": resolved_bin,
+                "executable_found": resolved_bin is not None,
+                "is_certified": is_certified,
+                "status": "ready" if is_certified else "unavailable",
+                "reason": reason,
+                "capabilities": [cap.value for cap in agent.declared_capabilities],
+                "platform": platform_name,
+            }
+        )
+    if not executors:
+        for driver_name in sorted(DRIVERS):
+            executors.append(
+                {
+                    "id": f"driver:{driver_name}",
+                    "name": driver_name,
+                    "driver": driver_name,
+                    "driver_type": driver_name,
+                    "executable": None,
+                    "executable_found": False,
+                    "is_certified": False,
+                    "status": "registered_driver",
+                    "capabilities": [],
+                    "platform": None,
+                }
+            )
+    return executors
+
+
+@app.get("/v1/control-plane/capabilities")
+async def list_capabilities_endpoint() -> Dict[str, Any]:
+    registry = _get_agent_registry()
+    agents = await registry.list_agents()
+    agent_entries: List[Dict[str, Any]] = []
+    for agent in agents:
+        is_certified = False
+        with suppress(ContractViolation):
+            await registry.resolve_capabilities(agent.agent_id)
+            is_certified = True
+        agent_entries.append(
+            {
+                "id": agent.agent_id,
+                "agent_id": agent.agent_id,
+                "driver": agent.driver_type,
+                "driver_type": agent.driver_type,
+                "version": agent.version,
+                "is_certified": is_certified,
+                "capabilities": [cap.value for cap in agent.declared_capabilities],
+            }
+        )
+    return {
+        "known_capabilities": list(KNOWN_CAPABILITIES),
+        "executor_capabilities": [cap.value for cap in ExecutorCapability],
+        "certification_checks": list(CERTIFICATION_CHECKS),
+        "drivers": sorted(DRIVERS),
+        "agents": agent_entries,
+    }
+@app.get("/v1/control-plane/profiles")
+async def list_profiles_endpoint() -> List[ProfileDefinition]:
+    runs = get_run_service()
+    await runs.store.initialize()
+    svc = _get_profile_service()
+    async with runs.store._connect() as db:
+        rows = await (await db.execute("SELECT id FROM profiles ORDER BY id")).fetchall()
+    return [await svc.get_profile(row["id"]) for row in rows]
+
+
+@app.post("/v1/control-plane/profiles", status_code=201)
+async def create_profile_endpoint(payload: ProfileDefinition) -> ProfileDefinition:
+    return await _get_profile_service().create_profile(payload)
+
+
+@app.post("/v1/control-plane/profiles/{profile_id}/resolve")
+async def resolve_profile_endpoint(profile_id: str, payload: ProfileResolvePayload) -> Any:
+    svc = _get_profile_service()
+    if payload.run_id is not None:
+        return await svc.snapshot(
+            profile_id,
+            payload.run_id,
+            payload.repository_id,
+            principal_id=app.state.local_principal_id,
+        )
+    return await svc.resolve_effective(
+        profile_id,
+        payload.repository_id,
+        principal_id=app.state.local_principal_id,
+    )
+
+
+@app.get("/v1/control-plane/sessions")
+async def list_top_level_sessions_endpoint(run_id: Optional[str] = Query(default=None)) -> List[Dict[str, Any]]:
+    store = get_run_service().store
+    if run_id is not None:
+        return await SessionService(store).list_sessions(run_id)
+    await store.initialize()
+    async with store._connect() as db:
+        rows = await (await db.execute("SELECT * FROM sessions ORDER BY created_at, id")).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get("/v1/control-plane/sessions/{session_id}/threads")
+async def list_session_threads_top_level_endpoint(session_id: str) -> List[Dict[str, Any]]:
+    store = get_run_service().store
+    await store.initialize()
+    async with store._connect() as db:
+        row = await (await db.execute("SELECT run_id FROM sessions WHERE id = ?", (session_id,))).fetchone()
+    if row is None:
+        raise ContractViolation("resource_not_found", f"Session '{session_id}' does not exist")
+    return await SessionService(store).list_threads(row["run_id"], session_id)
+
+
+@app.get("/v1/control-plane/sessions/{session_id}/events")
+async def stream_session_events_endpoint(
+    request: Request,
+    session_id: str,
+    last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
+    after_seq: Optional[int] = Query(default=None, ge=0),
+    thread_id: Optional[str] = Query(default=None),
+    follow: bool = Query(default=False),
+    limit: int = Query(default=1000, ge=1, le=1000),
+) -> Any:
+    store = get_run_service().store
+    await store.initialize()
+    async with store._connect() as db:
+        row = await (await db.execute("SELECT run_id FROM sessions WHERE id = ?", (session_id,))).fetchone()
+    if row is None:
+        return _error_response(404, "resource_not_found", f"Session '{session_id}' does not exist")
+    return await _stream_events_response(
+        request,
+        row["run_id"],
+        last_event_id=last_event_id,
+        after_seq=after_seq,
+        session_id=session_id,
+        thread_id=thread_id,
+        follow=follow,
+        limit=limit,
+    )
+
+
+class DiscoveryScanPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    authorized_root: str = Field(min_length=1)
+    opt_in: bool = True
+
+
+class DiscoveryApprovePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_hash: Sha256
+
+
+class DiscoveryRejectPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["rejected", "revoked"] = "rejected"
+
+
+@app.post("/v1/control-plane/discovery/scan")
+async def scan_discovery_endpoint(payload: DiscoveryScanPayload) -> List[Any]:
+    results = await _get_discovery_service(opt_in=payload.opt_in).scan(
+        payload.authorized_root,
+        principal_id=app.state.local_principal_id,
+    )
+    return list(results)
+
+
+@app.get("/v1/control-plane/discovery/resources")
+async def list_discovery_resources_endpoint() -> List[Any]:
+    results = await _get_discovery_service().list(principal_id=app.state.local_principal_id)
+    return list(results)
+
+
+@app.post("/v1/control-plane/discovery/resources/{resource_id}/approve")
+async def approve_discovery_resource_endpoint(resource_id: str, payload: DiscoveryApprovePayload) -> Any:
+    return await _get_discovery_service().approve(
+        resource_id,
+        payload.expected_hash,
+        principal_id=app.state.local_principal_id,
+    )
+
+
+@app.post("/v1/control-plane/discovery/resources/{resource_id}/reject")
+async def reject_discovery_resource_endpoint(
+    resource_id: str,
+    payload: Optional[DiscoveryRejectPayload] = None,
+) -> Any:
+    action = payload.action if payload is not None else "rejected"
+    return await _get_discovery_service().decide(
+        resource_id,
+        action,
+        principal_id=app.state.local_principal_id,
+    )
+
+
+class SkillRevokePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(default="operator_revoked", min_length=1, max_length=256)
+
+
+class SecretRefCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    secret_name: str = Field(min_length=1, max_length=128)
+    provider_type: Literal["env", "vault", "keyring"]
+    source_key: str = Field(min_length=1, max_length=256)
+    secret_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+
+
+@app.get("/v1/control-plane/skills")
+async def list_skills_endpoint() -> List[Dict[str, Any]]:
+    runs = get_run_service()
+    await runs.store.initialize()
+    reg = _get_skill_registry()
+    async with runs.store._connect() as db:
+        rows = await (
+            await db.execute(
+                """SELECT id, name, version, manifest_ref, discovered_resource_id,
+                          permissions_declared_json, checksum, created_at
+                   FROM skill_definitions ORDER BY id"""
+            )
+        ).fetchall()
+        items: List[Dict[str, Any]] = []
+        for row in rows:
+            revoked = await reg._is_revoked(db, "skill", row["id"])
+            items.append(
+                {
+                    "skill_id": row["id"],
+                    "name": row["name"],
+                    "version": row["version"],
+                    "manifest_ref": row["manifest_ref"],
+                    "discovered_resource_id": row["discovered_resource_id"],
+                    "permissions_declared": json.loads(row["permissions_declared_json"]),
+                    "checksum": row["checksum"],
+                    "revoked": revoked,
+                    "created_at": row["created_at"],
+                }
+            )
+    return items
+
+
+@app.post("/v1/control-plane/skills", status_code=201)
+async def register_skill_endpoint(payload: SkillDefinition) -> SkillDefinition:
+    return await _get_skill_registry().register_skill(payload, principal_id=app.state.local_principal_id)
+
+
+@app.post("/v1/control-plane/skills/{skill_id}/revoke")
+async def revoke_skill_endpoint(skill_id: str, payload: Optional[SkillRevokePayload] = None) -> Dict[str, Any]:
+    reason = payload.reason if payload is not None else "operator_revoked"
+    await _get_skill_registry().revoke_skill(
+        skill_id,
+        principal_id=app.state.local_principal_id,
+        reason=reason,
+    )
+    return {"skill_id": skill_id, "revoked": True, "reason": reason}
+
+
+@app.get("/v1/control-plane/mcps")
+async def list_mcps_endpoint() -> List[Dict[str, Any]]:
+    runs = get_run_service()
+    await runs.store.initialize()
+    reg = _get_skill_registry()
+    async with runs.store._connect() as db:
+        rows = await (
+            await db.execute(
+                """SELECT id, server_name, transport_type, endpoint, discovered_resource_id,
+                          secret_ref, declared_tools_json, permissions_json, created_at
+                   FROM mcp_definitions ORDER BY id"""
+            )
+        ).fetchall()
+        items: List[Dict[str, Any]] = []
+        for row in rows:
+            revoked = await reg._is_revoked(db, "mcp", row["id"])
+            items.append(
+                {
+                    "mcp_id": row["id"],
+                    "server_name": row["server_name"],
+                    "transport_type": row["transport_type"],
+                    "endpoint": row["endpoint"],
+                    "discovered_resource_id": row["discovered_resource_id"],
+                    "secret_ref": row["secret_ref"],
+                    "declared_tools": json.loads(row["declared_tools_json"]),
+                    "permissions": json.loads(row["permissions_json"]),
+                    "revoked": revoked,
+                    "created_at": row["created_at"],
+                }
+            )
+    return items
+
+
+@app.post("/v1/control-plane/mcps", status_code=201)
+async def register_mcp_endpoint(payload: McpDefinition) -> McpDefinition:
+    return await _get_skill_registry().register_mcp(payload, principal_id=app.state.local_principal_id)
+
+
+@app.post("/v1/control-plane/mcps/{mcp_id}/revoke")
+async def revoke_mcp_endpoint(mcp_id: str, payload: Optional[SkillRevokePayload] = None) -> Dict[str, Any]:
+    reason = payload.reason if payload is not None else "operator_revoked"
+    await _get_skill_registry().revoke_mcp(
+        mcp_id,
+        principal_id=app.state.local_principal_id,
+        reason=reason,
+    )
+    return {"mcp_id": mcp_id, "revoked": True, "reason": reason}
+
+
+@app.get("/v1/control-plane/secrets")
+async def list_secrets_endpoint() -> List[Dict[str, Any]]:
+    runs = get_run_service()
+    await runs.store.initialize()
+    reg = _get_skill_registry()
+    async with runs.store._connect() as db:
+        rows = await (
+            await db.execute("SELECT id, secret_name, provider_type, source_key FROM secret_refs ORDER BY id")
+        ).fetchall()
+        items: List[Dict[str, Any]] = []
+        for row in rows:
+            revoked = await reg._is_revoked(db, "secret_ref", row["id"])
+            items.append(
+                {
+                    "secret_id": row["id"],
+                    "secret_name": row["secret_name"],
+                    "provider_type": row["provider_type"],
+                    "source_key": row["source_key"],
+                    "revoked": revoked,
+                }
+            )
+    return items
+
+
+@app.post("/v1/control-plane/secrets", status_code=201)
+async def create_secret_ref_endpoint(payload: SecretRefCreatePayload) -> SecretRef:
+    return await _get_skill_registry().create_secret_ref(
+        secret_name=payload.secret_name,
+        provider_type=payload.provider_type,
+        source_key=payload.source_key,
+        principal_id=app.state.local_principal_id,
+        secret_id=payload.secret_id,
+    )
+
+
+@app.post("/v1/control-plane/secrets/{secret_id}/revoke")
+async def revoke_secret_ref_endpoint(secret_id: str, payload: Optional[SkillRevokePayload] = None) -> Dict[str, Any]:
+    reason = payload.reason if payload is not None else "operator_revoked"
+    await _get_skill_registry().revoke_secret_ref(
+        secret_id,
+        principal_id=app.state.local_principal_id,
+        reason=reason,
+    )
+    return {"secret_id": secret_id, "revoked": True, "reason": reason}
+
+
+class ExtensionInstallPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    manifest: Optional[ExtensionManifest] = None
+    manifest_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    consent_id: str = Field(min_length=1, max_length=128)
+    activate: bool = True
+
+
+@app.get("/v1/control-plane/extensions")
+async def list_extensions_endpoint() -> List[Any]:
+    return list(await _get_extension_host().list_installs())
+
+
+@app.post("/v1/control-plane/extensions", status_code=201)
+async def register_extension_manifest_endpoint(payload: ExtensionManifest) -> ExtensionManifest:
+    return await _get_extension_host().register_manifest(
+        payload,
+        principal_id=app.state.local_principal_id,
+    )
+
+
+@app.post("/v1/control-plane/extensions/install", status_code=201)
+async def install_extension_endpoint(payload: ExtensionInstallPayload) -> Any:
+    manifest = payload.manifest
+    if manifest is None:
+        if payload.manifest_id is None:
+            raise ContractViolation("extension_invalid_entrypoint", "Either manifest or manifest_id is required")
+        runs = get_run_service()
+        await runs.store.initialize()
+        async with runs.store._connect() as db:
+            row = await (
+                await db.execute("SELECT * FROM extension_manifests WHERE id = ?", (payload.manifest_id,))
+            ).fetchone()
+        if row is None:
+            raise ContractViolation("resource_not_found", f"Extension manifest '{payload.manifest_id}' does not exist")
+        manifest = ExtensionManifest(
+            extension_id=row["id"],
+            name=row["name"],
+            version=row["version"],
+            entrypoint=row["entrypoint"],
+            permissions_required=tuple(json.loads(row["permissions_required_json"])),
+            compatible_api_version=row["compatible_api_version"],
+            checksum=row["checksum"],
+            created_at=row["created_at"],
+        )
+    return await _get_extension_host().install(
+        manifest,
+        payload.consent_id,
+        principal_id=app.state.local_principal_id,
+        activate=payload.activate,
+    )
+
+
+@app.post("/v1/control-plane/extensions/{install_id}/revoke")
+async def revoke_extension_endpoint(install_id: str, payload: Optional[SkillRevokePayload] = None) -> Any:
+    reason = payload.reason if payload is not None else "operator_revoked"
+    return await _get_extension_host().revoke(
+        install_id,
+        principal_id=app.state.local_principal_id,
+        reason=reason,
+    )
+
+
+@app.post("/v1/control-plane/extensions/{install_id}/rollback")
+async def rollback_extension_endpoint(install_id: str) -> Any:
+    return await _get_extension_host().rollback(
+        install_id,
+        principal_id=app.state.local_principal_id,
+    )
+
+
+class PreferenceSetPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scope_type: Literal["user", "area", "project"]
+    scope_id: str = Field(min_length=1, max_length=128)
+    key: str = Field(min_length=1, max_length=128)
+    value: Any
+    source: Literal["explicit", "inferred_opt_in"] = "explicit"
+    opt_in: bool = False
+    expected_version: Optional[int] = Field(default=None, ge=1, strict=True)
+    idempotency_key: Optional[str] = Field(default=None, min_length=16, max_length=64)
+
+
+class PreferenceRevertPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scope_type: Literal["user", "area", "project"]
+    scope_id: str = Field(min_length=1, max_length=128)
+    key: str = Field(min_length=1, max_length=128)
+    target_version: Optional[int] = Field(default=None, ge=1, strict=True)
+    expected_version: Optional[int] = Field(default=None, ge=1, strict=True)
+    idempotency_key: Optional[str] = Field(default=None, min_length=16, max_length=64)
+
+
+class PreferenceSnapshotPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    user_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    area_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    project_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+
+
+@app.get("/v1/control-plane/preferences")
+async def list_preferences_endpoint(
+    scope_type: Optional[Literal["user", "area", "project"]] = Query(default=None),
+    scope_id: Optional[str] = Query(default=None),
+) -> List[Any]:
+    prefs = await PreferenceService(get_run_service().store).list_preferences(
+        scope_type=scope_type,
+        scope_id=scope_id,
+    )
+    return list(prefs)
+
+
+@app.put("/v1/control-plane/preferences")
+async def set_preference_endpoint(
+    payload: PreferenceSetPayload,
+    idempotency_key_header: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+) -> Any:
+    return await PreferenceService(get_run_service().store).set_preference(
+        payload.scope_type,
+        payload.scope_id,
+        payload.key,
+        payload.value,
+        source=payload.source,
+        opt_in=payload.opt_in,
+        actor=app.state.local_principal_id,
+        expected_version=payload.expected_version,
+        idempotency_key=payload.idempotency_key or idempotency_key_header,
+    )
+
+
+@app.post("/v1/control-plane/preferences/revert")
+async def revert_preference_endpoint(
+    payload: PreferenceRevertPayload,
+    idempotency_key_header: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+) -> Dict[str, Any]:
+    reverted = await PreferenceService(get_run_service().store).revert_preference(
+        payload.scope_type,
+        payload.scope_id,
+        payload.key,
+        target_version=payload.target_version,
+        actor=app.state.local_principal_id,
+        expected_version=payload.expected_version,
+        idempotency_key=payload.idempotency_key or idempotency_key_header,
+    )
+    return {"reverted": True, "preference": reverted}
+
+
+@app.post("/v1/control-plane/runs/{run_id}/preferences/snapshot", status_code=201)
+async def snapshot_run_preferences_endpoint(
+    run_id: str,
+    payload: Optional[PreferenceSnapshotPayload] = None,
+) -> Any:
+    req = payload or PreferenceSnapshotPayload()
+    return await PreferenceService(get_run_service().store).snapshot_for_run(
+        run_id,
+        user_id=req.user_id,
+        area_id=req.area_id,
+        project_id=req.project_id,
+    )
+
+
+@app.get("/v1/control-plane/transports")
+async def list_transports_endpoint(certified_only: bool = Query(default=False)) -> List[TransportDefinition]:
+    return list(await _get_transport_registry().list_transports(certified_only=certified_only))
+
+
+@app.post("/v1/control-plane/transports", status_code=201)
+async def register_transport_endpoint(payload: TransportDefinition) -> TransportDefinition:
+    return await _get_transport_registry().register_transport(payload)
+
+
+@app.get("/v1/control-plane/transports/{transport_id}/health")
+async def get_transport_health_endpoint(transport_id: str, refresh: bool = Query(default=False)) -> Any:
+    reg = _get_transport_registry()
+    await reg.get_transport(transport_id)
+    probe = getattr(app.state, "transport_health_probe", None)
+    if refresh:
+        return await reg.check_health(transport_id, probe=probe)
+    latest = await reg.get_latest_health(transport_id)
+    if latest is not None:
+        return latest
+    return await reg.check_health(transport_id, probe=probe)
+
+
+@app.post("/v1/control-plane/transports/{transport_id}/certify", status_code=201)
+async def certify_transport_endpoint(
+    transport_id: str,
+    payload: TransportCertificationReport,
+    platform_name: Optional[str] = Query(default=None),
+) -> Dict[str, Any]:
+    cert_id = await _get_transport_registry().certify_transport(
+        transport_id,
+        payload,
+        principal_id=app.state.local_principal_id,
+        platform_name=platform_name,
+    )
+    return {"certificate_id": cert_id, "transport_id": transport_id, "certified": True}
+
+
+class TokenCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    principal_id: str = Field(min_length=1, max_length=128)
+    scopes: List[str] = Field(min_length=1)
+    expires_at: str = Field(min_length=1)
+    redact_token: bool = False
+
+
+@app.post("/v1/control-plane/tokens", status_code=201)
+async def create_token_endpoint(payload: TokenCreatePayload) -> BaseJSONResponse:
+    principal = payload.principal_id.strip()
+    if not principal:
+        raise ContractViolation("token_invalid", "Token principal_id cannot be empty")
+    scopes = [s.strip() for s in payload.scopes if isinstance(s, str) and s.strip()]
+    if len(scopes) != len(payload.scopes) or not scopes:
+        raise ContractViolation("token_invalid", "Token scopes must be non-empty strings")
+    try:
+        expires_dt = datetime.fromisoformat(payload.expires_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ContractViolation("token_invalid", f"Invalid expires_at timestamp: '{payload.expires_at}'") from exc
+    if expires_dt.tzinfo is None:
+        expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+    if expires_dt <= datetime.now(timezone.utc):
+        raise ContractViolation("token_invalid", "Token expires_at must be in the future")
+
+    token_id = str(uuid.uuid4())
+    raw_token = f"hydra_tok_{secrets.token_urlsafe(32)}"
+    token_hash = await asyncio.to_thread(lambda: TokenVerifier.from_token(raw_token).encode())
+    expires_iso = expires_dt.astimezone(timezone.utc).isoformat()
+
+    store = get_run_service().store
+    await store.initialize()
+    audit_payload = {
+        "event": "token.created",
+        "token_id": token_id,
+        "principal_id": principal,
+        "scopes": scopes,
+        "expires_at": expires_iso,
+    }
+    async with store._connect() as db:
+        async with store._transaction(db):
+            await db.execute(
+                """
+                INSERT INTO access_tokens (id, token_hash, principal_id, scopes_json, expires_at, revoked_at)
+                VALUES (?, ?, ?, ?, ?, NULL)
+                """,
+                (token_id, token_hash, principal, json.dumps(scopes), expires_iso),
+            )
+            await store._record_command_in_tx(
+                db,
+                scope="access_tokens",
+                idempotency_key=f"token-create:{token_id}",
+                request_hash=store.compute_request_hash(audit_payload),
+                response_payload=audit_payload,
+            )
+
+    body = {
+        "id": token_id,
+        "token_hash": token_hash,
+        "principal_id": principal,
+        "scopes": scopes,
+        "expires_at": expires_iso,
+        "revoked_at": None,
+        "token": raw_token,
+    }
+    if payload.redact_token:
+        return JSONResponse(status_code=201, content=body)
+    return BaseJSONResponse(status_code=201, content=body)
+
+
+@app.post("/v1/control-plane/tokens/{token_id}/revoke")
+async def revoke_token_endpoint(token_id: str) -> Dict[str, Any]:
+    store = get_run_service().store
+    await store.initialize()
+    async with store._connect() as db:
+        async with store._transaction(db):
+            row = await (
+                await db.execute("SELECT * FROM access_tokens WHERE id = ?", (token_id,))
+            ).fetchone()
+            if row is None:
+                raise ContractViolation("resource_not_found", f"Token '{token_id}' does not exist")
+            revoked_at = row["revoked_at"]
+            if revoked_at is None:
+                revoked_at = datetime.now(timezone.utc).isoformat()
+                await db.execute(
+                    "UPDATE access_tokens SET revoked_at = ? WHERE id = ?",
+                    (revoked_at, token_id),
+                )
+                audit_payload = {
+                    "event": "token.revoked",
+                    "token_id": token_id,
+                    "principal_id": row["principal_id"],
+                    "revoked_by": app.state.local_principal_id,
+                    "revoked_at": revoked_at,
+                }
+                await store._record_command_in_tx(
+                    db,
+                    scope="access_tokens",
+                    idempotency_key=f"token-revoke:{token_id}",
+                    request_hash=store.compute_request_hash(audit_payload),
+                    response_payload=audit_payload,
+                )
+    return {
+        "id": row["id"],
+        "token_hash": row["token_hash"],
+        "principal_id": row["principal_id"],
+        "scopes": json.loads(row["scopes_json"]),
+        "expires_at": row["expires_at"],
+        "revoked_at": revoked_at,
+    }
+
+
+class ConflictAutoRepairPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    repair_command: Optional[List[str]] = None
+    max_repair_attempts: Optional[int] = Field(default=None, ge=0, strict=True)
+    allowed_paths: Optional[List[str]] = None
+    forbidden_paths: List[str] = Field(default_factory=list)
+    idempotency_key: Optional[str] = Field(default=None, min_length=16, max_length=64)
+
+
+class ConflictManualPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    finalize: bool = False
+    worktree_path: Optional[str] = None
+    commit_message: Optional[str] = Field(default=None, max_length=500)
+    idempotency_key: Optional[str] = Field(default=None, min_length=16, max_length=64)
+
+
+class ConflictDiscardPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(default="operator_discarded", min_length=1, max_length=256)
+    idempotency_key: Optional[str] = Field(default=None, min_length=16, max_length=64)
+
+
+async def _ensure_run_conflict(run_id: str, conflict_id: str) -> ConflictResolver:
+    store = get_run_service().store
+    if await store.get_run(run_id) is None:
+        raise ContractViolation("resource_not_found", f"Run '{run_id}' does not exist")
+    resolver = ConflictResolver(store)
+    reports = await resolver.list_reports(run_id=run_id)
+    if not any(report.conflict_id == conflict_id for report in reports):
+        raise ContractViolation("resource_not_found", f"Conflict '{conflict_id}' not found in run '{run_id}'")
+    return resolver
+
+
+@app.get("/v1/control-plane/runs/{run_id}/conflicts")
+async def list_run_conflicts_endpoint(run_id: str) -> List[Any]:
+    store = get_run_service().store
+    if await store.get_run(run_id) is None:
+        raise ContractViolation("resource_not_found", f"Run '{run_id}' does not exist")
+    return list(await ConflictResolver(store).list_reports(run_id=run_id))
+
+
+@app.post("/v1/control-plane/runs/{run_id}/conflicts/{conflict_id}/auto-repair")
+async def auto_repair_conflict_endpoint(
+    run_id: str,
+    conflict_id: str,
+    payload: Optional[ConflictAutoRepairPayload] = None,
+    idempotency_key_header: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+) -> Any:
+    resolver = await _ensure_run_conflict(run_id, conflict_id)
+    req = payload or ConflictAutoRepairPayload()
+    return await resolver.auto_repair(
+        conflict_id,
+        repair_command=req.repair_command,
+        max_repair_attempts=req.max_repair_attempts,
+        actor=app.state.local_principal_id,
+        allowed_paths=req.allowed_paths,
+        forbidden_paths=req.forbidden_paths,
+        idempotency_key=req.idempotency_key or idempotency_key_header,
+    )
+
+
+@app.post("/v1/control-plane/runs/{run_id}/conflicts/{conflict_id}/manual")
+async def manual_resolve_conflict_endpoint(
+    run_id: str,
+    conflict_id: str,
+    payload: Optional[ConflictManualPayload] = None,
+    idempotency_key_header: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+) -> Any:
+    resolver = await _ensure_run_conflict(run_id, conflict_id)
+    req = payload or ConflictManualPayload()
+    return await resolver.resolve_manual(
+        conflict_id,
+        actor=app.state.local_principal_id,
+        finalize=req.finalize,
+        worktree_path=req.worktree_path,
+        commit_message=req.commit_message,
+        idempotency_key=req.idempotency_key or idempotency_key_header,
+    )
+
+
+@app.post("/v1/control-plane/runs/{run_id}/conflicts/{conflict_id}/discard")
+async def discard_conflict_endpoint(
+    run_id: str,
+    conflict_id: str,
+    payload: Optional[ConflictDiscardPayload] = None,
+    idempotency_key_header: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+) -> Any:
+    resolver = await _ensure_run_conflict(run_id, conflict_id)
+    req = payload or ConflictDiscardPayload()
+    return await resolver.discard(
+        conflict_id,
+        actor=app.state.local_principal_id,
+        reason=req.reason,
+        idempotency_key=req.idempotency_key or idempotency_key_header,
+    )
+
+
+class BudgetExtendPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    additional_usd: Optional[float] = Field(default=None, gt=0)
+    additional_tokens_in: Optional[int] = Field(default=None, gt=0, strict=True)
+    additional_tokens_out: Optional[int] = Field(default=None, gt=0, strict=True)
+    additional_wall_seconds: Optional[int] = Field(default=None, gt=0, strict=True)
+    approved: bool = True
+    reason: str = Field(default="operator_budget_decision", min_length=1, max_length=500)
+
+
+@app.get("/v1/control-plane/runs/{run_id}/budget")
+async def get_run_budget_endpoint(run_id: str) -> Any:
+    return await BudgetGovernor(get_run_service().store).get_status(run_id)
+
+
+@app.post("/v1/control-plane/runs/{run_id}/budget/extend")
+async def extend_run_budget_endpoint(run_id: str, payload: BudgetExtendPayload) -> Any:
+    return await BudgetGovernor(get_run_service().store).extend(
+        run_id,
+        payload.additional_usd,
+        additional_tokens_in=payload.additional_tokens_in,
+        additional_tokens_out=payload.additional_tokens_out,
+        additional_wall_seconds=payload.additional_wall_seconds,
+        approved=payload.approved,
+        actor=app.state.local_principal_id,
+        reason=payload.reason,
+    )
+
+
+class PRPackageBuildPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pr_branch: Optional[str] = Field(default=None, min_length=1, max_length=256)
+    create_git_branch: bool = True
+
+
+class PRPackagePublishPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    authorized: bool = False
+    policy_authorized: Optional[bool] = None
+    remote: str = Field(default="origin", min_length=1, max_length=128)
+
+
+@app.get("/v1/control-plane/runs/{run_id}/pr-package")
+async def get_pr_package_endpoint(run_id: str) -> Any:
+    store = get_run_service().store
+    if await store.get_run(run_id) is None:
+        raise ContractViolation("resource_not_found", f"Run '{run_id}' does not exist")
+    pkg = await PRPackager(store).get_package(run_id)
+    if pkg is None:
+        raise ContractViolation("resource_not_found", f"PR package not found for run '{run_id}'")
+    return pkg
+
+
+@app.post("/v1/control-plane/runs/{run_id}/pr-package", status_code=201)
+async def build_pr_package_endpoint(
+    run_id: str,
+    payload: Optional[PRPackageBuildPayload] = None,
+) -> Any:
+    req = payload or PRPackageBuildPayload()
+    runtime_dir = getattr(app.state, "pr_package_runtime_dir", None)
+    return await PRPackager(get_run_service().store).build(
+        run_id,
+        pr_branch=req.pr_branch,
+        create_git_branch=req.create_git_branch,
+        runtime_dir=Path(runtime_dir) if runtime_dir is not None else None,
+    )
+
+
+@app.post("/v1/control-plane/runs/{run_id}/pr-package/publish")
+async def publish_pr_package_endpoint(
+    run_id: str,
+    payload: Optional[PRPackagePublishPayload] = None,
+) -> Any:
+    store = get_run_service().store
+    if await store.get_run(run_id) is None:
+        raise ContractViolation("resource_not_found", f"Run '{run_id}' does not exist")
+    packager = PRPackager(store)
+    pkg = await packager.get_package(run_id)
+    if pkg is None:
+        raise ContractViolation("resource_not_found", f"PR package not found for run '{run_id}'")
+    req = payload or PRPackagePublishPayload()
+    return await packager.publish(
+        pkg.package_id,
+        authorized=req.authorized,
+        policy_authorized=req.policy_authorized,
+        remote=req.remote,
+        actor=app.state.local_principal_id,
+    )
+
+
+# ============================================================================
 # EXCEPTION HANDLERS (CANONICAL ERROR ENVELOPE)
 # ============================================================================
 
@@ -1203,10 +2451,75 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         "base_sha_mismatch",
         "git_command_failed",
         "scope_violation",
+        "registry_invalid",
+        "authorization_invalid",
+        "discovery_invalid",
+        "certification_invalid",
+        "preference_invalid",
+        "opt_in_required",
+        "budget_invalid",
+        "packaging_invalid",
+        "amendment_invalid",
+        "invalid_wave0_task",
+        "invalid_repair_budget",
+        "amendment_handler_missing",
+        "secret_in_payload",
+        "secret_in_profile",
+        "secret_unavailable",
+        "secret_value_rejected",
+        "token_invalid",
+        "message_invalid",
     }
-    conflict_codes |= {"session_state_conflict", "thread_state_conflict", "hitl_pending", "hitl_busy", "hitl_conflict",
-        "consent_required", "consent_conflict", "memory_conflict"}
-    if exc.code in {"authorization_denied", "session_scope_mismatch", "thread_scope_mismatch", "metric_scope_mismatch"}:
+    conflict_codes |= {
+        "session_state_conflict",
+        "thread_state_conflict",
+        "hitl_pending",
+        "hitl_busy",
+        "hitl_conflict",
+        "consent_required",
+        "consent_conflict",
+        "memory_conflict",
+        "explicit_preference_precedence",
+        "workspace_archived",
+        "registry_conflict",
+        "driver_not_certified",
+        "certification_stale",
+        "executor_unavailable",
+        "component_revoked",
+        "component_untrusted",
+        "discovery_changed",
+        "discovery_untrusted",
+        "extension_revoked",
+        "extension_quarantined",
+        "extension_not_active",
+        "rollback_unavailable",
+        "profile_integrity",
+        "profile_snapshot_conflict",
+        "profile_snapshot_late",
+        "transport_uncertified",
+        "budget_exhausted",
+        "budget_frozen",
+        "pr_package_exists",
+        "packaging_branch_conflict",
+        "amendment_not_proposed",
+        "amendment_check_failed",
+        "amendment_command_failed",
+        "revalidation_base_mismatch",
+        "empty_patch",
+        "a11y_contract_violation",
+    }
+    forbidden_codes = {
+        "authorization_denied",
+        "session_scope_mismatch",
+        "thread_scope_mismatch",
+        "metric_scope_mismatch",
+        "discovery_scope",
+        "discovery_disabled",
+        "extension_permission_denied",
+        "publish_not_authorized",
+        "profile_scope_mismatch",
+    }
+    if exc.code in forbidden_codes:
         status_code = 403
     elif exc.code == "resource_not_found":
         status_code = 404

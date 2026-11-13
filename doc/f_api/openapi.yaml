@@ -2721,6 +2721,25 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/AgentDefinitionResponse'
+    post:
+      tags: [Agents]
+      summary: Registrar defini??o de agente
+      operationId: registerAgent
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Agente registrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentDefinitionResponse'
 
   /executors:
     get:
@@ -3462,6 +3481,25 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ExtensionInstallResponse'
+    post:
+      tags: [Extensions]
+      summary: Registrar manifesto de extens?o
+      operationId: registerExtensionManifest
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Manifesto registrado
+          content:
+            application/json:
+              schema:
+                type: object
 
   /extensions/install:
     post:
@@ -3597,6 +3635,25 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TransportDefinitionResponse'
+    post:
+      tags: [Transports]
+      summary: Registrar defini??o de transporte
+      operationId: registerTransport
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Transporte registrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransportDefinitionResponse'
 
   /transports/{id}/health:
     get:
@@ -3714,6 +3771,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PRPackageResponse'
+    post:
+      tags: [Runs]
+      summary: Construir pacote de PR para o run
+      operationId: buildPRPackage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pr_branch: {type: string}
+                create_git_branch: {type: boolean, default: true}
+      responses:
+        '201':
+          description: Pacote de PR criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PRPackageResponse'
+        '409':
+          description: Pacote de PR j? existe
         '404':
           description: Run não encontrada ou pacote não gerado
         '409':
@@ -4127,3 +4214,399 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /bootstrap:
+    get:
+      summary: Consultar metadados e capabilities do control plane
+      operationId: controlPlaneBootstrap
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Capabilities atuais do control plane
+          content:
+            application/json:
+              schema:
+                type: object
+  /workspaces/{id}/archive:
+    post:
+      tags: [Workspaces]
+      summary: Arquivar workspace
+      operationId: archiveWorkspace
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_revision]
+              properties:
+                expected_revision: {type: integer, minimum: 1}
+      responses:
+        '200':
+          description: Workspace arquivado
+        '409':
+          description: Conflito de revis?o ou estado
+  /projects/{id}/adopt:
+    post:
+      tags: [Workspaces]
+      summary: Adotar projeto legado em workspace
+      operationId: adoptProject
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspace_id, expected_revision]
+              properties:
+                workspace_id: {type: string}
+                expected_revision: {type: integer, minimum: 1}
+                base_branch: {type: string, default: main}
+      responses:
+        '200':
+          description: Projeto adotado
+  /repositories/{id}/grant:
+    post:
+      tags: [Workspaces]
+      summary: Conceder autoriza??o em reposit?rio
+      operationId: grantRepository
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [authorized_principal_id, scopes]
+              properties:
+                authorized_principal_id: {type: string}
+                scopes: {type: array, items: {type: string}}
+      responses:
+        '201':
+          description: Autoriza??o concedida
+  /repositories/{id}/revoke:
+    post:
+      tags: [Workspaces]
+      summary: Revogar autoriza??o em reposit?rio
+      operationId: revokeRepository
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [authorization_id]
+              properties:
+                authorization_id: {type: string}
+      responses:
+        '200':
+          description: Autoriza??o revogada
+  /agents/{id}/certificate:
+    post:
+      tags: [Agents]
+      summary: Importar certificado de driver de agente
+      operationId: importAgentCertificate
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [report_path]
+              properties:
+                report_path: {type: string}
+      responses:
+        '201':
+          description: Certificado importado
+  /skills/{id}/revoke:
+    post:
+      tags: [Discovery]
+      summary: Revogar skill registrada
+      operationId: revokeSkill
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Skill revogada
+  /mcps/{id}/revoke:
+    post:
+      tags: [Discovery]
+      summary: Revogar MCP registrado
+      operationId: revokeMcp
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: MCP revogado
+  /secrets:
+    get:
+      tags: [Discovery]
+      summary: Listar refer?ncias de segredos (sem valores)
+      operationId: listSecretRefs
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Lista de SecretRefs
+    post:
+      tags: [Discovery]
+      summary: Registrar refer?ncia l?gica de segredo (recusa valor bruto)
+      operationId: createSecretRef
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [secret_name, provider_type, source_key]
+              properties:
+                secret_name: {type: string}
+                provider_type: {type: string, enum: [env, vault, keyring]}
+                source_key: {type: string}
+                secret_id: {type: string}
+      responses:
+        '201':
+          description: SecretRef registrada
+        '400':
+          description: Valor bruto ou chave inv?lida rejeitada
+  /secrets/{id}/revoke:
+    post:
+      tags: [Discovery]
+      summary: Revogar SecretRef
+      operationId: revokeSecretRef
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: SecretRef revogada
+  /preferences/revert:
+    post:
+      tags: [Preferences]
+      summary: Reverter prefer?ncia para vers?o anterior
+      operationId: revertPreference
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scope_type, scope_id, key]
+              properties:
+                scope_type: {type: string, enum: [user, area, project]}
+                scope_id: {type: string}
+                key: {type: string}
+                target_version: {type: integer}
+                expected_version: {type: integer}
+      responses:
+        '200':
+          description: Prefer?ncia revertida
+  /runs/{run_id}/preferences/snapshot:
+    post:
+      tags: [Preferences]
+      summary: Gerar snapshot imut?vel de prefer?ncias para o run
+      operationId: snapshotRunPreferences
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '201':
+          description: Snapshot criado
+  /transports/{id}/certify:
+    post:
+      tags: [Transports]
+      summary: Certificar transporte com relat?rio assinado pelo operador
+      operationId: certifyTransport
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Transporte certificado
+  /runs/{run_id}/conflicts:
+    get:
+      tags: [Runs]
+      summary: Listar relat?rios de conflito do run
+      operationId: listRunConflicts
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Lista de conflitos
+  /runs/{run_id}/conflicts/{conflict_id}/auto-repair:
+    post:
+      tags: [Runs]
+      summary: Executar auto-repair em conflito isolado
+      operationId: autoRepairConflict
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: conflict_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Resultado do auto-repair
+  /runs/{run_id}/conflicts/{conflict_id}/manual:
+    post:
+      tags: [Runs]
+      summary: Registrar resolu??o manual de conflito
+      operationId: manualResolveConflict
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: conflict_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Conflito marcado/resolvido manualmente
+  /runs/{run_id}/conflicts/{conflict_id}/discard:
+    post:
+      tags: [Runs]
+      summary: Descartar tentativa conflitante
+      operationId: discardConflict
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: conflict_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Conflito descartado
+  /runs/{run_id}/budget:
+    get:
+      tags: [Runs]
+      summary: Consultar status audit?vel de or?amento do run
+      operationId: getRunBudget
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Status de or?amento
+  /runs/{run_id}/budget/extend:
+    post:
+      tags: [Runs]
+      summary: Aprovar ou negar extens?o de or?amento do run
+      operationId: extendRunBudget
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Decis?o de or?amento aplicada
+        '409':
+          description: Or?amento j? exaurido
+  /runs/{run_id}/pr-package/publish:
+    post:
+      tags: [Runs]
+      summary: Publicar pacote de PR (exige autoriza??o expl?cita)
+      operationId: publishPRPackage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Pacote publicado
+        '403':
+          description: Publica??o n?o autorizada
