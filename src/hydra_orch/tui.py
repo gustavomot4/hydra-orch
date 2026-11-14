@@ -415,6 +415,7 @@ class LocalRunBackend:
             quota_api_url=cfg.omniroute.quota_api_url,
             enabled=not cfg.is_direct_mode,
             transport=self._omniroute_transport,
+            api_key_env=cfg.omniroute.api_key_env,
         )
         return RouteSelector(
             self.svc.store,

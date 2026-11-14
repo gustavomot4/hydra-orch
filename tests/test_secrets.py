@@ -481,7 +481,7 @@ async def test_mcp_remote_transports_refused_and_timeout_tree_kill(tmp_path):
         declared_tools=(DeclaredTool(name="echo"),),
         permissions=("fs:read",),
     )
-    async with McpClient(slow_mcp, timeout_seconds=0.3) as client:
+    async with McpClient(slow_mcp, timeout_seconds=1.0) as client:
         with pytest.raises(ContractViolation) as timeout_err:
             await client.call_tool("echo", {"text": "wait"})
         assert timeout_err.value.code == "mcp_timeout"

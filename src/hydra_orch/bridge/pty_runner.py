@@ -19,6 +19,9 @@ from typing import Any, AsyncIterator, Deque, Dict, List, Literal, Mapping, Opti
 
 from pydantic import Field
 
+import threading
+
+from hydra_orch.bridge.conpty import ConPtyError, ConPtyProcess, conpty_available
 from hydra_orch.bridge.worker_runner import cancel_process_tree, filter_worker_env, is_process_alive
 from hydra_orch.core.identifier import new_id
 from hydra_orch.core.redaction import redact_text
@@ -44,11 +47,78 @@ _EOF_SENTINEL = object()
 _DETACH_SENTINEL = object()
 
 
+PTY_BACKEND_ENV = "HYDRA_PTY_BACKEND"
+"""Optional override: set to ``pipe`` to force the uncertified pipe bridge on Windows."""
+
+
+def _windows_conpty_enabled() -> bool:
+    if os.name != "nt" or _HAS_POSIX_PTY:
+        return False
+    if os.environ.get(PTY_BACKEND_ENV, "").strip().lower() in {"pipe", "pipe_interactive_bridge"}:
+        return False
+    return conpty_available()
+
+
 def detect_pty_backend() -> Tuple[str, bool]:
     """Return `(backend_kind, pty_certified)` for the active host OS."""
     if _HAS_POSIX_PTY:
         return ("posix_pty", True)
+    if _windows_conpty_enabled():
+        return ("windows_conpty", True)
     return ("pipe_interactive_bridge", False)
+
+
+def _thread_future(loop: asyncio.AbstractEventLoop, fn: Any, *, name: str) -> "asyncio.Future[Any]":
+    """Run a long blocking call on a dedicated daemon thread (keeps the shared executor free)."""
+    future: asyncio.Future[Any] = loop.create_future()
+
+    def _resolve(result: Any, error: Optional[BaseException]) -> None:
+        if future.done():
+            return
+        if error is not None:
+            future.set_exception(error)
+        else:
+            future.set_result(result)
+
+    def _run() -> None:
+        try:
+            result, error = fn(), None
+        except BaseException as exc:  # pragma: no cover - surfaced to awaiting coroutine
+            result, error = None, exc
+        with suppress(RuntimeError):  # event loop already closed
+            loop.call_soon_threadsafe(_resolve, result, error)
+
+    threading.Thread(target=_run, name=name, daemon=True).start()
+    return future
+
+
+class _ConPtyProcessHandle:
+    """Minimal ``asyncio.subprocess.Process``-like facade over :class:`ConPtyProcess`."""
+
+    stdin = None
+    stdout = None
+    stderr = None
+
+    def __init__(self, conpty: ConPtyProcess) -> None:
+        self._conpty = conpty
+        self.pid = conpty.pid
+
+    @property
+    def returncode(self) -> Optional[int]:
+        return self._conpty.poll()
+
+    async def wait(self) -> int:
+        code = self._conpty.poll()
+        if code is None:
+            loop = asyncio.get_running_loop()
+            code = await _thread_future(loop, self._conpty.wait_blocking, name=f"conpty-wait-{self.pid}")
+        return int(code if code is not None else -1)
+
+    def terminate(self) -> None:
+        self._conpty.kill_tree()
+
+    def kill(self) -> None:
+        self._conpty.kill_tree()
 
 
 class PtyChunk(ExecutionModel):
@@ -91,7 +161,7 @@ class _PtySessionState:
     host_id: str
     cwd: str
     command: Tuple[str, ...]
-    process: asyncio.subprocess.Process
+    process: Any  # asyncio.subprocess.Process or _ConPtyProcessHandle
     backend_kind: str
     pty_certified: bool
     cols: int
@@ -113,6 +183,7 @@ class _PtySessionState:
     eof_reached: bool = False
     cancel_requested: bool = False
     write_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    conpty: Optional[ConPtyProcess] = None
 
     def oldest_retained_seq(self) -> int:
         if self.scrollback:
@@ -243,6 +314,17 @@ class PtyRunner:
                 cols=cols_val,
                 rows=rows_val,
             )
+        elif _windows_conpty_enabled():
+            state = await self._spawn_windows_conpty(
+                sid=sid,
+                command=cmd_parts,
+                cwd=resolved_cwd,
+                env=child_env,
+                workspace_id=workspace_id,
+                host_id=host_id,
+                cols=cols_val,
+                rows=rows_val,
+            )
         else:
             state = await self._spawn_pipe_bridge(
                 sid=sid,
@@ -332,6 +414,110 @@ class PtyRunner:
         state.reader_tasks.append(reader_task)
         state.wait_task = asyncio.create_task(self._finalize_when_done(state), name=f"pty-wait-{sid}")
         return state
+
+    async def _spawn_windows_conpty(
+        self,
+        *,
+        sid: str,
+        command: Tuple[str, ...],
+        cwd: str,
+        env: Dict[str, str],
+        workspace_id: Optional[str],
+        host_id: str,
+        cols: int,
+        rows: int,
+    ) -> _PtySessionState:
+        exec_command = list(command)
+        # CreateProcessW skips PATHEXT (.cmd/.bat npm shims) unless resolved explicitly.
+        resolved = shutil.which(exec_command[0], path=env.get("PATH"))
+        if resolved:
+            exec_command[0] = resolved
+        try:
+            conpty = ConPtyProcess(exec_command, cwd=cwd, env=env, cols=cols, rows=rows)
+        except ConPtyError as exc:
+            logger.warning("Windows ConPTY spawn failed (%s); falling back to pipe_interactive_bridge", exc)
+            if exc.errno == 2 or "WinError 2:" in str(exc):
+                raise ContractViolation(
+                    "pty_spawn_failed", f"Failed to spawn terminal process: {redact_text(str(exc))}"
+                ) from exc
+            return await self._spawn_pipe_bridge(
+                sid=sid,
+                command=command,
+                cwd=cwd,
+                env=env,
+                workspace_id=workspace_id,
+                host_id=host_id,
+                cols=cols,
+                rows=rows,
+            )
+
+        state = _PtySessionState(
+            session_id=sid,
+            workspace_id=workspace_id,
+            host_id=host_id,
+            cwd=cwd,
+            command=command,
+            process=_ConPtyProcessHandle(conpty),
+            backend_kind="windows_conpty",
+            pty_certified=True,
+            cols=cols,
+            rows=rows,
+            created_at=datetime.now(timezone.utc),
+            conpty=conpty,
+        )
+        state.reader_tasks.append(
+            asyncio.create_task(self._pump_windows_conpty(state), name=f"pty-conpty-reader-{sid}")
+        )
+        state.reader_tasks.append(
+            asyncio.create_task(self._close_conpty_on_exit(state), name=f"pty-conpty-exit-{sid}")
+        )
+        state.wait_task = asyncio.create_task(self._finalize_when_done(state), name=f"pty-wait-{sid}")
+        return state
+
+    async def _pump_windows_conpty(self, state: _PtySessionState) -> None:
+        assert state.conpty is not None
+        conpty = state.conpty
+        loop = asyncio.get_running_loop()
+        raw_queue: asyncio.Queue[Optional[bytes]] = asyncio.Queue()
+
+        def _push(item: Optional[bytes]) -> None:
+            raw_queue.put_nowait(item)
+
+        def _reader_thread() -> None:
+            try:
+                while True:
+                    try:
+                        data = conpty.read_blocking(4096)
+                    except OSError:
+                        data = b""
+                    if not data:
+                        break
+                    with suppress(RuntimeError):
+                        loop.call_soon_threadsafe(_push, data)
+            finally:
+                with suppress(RuntimeError):
+                    loop.call_soon_threadsafe(_push, None)
+
+        threading.Thread(target=_reader_thread, name=f"conpty-read-{state.session_id}", daemon=True).start()
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        while True:
+            data = await raw_queue.get()
+            if data is None:
+                tail = decoder.decode(b"", final=True)
+                if tail:
+                    self._append_chunk(state, "pty", tail, 0)
+                break
+            text = decoder.decode(data, final=False)
+            if text:
+                self._append_chunk(state, "pty", text, len(data))
+
+    async def _close_conpty_on_exit(self, state: _PtySessionState) -> None:
+        """ConPTY keeps the output pipe open after the child exits; close it so readers reach EOF."""
+        assert state.conpty is not None
+        conpty = state.conpty
+        loop = asyncio.get_running_loop()
+        await _thread_future(loop, conpty.wait_blocking, name=f"conpty-exit-{state.session_id}")
+        await _thread_future(loop, conpty.close_console, name=f"conpty-close-{state.session_id}")
 
     async def _spawn_pipe_bridge(
         self,
@@ -517,6 +703,9 @@ class PtyRunner:
             state.finished_at = datetime.now(timezone.utc)
         finally:
             self._close_master_fd(state)
+            if state.conpty is not None:
+                with suppress(Exception):
+                    state.conpty.close()
             state.eof_reached = True
             for queue in list(state.subscribers):
                 queue.put_nowait(_EOF_SENTINEL)
@@ -546,6 +735,15 @@ class PtyRunner:
             return 0
 
         async with state.write_lock:
+            if state.conpty is not None:
+                # Console line discipline submits on CR (Enter); normalize LF/CRLF from API clients.
+                normalized = payload.replace(b"\r\n", b"\r").replace(b"\n", b"\r")
+                try:
+                    await asyncio.to_thread(state.conpty.write_blocking, normalized)
+                except OSError as exc:
+                    raise ContractViolation("pty_write_failed", f"Failed writing to ConPTY input: {exc}") from exc
+                return len(payload)
+
             if state.master_fd is not None and not state.master_closed:
                 try:
                     written = await asyncio.to_thread(os.write, state.master_fd, payload)
@@ -572,6 +770,9 @@ class PtyRunner:
 
         state.cols = cols_val
         state.rows = rows_val
+        if state.conpty is not None:
+            with suppress(OSError):
+                state.conpty.resize(cols_val, rows_val)
         if (
             state.backend_kind == "posix_pty"
             and state.master_fd is not None
@@ -591,7 +792,11 @@ class PtyRunner:
             return state.to_info()
 
         pid = state.process.pid
-        if state.backend_kind == "posix_pty" and state.master_fd is not None and not state.master_closed:
+        if state.conpty is not None:
+            # ConPTY translates ETX into a CTRL_C_EVENT for every process attached to the pseudo console.
+            with suppress(OSError):
+                await asyncio.to_thread(state.conpty.write_blocking, b"\x03")
+        elif state.backend_kind == "posix_pty" and state.master_fd is not None and not state.master_closed:
             try:
                 await asyncio.to_thread(os.write, state.master_fd, b"\x03")
             except OSError:
@@ -699,6 +904,9 @@ class PtyRunner:
                     state.process.stdin.close()
             if state.process.pid:
                 await cancel_process_tree(state.process.pid)
+            if state.conpty is not None:
+                with suppress(Exception):
+                    state.conpty.kill_tree()
             self._close_master_fd(state)
 
             if state.wait_task is not None and not state.wait_task.done():

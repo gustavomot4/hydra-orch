@@ -107,7 +107,11 @@ class HydraRouter:
     async def ensure_gateway(self) -> None:
         """Required is fail-closed; disabled/optional never need a preflight call."""
         if self.config.is_omniroute_required:
-            gateway = OmniRouteClient(base_url=self.config.omniroute.base_url)
+            gateway = OmniRouteClient(
+                base_url=self.config.omniroute.base_url,
+                quota_api_url=self.config.omniroute.quota_api_url,
+                api_key_env=self.config.omniroute.api_key_env,
+            )
             if not await gateway.is_available():
                 raise GatewayUnavailableError("Required OmniRoute gateway is unavailable")
 

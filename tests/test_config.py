@@ -66,21 +66,21 @@ def test_resolve_alias_valid():
     """Valida a resolução de aliases lógicos configurados (GAP A01)."""
     config = load_config(reload=True)
 
-    # 1. architect_heavy
+    # 1. architect_heavy (real OmniRoute catalog model)
     target_arch = config.resolve_alias("architect_heavy")
     assert target_arch.alias == "architect_heavy"
-    assert target_arch.primary == "claude-code/claude-3-7-sonnet"
-    assert target_arch.primary_provider == "claude-code"
-    assert target_arch.primary_model == "claude-3-7-sonnet"
-    assert target_arch.preferred_adapter is None
-    assert target_arch.executor == "claude-code"
+    assert target_arch.primary == "agy/claude-opus-5-5-high"
+    assert target_arch.primary_provider == "agy"
+    assert target_arch.primary_model == "claude-opus-5-5-high"
+    assert target_arch.preferred_adapter == "antigravity"
+    assert target_arch.executor == "agy"
     assert target_arch.min_difficulty == 8
-    assert len(target_arch.fallbacks) >= 1
+    assert "auto/best-reasoning" in target_arch.fallbacks
 
-    # 2. fullstack_coder
+    # 2. fullstack_coder (real OmniRoute catalog model)
     target_coder = config.resolve_alias("fullstack_coder")
     assert target_coder.primary_provider == "codex"
-    assert target_coder.primary_model == "gpt-4o-plus"
+    assert target_coder.primary_model == "gpt-6-astra"
     assert target_coder.preferred_adapter is None
     assert target_coder.executor == "codex"
 
@@ -189,6 +189,7 @@ def test_providers_compat_ssh_remote():
     ("omniroute", {"base_url": "file:///tmp/gateway"}),
     ("omniroute", {"base_url": "http://user:password@localhost"}),
     ("omniroute", {"quota_api_url": "http://localhost:99999"}),
+    ("omniroute", {"api_key_env": "123-INVALID"}),
     ("omniroute", {"auto_start_daemon": True}),
     ("omniroute", {"enabled": True, "connection_mode": "disabled"}),
 ])

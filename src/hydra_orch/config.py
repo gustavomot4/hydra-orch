@@ -183,6 +183,7 @@ class OmniRouteConfig(StrictConfig):
     connection_mode: str = "disabled"  # disabled | optional | required
     base_url: str = "http://127.0.0.1:20128/v1"
     quota_api_url: str = "http://127.0.0.1:20128/api/usage/quota"
+    api_key_env: str = Field(default="OMNIROUTE_API_KEY", min_length=1, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     default_routing_strategy: str = "auto/thrifty"
     logical_models: Dict[str, LogicalModelMapping] = Field(default_factory=dict)
 
@@ -402,9 +403,15 @@ class HydraConfig(StrictConfig):
             elif provider == "agy" and "antigravity" in known:
                 adapter = "antigravity"
         executor = provider if provider in {"codex", "claude-code", "gemini", "agy", "opencode", "aider"} else None
+        is_omniroute_combo = "/" in primary and provider == "auto"
         if not primary.strip() or not provider or ("/" in primary and not primary.partition("/")[2].strip()):
             raise UnknownAliasError("Expected a nonempty provider/model target")
-        if (mapping is None or mapping.adapter is None) and provider not in known and executor is None:
+        if (
+            (mapping is None or mapping.adapter is None)
+            and provider not in known
+            and executor is None
+            and not is_omniroute_combo
+        ):
             raise UnknownAliasError(f"Unknown model alias '{alias}'")
         fallbacks = [normalize_gemini_argon_target(fb) for fb in mapping.fallbacks] if mapping else []
         return ResolvedTarget(

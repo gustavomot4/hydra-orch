@@ -528,3 +528,273 @@ async def test_select_next_account_persists_without_mutating_active_attempt_and_
 
     # Active attempt in run-001 is STILL untouched after next_run selection
     assert await restarted_store.get_attempt(running_attempt.attempt_id) == running_attempt
+
+@pytest.mark.asyncio
+async def test_omniroute_v3_bearer_auth_warmup_provider_limits_and_pii_redaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Validate real OmniRoute v3.x auth, warmup fallback, provider-limits, /api/providers, and PII scrubbing."""
+    expected_token = "omni-test-bearer-secret-012345"
+    monkeypatch.setenv("TEST_OMNIROUTE_KEY", expected_token)
+    state = {"warmup": False, "all_503": False, "seen_auth": []}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        state["seen_auth"].append(request.headers.get("authorization"))
+        if state["all_503"]:
+            return httpx.Response(503, json={"error": "gateway down"})
+        if request.url.path == "/api/health":
+            return httpx.Response(200, json={"status": "ok", "version": "3.8.52"})
+
+        if request.headers.get("authorization") != f"Bearer {expected_token}":
+            return httpx.Response(401, json={"error": {"code": "AUTH_001"}})
+
+        if request.url.path == "/v1/models":
+            if state["warmup"]:
+                return httpx.Response(503, json={"error": {"type": "service_unavailable"}})
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "agy/claude-opus-5-5-high", "owned_by": "agy"},
+                        {"id": "codex/gpt-6-astra", "owned_by": "codex"},
+                        {"id": "agy/gemini-4-argon-high", "owned_by": "agy"},
+                        {"id": "auto/best-reasoning", "owned_by": "auto"},
+                    ]
+                },
+            )
+        if request.url.path == "/api/usage/quota":
+            return httpx.Response(
+                200,
+                json={
+                    "providers": [
+                        {
+                            "name": "alice@example.com",
+                            "provider": "codex",
+                            "connectionId": "conn-codex-1",
+                            "quotaUsed": 0,
+                            "quotaTotal": None,
+                            "percentRemaining": 100,
+                            "resetAt": None,
+                            "tokenStatus": "valid",
+                        },
+                        {
+                            "name": "bob@example.com",
+                            "provider": "claude",
+                            "connectionId": "conn-claude-exp",
+                            "quotaUsed": 0,
+                            "quotaTotal": None,
+                            "percentRemaining": 100,
+                            "resetAt": None,
+                            "tokenStatus": "expired",
+                        },
+                        {
+                            "name": "carol@example.com",
+                            "provider": "opencode-go",
+                            "connectionId": "conn-opencode-1",
+                            "quotaUsed": 0,
+                            "quotaTotal": None,
+                            "percentRemaining": 100,
+                            "resetAt": None,
+                            "tokenStatus": "valid",
+                        },
+                    ],
+                    "meta": {"totalProviders": 3},
+                },
+            )
+        if request.url.path == "/api/usage/provider-limits":
+            return httpx.Response(
+                200,
+                json={
+                    "caches": {
+                        "conn-codex-1": {
+                            "provider": "codex",
+                            "active": True,
+                            "testStatus": "active",
+                            "fetchedAt": "2026-11-13T18:00:00Z",
+                            "quotas": {
+                                "session": {
+                                    "used": 3,
+                                    "total": 100,
+                                    "remaining": 97,
+                                    "windowSeconds": 18000,
+                                    "resetAt": "2099-01-01T00:00:00Z",
+                                },
+                                "weekly": {"used": 82, "total": 100, "remaining": 18},
+                            },
+                        },
+                        "conn-agy-1": {
+                            "provider": "agy",
+                            "active": True,
+                            "testStatus": "active",
+                            "quotas": {
+                                "gemini-4-argon-high": {"remainingPercentage": 80, "resetAt": "2099-01-01T00:00:00Z"},
+                                "claude-opus-5-5-high": {"remainingPercentage": 45},
+                            },
+                        },
+                        "conn-gh-1": {
+                            "provider": "github",
+                            "active": True,
+                            "quotas": {
+                                "premium_interactions": {"used": 200, "total": 200, "remainingPercentage": 0},
+                                "chat": {"unlimited": True},
+                            },
+                        },
+                        "conn-claude-exp": {
+                            "provider": "claude",
+                            "active": False,
+                            "testStatus": "expired",
+                            "errorCode": "invalid_grant",
+                            "quotas": {"session": {"remainingPercentage": 99}},
+                        },
+                        "conn-opencode-1": {
+                            "provider": "opencode-go",
+                            "active": True,
+                            "quotas": None,
+                        },
+                    }
+                },
+            )
+        if request.url.path == "/v1/accounts":
+            return httpx.Response(404)
+        if request.url.path == "/api/providers":
+            return httpx.Response(
+                200,
+                json={
+                    "connections": [
+                        {
+                            "id": "conn-codex-1",
+                            "provider": "codex",
+                            "authType": "oauth",
+                            "isActive": True,
+                            "testStatus": "active",
+                            "email": "alice@example.com",
+                            "apiKey": "sk-secret-codex",
+                            "providerSpecificData": {"refreshToken": "rt-secret"},
+                        },
+                        {
+                            "id": "conn-claude-exp",
+                            "provider": "claude",
+                            "authType": "oauth",
+                            "isActive": False,
+                            "testStatus": "expired",
+                            "email": "bob@example.com",
+                        },
+                        {
+                            "id": "conn-gh-1",
+                            "provider": "github",
+                            "authType": "oauth",
+                            "isActive": True,
+                            "testStatus": "active",
+                        },
+                        {
+                            "id": "conn-opencode-1",
+                            "provider": "opencode-go",
+                            "authType": "apikey",
+                            "isActive": True,
+                            "apiKey": "sk-opencode-secret",
+                        },
+                    ]
+                },
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+
+    unauth_client = OmniRouteClient(transport=transport, api_key_env="MISSING_OMNIROUTE_ENV")
+    assert await unauth_client.is_available() is False
+
+    client = OmniRouteClient(transport=transport, api_key_env="TEST_OMNIROUTE_KEY")
+    assert await client.is_available() is True
+
+    state["warmup"] = True
+    assert await client.is_available() is True
+    state["warmup"] = False
+
+    state["all_503"] = True
+    assert await client.is_available() is False
+    state["all_503"] = False
+
+    models = await client.list_models()
+    assert models["status"] == "available"
+    assert [m["id"] for m in models["models"]] == [
+        "agy/claude-opus-5-5-high",
+        "codex/gpt-6-astra",
+        "agy/gemini-4-argon-high",
+        "auto/best-reasoning",
+    ]
+
+    quota = await client.get_quota_status()
+    assert quota["status"] == "observed"
+    assert quota["chatgpt_plus"]["status"] == "observed"
+    assert quota["chatgpt_plus"]["remaining_percent"] == 97.0
+    assert quota["chatgpt_plus"]["resets_in_seconds"] is not None
+    assert quota["gemini_pro"]["status"] == "observed"
+    assert quota["gemini_pro"]["remaining_percent"] == 45.0
+    assert quota["github"]["status"] == "observed"
+    assert quota["github"]["remaining_percent"] == 0.0
+    # Expired claude and unmeasured opencode-go must never be fabricated as 100%
+    assert quota["claude_pro"]["status"] == "unknown"
+    assert quota["claude_pro"]["remaining_percent"] is None
+    assert "opencode-go" not in quota
+    # Consolidated canonical keys prevent duplicate provider cards
+    assert "codex" not in quota
+    assert "agy" not in quota
+
+    accounts = await client.list_accounts()
+    assert accounts["source"] == "omniroute:providers_api"
+    by_id = {acc["account_id"]: acc for acc in accounts["accounts"]}
+    assert by_id["conn-codex-1"]["remaining_percent"] == 97.0
+    assert by_id["conn-gh-1"]["remaining_percent"] == 0.0
+    assert by_id["conn-claude-exp"]["status"] == "unknown"
+    assert by_id["conn-claude-exp"]["remaining_percent"] is None
+    assert by_id["conn-opencode-1"]["status"] == "unknown"
+    assert by_id["conn-opencode-1"]["remaining_percent"] is None
+
+    serialized = json.dumps({"quota": quota, "accounts": accounts})
+    for forbidden in (
+        "@",
+        "alice@example.com",
+        "bob@example.com",
+        "sk-secret-codex",
+        "rt-secret",
+        "sk-opencode-secret",
+        expected_token,
+        "providerSpecificData",
+    ):
+        assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+async def test_route_selector_canonical_quota_and_account_override_aliases(routes) -> None:
+    selector, direct, run, _ = routes
+    codex_route = RouteCandidate.model_validate(
+        {
+            **direct.model_dump(mode="json"),
+            "route_id": "gateway-codex",
+            "mode": "gateway",
+            "priority": 0,
+            "quota_key": "codex",
+            "model_ref": "codex/gpt-6-astra",
+        }
+    )
+    selector.connection_mode = "optional"
+    selector.gateway = Gateway(
+        available=True,
+        quota={"status": "observed", "chatgpt_plus": {"status": "observed", "remaining_percent": 97.0}},
+    )
+    await selector.select_next_account("default", "codex", "acct-codex-1")
+    decision = await selector.select(run.run_id, (codex_route, direct))
+    assert decision.selected_route == "gateway-codex"
+    audit = {c["route_id"]: c for c in json.loads(decision.candidates_json)}
+    assert audit["gateway-codex"]["quota_status"] == "observed"
+    assert audit["gateway-codex"]["remaining_percent"] == 97.0
+    assert audit["gateway-codex"]["selected_account_id"] == "acct-codex-1"
+
+    selector.gateway = Gateway(
+        available=True,
+        quota={"status": "observed", "chatgpt_plus": {"status": "observed", "remaining_percent": 0.0}},
+    )
+    exhausted_decision = await selector.select(run.run_id, (codex_route, direct))
+    assert exhausted_decision.selected_route == "direct"
+    exhausted_audit = {c["route_id"]: c for c in json.loads(exhausted_decision.candidates_json)}
+    assert exhausted_audit["gateway-codex"]["reason"] == "quota_exhausted"

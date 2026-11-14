@@ -459,6 +459,7 @@ async def quota_status() -> Dict[str, Any]:
         quota_api_url=config.omniroute.quota_api_url,
         enabled=not config.is_direct_mode,
         transport=getattr(app.state, "omniroute_transport", None),
+        api_key_env=config.omniroute.api_key_env,
     )
     return await client.get_quota_status()
 
@@ -2466,6 +2467,7 @@ def _get_omniroute_selector() -> RouteSelector:
         quota_api_url=config.omniroute.quota_api_url,
         enabled=not config.is_direct_mode,
         transport=transport,
+        api_key_env=config.omniroute.api_key_env,
     )
     conn_mode = getattr(app.state, "omniroute_connection_mode", None) or config.omniroute.connection_mode
     return RouteSelector(

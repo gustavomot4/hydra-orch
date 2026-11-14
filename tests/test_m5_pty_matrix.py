@@ -69,7 +69,17 @@ async def test_pty_active_host_os_capability_and_lifecycle(tmp_path: Path) -> No
     caps = build_host_capabilities(HydraConfig())
     pty_cap = caps["hosts"]["local"]["capabilities"]["pty"]
 
-    if os.name == "nt":
+    if os.name == "nt" and pty_runner_mod._windows_conpty_enabled():
+        assert (expected_backend, expected_certified) == ("windows_conpty", True)
+        assert runner.backend_info == ("windows_conpty", True)
+        assert runner.backend_kind == "windows_conpty"
+        assert runner.pty_certified is True
+        assert pty_cap["backend_kind"] == "windows_conpty"
+        assert pty_cap["certified"] is True
+        assert pty_cap["status"] == "available"
+        assert pty_cap["supported"] is True
+        assert pty_cap["reason"] is None
+    elif os.name == "nt":
         assert (expected_backend, expected_certified) == ("pipe_interactive_bridge", False)
         assert runner.backend_info == ("pipe_interactive_bridge", False)
         assert runner.backend_kind == "pipe_interactive_bridge"
@@ -620,3 +630,91 @@ def test_m5_cli_entrypoint_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     inv_payload = json.loads(inv_res.output)
     assert inv_payload["connection_mode"] == "disabled"
     assert inv_payload["available"] is False
+
+@pytest.mark.asyncio
+async def test_m5_windows_conpty_tty_resize_cmd_shim_and_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Certify native Windows ConPTY isatty/resize/.cmd shim execution and pipe fallback."""
+    import os
+    import sys
+
+    if os.name != "nt":
+        assert detect_pty_backend() in {("posix_pty", True), ("pipe_interactive_bridge", False)}
+        return
+
+    monkeypatch.delenv("HYDRA_PTY_BACKEND", raising=False)
+    assert detect_pty_backend() == ("windows_conpty", True)
+
+    shim_dir = tmp_path / "shim dir"
+    shim_dir.mkdir(parents=True, exist_ok=True)
+    py_script = shim_dir / "tty_probe.py"
+    py_script.write_text(
+        "import os, sys, time\n"
+        "print(f'ISATTY:{os.isatty(1)}', flush=True)\n"
+        "sz1 = os.get_terminal_size(1)\n"
+        "print(f'SIZE1:{sz1.columns}x{sz1.lines} ARG:{sys.argv[1]}', flush=True)\n"
+        "line = sys.stdin.readline().strip()\n"
+        "sz2 = os.get_terminal_size(1)\n"
+        "print(f'SIZE2:{sz2.columns}x{sz2.lines} LINE:{line}', flush=True)\n",
+        encoding="utf-8",
+    )
+    shim_cmd = shim_dir / "probe shim.cmd"
+    shim_cmd.write_text(
+        f'@echo off\r\n"{sys.executable}" "{py_script}" %*\r\n',
+        encoding="utf-8",
+    )
+
+    runner = PtyRunner()
+    try:
+        info = await runner.open_session(
+            [str(shim_cmd), "arg with space"],
+            cwd=str(tmp_path),
+            cols=100,
+            rows=32,
+        )
+        assert info.backend_kind == "windows_conpty"
+        assert info.pty_certified is True
+
+        deadline = asyncio.get_running_loop().time() + 10.0
+        buf = ""
+        cursor = 0
+        while asyncio.get_running_loop().time() < deadline:
+            for chunk in runner.read_output(info.session_id, after_seq=cursor):
+                buf += chunk.text
+                cursor = chunk.seq
+            if "SIZE1:100x32" in buf and "ARG:arg with space" in buf:
+                break
+            await asyncio.sleep(0.05)
+
+        assert "ISATTY:True" in buf
+        assert "SIZE1:100x32" in buf
+        assert "ARG:arg with space" in buf
+
+        resized = await runner.resize(info.session_id, cols=132, rows=44)
+        assert resized.cols == 132
+        assert resized.rows == 44
+        await asyncio.sleep(0.15)
+        await runner.write_input(info.session_id, "go\n")
+
+        deadline2 = asyncio.get_running_loop().time() + 10.0
+        while asyncio.get_running_loop().time() < deadline2:
+            for chunk in runner.read_output(info.session_id, after_seq=cursor):
+                buf += chunk.text
+                cursor = chunk.seq
+            if "SIZE2:132x44" in buf and "LINE:go" in buf:
+                break
+            await asyncio.sleep(0.05)
+
+        assert "SIZE2:132x44" in buf
+        assert "LINE:go" in buf
+    finally:
+        await runner.close_all()
+
+    monkeypatch.setenv("HYDRA_PTY_BACKEND", "pipe")
+    assert detect_pty_backend() == ("pipe_interactive_bridge", False)
+    caps = build_host_capabilities()
+    local_pty = caps["hosts"]["local"]["capabilities"]["pty"]
+    assert local_pty["backend_kind"] == "pipe_interactive_bridge"
+    assert local_pty["certified"] is False
+    assert local_pty["status"] == "degraded"

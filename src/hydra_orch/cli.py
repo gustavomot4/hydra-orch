@@ -762,6 +762,7 @@ def quota() -> None:
         base_url=cfg.omniroute.base_url,
         quota_api_url=cfg.omniroute.quota_api_url,
         enabled=not cfg.is_direct_mode,
+        api_key_env=cfg.omniroute.api_key_env,
     )
 
     table = Table(title="OmniRoute 5h Quota Tracker", border_style="green")
@@ -2930,6 +2931,7 @@ def _build_route_selector(svc: RunService):
         base_url=cfg.omniroute.base_url,
         quota_api_url=cfg.omniroute.quota_api_url,
         enabled=not cfg.is_direct_mode,
+        api_key_env=cfg.omniroute.api_key_env,
     )
     return RouteSelector(
         svc.store,

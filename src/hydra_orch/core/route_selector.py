@@ -89,8 +89,40 @@ class RouteSelector:
         self.store, self.agents, self.metrics = store, agents, metrics
         self.gateway, self.connection_mode = gateway, connection_mode
 
-    @staticmethod
+    _QUOTA_KEY_ALIASES: Dict[str, Tuple[str, ...]] = {
+        "claude_pro": ("claude_pro", "claude", "anthropic", "claude-code", "claude_code"),
+        "claude": ("claude", "claude_pro", "anthropic"),
+        "anthropic": ("anthropic", "claude_pro", "claude"),
+        "claude-code": ("claude-code", "claude_pro", "claude"),
+        "chatgpt_plus": ("chatgpt_plus", "codex", "openai", "chatgpt"),
+        "codex": ("codex", "chatgpt_plus", "openai", "chatgpt"),
+        "openai": ("openai", "chatgpt_plus", "codex"),
+        "chatgpt": ("chatgpt", "chatgpt_plus", "codex"),
+        "gemini_pro": ("gemini_pro", "gemini", "agy", "antigravity", "google", "gemini-cli"),
+        "gemini": ("gemini", "gemini_pro", "agy", "antigravity", "google"),
+        "agy": ("agy", "gemini_pro", "gemini", "antigravity", "google"),
+        "antigravity": ("antigravity", "gemini_pro", "agy", "gemini", "google"),
+        "google": ("google", "gemini_pro", "gemini", "agy", "antigravity"),
+    }
+
+    @classmethod
+    def _lookup_quota_observation(
+        cls, quota: Dict[str, Any], quota_key: Optional[str]
+    ) -> Dict[str, Any]:
+        if not quota_key or not isinstance(quota, dict):
+            return {}
+        direct = quota.get(quota_key)
+        if isinstance(direct, dict):
+            return direct
+        for alias in cls._QUOTA_KEY_ALIASES.get(quota_key.strip().lower(), ()):
+            candidate = quota.get(alias)
+            if isinstance(candidate, dict):
+                return candidate
+        return {}
+
+    @classmethod
     def _match_account_override(
+        cls,
         candidate: RouteCandidate,
         driver_type: str,
         overrides: Dict[str, Dict[str, Any]],
@@ -99,8 +131,13 @@ class RouteSelector:
             return None
         model_prefix = candidate.model_ref.split("/", 1)[0] if "/" in candidate.model_ref else None
         for key in (candidate.quota_key, model_prefix, driver_type, candidate.agent_id):
-            if key and key in overrides:
+            if not key:
+                continue
+            if key in overrides:
                 return overrides[key]
+            for alias in cls._QUOTA_KEY_ALIASES.get(key.strip().lower(), ()):
+                if alias in overrides:
+                    return overrides[alias]
         return None
 
     async def select_next_account(
@@ -338,7 +375,7 @@ class RouteSelector:
                 audit.append(entry)
                 continue
             if candidate.mode == "gateway":
-                observation = quota.get(candidate.quota_key, {}) if candidate.quota_key else {}
+                observation = self._lookup_quota_observation(quota, candidate.quota_key)
                 status = observation.get("status", "unknown")
                 percent = observation.get("remaining_percent")
                 entry.update(

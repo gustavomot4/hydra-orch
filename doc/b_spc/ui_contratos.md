@@ -20,7 +20,7 @@ Formalizar, segundo o padrão **DBC-9**, os contratos backend e a matriz de rast
 
 1. **Separação Estrita entre Protótipo Visual e Execução Verificável:** O protótipo Figma (`d_figma.md`, 18 telas) e os requisitos `UI01`–`UI11` (`b_interface.md`) descrevem fluxos de terminal interativo, anexos, preview, busca global, agendamentos, ditado e painéis de dispositivos/computador que **não** possuíam contratos backend tipados na base M1–M4 (`T01`–`T28`).
 2. **Prevenção de Regressões de Segurança na Camada Visual:** Anexos enviados ao chat e artefatos abertos lado a lado (`ArtifactViewer`) são vetores clássicos de *path traversal*, escape por *symlink* e XSS armazenado via HTML, SVG ou `<script>` embutido em Markdown.
-3. **Honestidade Multiplataforma de PTY e Bridges:** Ambientes Windows *headless* (sem ConPTY certificado) não podem anunciar certificação PTY equivalente ao PTY POSIX; bridges de emulador móvel e controle de computador permanecem em [`ideia_futura.md`](../a_context/ideia_futura.md) (`F06`/`F07`) e precisam reportar `unavailable` / `uncertified` por padrão.
+3. **Honestidade Multiplataforma de PTY e Bridges:** Em Windows 10 1809+, `PtyRunner` utiliza ConPTY nativo (`windows_conpty`, `pty_certified=True`), fazendo fallback honesto para `pipe_interactive_bridge` (`pty_certified=False`) quando `HYDRA_PTY_BACKEND=pipe` ou quando a API `CreatePseudoConsole` não estiver disponível; bridges de emulador móvel e controle de computador permanecem em [`ideia_futura.md`](../a_context/ideia_futura.md) (`F06`/`F07`) e reportam `unavailable` / `uncertified` por padrão.
 4. **Alinhamento à Taxonomia e Stack:** Reconciliar as pastas de `frontend/src/` para o singular (`component/`, `feature/`, `hook/`, `page/`, `store/`, `type/`) e registrar `@xterm/xterm`, `Inter`, `JetBrains Mono` e `Lucide` antes das ondas paralelas `O13`–`O15`.
 
 ---
@@ -64,7 +64,7 @@ Formalizar, segundo o padrão **DBC-9**, os contratos backend e a matriz de rast
 #### Operações do Serviço `PtyRunner`
 | Operação Lógica | Assinatura Python (`PtyRunner`) | Rota HTTP/Stream Proposta (fiação pelo líder) | Comportamento Normativo |
 |---|---|---|---|
-| `open` | `await open_session(command, *, cwd, session_id=None, workspace_id=None, host_id="local", cols=80, rows=24, allowed_env=None, env=None) -> PtySessionInfo` | `POST /v1/control-plane/pty/sessions` | Valida `cwd` existente (sem NUL), valida `command` e `cols`/`rows`, filtra ambiente com `filter_worker_env` e inicia PTY POSIX (`posix_pty`, `pty_certified=True`) ou `pipe_interactive_bridge` (`pty_certified=False`) em Windows *headless*. |
+| `open` | `await open_session(command, *, cwd, session_id=None, workspace_id=None, host_id="local", cols=80, rows=24, allowed_env=None, env=None) -> PtySessionInfo` | `POST /v1/control-plane/pty/sessions` | Valida `cwd` existente (sem NUL), valida `command` e `cols`/`rows`, filtra ambiente com `filter_worker_env` e inicia PTY POSIX (`posix_pty`, `pty_certified=True`), ConPTY nativo no Windows 10 1809+ (`windows_conpty`, `pty_certified=True`) ou fallback `pipe_interactive_bridge` (`pty_certified=False`) quando `HYDRA_PTY_BACKEND=pipe` ou ConPTY indisponível. |
 | `input` | `await write_input(session_id, data) -> int` | `POST /v1/control-plane/pty/sessions/{session_id}/input` | Envia bytes/UTF-8 para stdin/PTY master apenas se `status == "running"`. |
 | `resize` | `await resize(session_id, *, cols, rows) -> PtySessionInfo` | `POST /v1/control-plane/pty/sessions/{session_id}/resize` | Atualiza `cols`/`rows` e aplica `fcntl.ioctl(..., TIOCSWINSZ, ...)` em `posix_pty`. |
 | `interrupt` | `await interrupt(session_id) -> PtySessionInfo` | `POST /v1/control-plane/pty/sessions/{session_id}/interrupt` | Envia `\x03` + `SIGINT` no grupo de processo POSIX ou `\x03` + `CTRL_BREAK_EVENT` no grupo Windows (idempotente se já encerrado). |
@@ -165,7 +165,7 @@ Formalizar, segundo o padrão **DBC-9**, os contratos backend e a matriz de rast
 
 ## 6. Invariants (Invariantes)
 
-- **Invariante de Não-Fabricação:** Nenhum transporte não certificado (`is_certified=False`) ou bridge Windows sem ConPTY pode anunciar `certified=True`.
+- **Invariante de Não-Fabricação:** Nenhum transporte não certificado (`is_certified=False`) ou fallback `pipe_interactive_bridge` sem ConPTY pode anunciar `certified=True`.
 - **Invariante Zero Segredos:** Variáveis sensíveis são filtradas antes do spawn (`filter_worker_env`), saídas PTY/preview/search passam por `redact_text`/`redact`.
 - **Invariante de Confinamento de Caminho:** Nenhum anexo ou preview resolve fora de seu diretório raiz autorizado, nem via `..` nem via *symlink*.
 - **Invariante de Isolamento de Sessão:** Um `session_id` não lê nem confirma anexos pertencentes a outra sessão (`forbidden_scope`).
@@ -196,7 +196,7 @@ Formalizar, segundo o padrão **DBC-9**, os contratos backend e a matriz de rast
 
 1. **`src/hydra_orch/bridge/pty_runner.py`:**
    - Reaproveita `filter_worker_env`, `cancel_process_tree` e `is_process_alive` de `bridge/worker_runner.py` e `redact_text` de `core/redaction.py`.
-   - Em POSIX (`Linux`/`Darwin`), abre par `pty.openpty()`, aplica `TIOCSCTTY` e `TIOCSWINSZ`, lê assincronamente via `loop.add_reader` com decodificador UTF-8 incremental. Em Windows *headless*, usa pipes bidirecionais em `CREATE_NEW_PROCESS_GROUP` reportando `backend_kind="pipe_interactive_bridge"` e `pty_certified=False`.
+   - Em POSIX (`Linux`/`Darwin`), abre par `pty.openpty()`, aplica `TIOCSCTTY` e `TIOCSWINSZ`, lê assincronamente via `loop.add_reader` com decodificador UTF-8 incremental. Em Windows 10 1809+, utiliza ConPTY nativo (`bridge/conpty.py`: `CreatePseudoConsole`, `ResizePseudoConsole`, `ClosePseudoConsole`, `CreateProcessW` suspenso, wrapper `.cmd`/`.bat` via `cmd.exe /d /s /c` e Job Object `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) reportando `backend_kind="windows_conpty"` e `pty_certified=True`, com fallback explícito para `pipe_interactive_bridge` (`pty_certified=False`) quando `HYDRA_PTY_BACKEND=pipe` ou ConPTY estiver indisponível.
    - Mantém `collections.deque` limitado por chunks e bytes para replay (`read_output`/`stream`) e filas por assinante para detach limpo (`keep_running=True`).
 2. **`src/hydra_orch/core/attachments.py`:**
    - `AttachmentService` valida MIME/extensão/assinatura binária, isola arquivos em `files/<session_id>/` sob `root_dir`, grava payloads e `_index.json` atomicamente com `fsync` + `os.replace`.
@@ -227,7 +227,7 @@ Formalizar, segundo o padrão **DBC-9**, os contratos backend e a matriz de rast
 ## 10. GAPs
 
 - **GAP-UI-01 (Integração `server.py` / `openapi.yaml`):** A exposição HTTP das rotas `/v1/control-plane/pty/sessions*`, `/v1/control-plane/sessions/{id}/attachments*`, `/v1/control-plane/artifacts/{id}/content` e `/v1/control-plane/search` e o mapeamento HTTP de `forbidden_scope` (`403`), `path_traversal_blocked` (`400`/`403`) e `attachment_too_large` / `preview_too_large` (`413`/`422`) pertencem à etapa de integração do líder após Onda 12.
-- **GAP-UI-02 (Certificação Win32 ConPTY):** Em Windows *headless*, `PtyRunner` opera com `backend_kind="pipe_interactive_bridge"` e `pty_certified=False`; a certificação dedicada de ConPTY Windows ocorrerá na Task `T36`.
+- **GAP-UI-02 (Certificação Win32 ConPTY — Fechado):** Implementado backend nativo `src/hydra_orch/bridge/conpty.py` (`windows_conpty`, `pty_certified=True`) com `os.isatty(1) == True`, `ResizePseudoConsole`, execução de shims `.cmd`/`.bat`, `Ctrl+C`, Job Object tree-kill sem órfãos e fallback determinístico para `pipe_interactive_bridge` (`HYDRA_PTY_BACKEND=pipe`).
 - **GAP-UI-03 (Parking Lot `F06` e `F07`):** Voz full-duplex (`F06`), *Computer Use* (`F07`) e emulação móvel permanecem `unavailable` até entrega de bridges certificados com HITL e gate próprio.
 
 ---
@@ -239,7 +239,7 @@ Formalizar, segundo o padrão **DBC-9**, os contratos backend e a matriz de rast
 | **`after_seq`** | Cursor numérico monotônico usado para reconexão e replay sem lacunas em streams PTY e SSE |
 | **`ArtifactPreviewResult`** | Schema Pydantic padronizado para retorno seguro de preview de Markdown, texto, diff, imagem e PDF |
 | **`AttachmentRef`** | Referência tipada de anexo vinculada a `workspace_id`, `session_id`, `host_id`, SHA-256 e estado de transferência |
-| **`ConPTY`** | Pseudoconsole nativo do Windows (ainda não certificado nesta fase; substituído explicitamente por `pipe_interactive_bridge`) |
+| **`ConPTY`** | Pseudoconsole nativo do Windows (`CreatePseudoConsole`, `windows_conpty`, `pty_certified=True`, implementado em `src/hydra_orch/bridge/conpty.py` com fallback para `pipe_interactive_bridge`) |
 | **`DBC-9`** | Design by Contract em 9 seções normativas padrão do `hydra-orch` |
 | **`HostCapabilities`** | Mapa honesto de capacidades por host computado por `build_host_capabilities` |
 | **HITL** | *Human-in-the-Loop* — intervenção humana autenticada antes de ações sensíveis |

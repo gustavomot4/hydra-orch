@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 from typing import List
 
@@ -88,7 +89,11 @@ async def test_pty_interactive_echo_ansi_unicode_redaction_and_env(
 
         all_chunks = runner.read_output("pty-echo-1", after_seq=0)
         combined = "".join(c.text for c in all_chunks)
-        assert "\x1b[36mECHO:olá hydra 🚀\x1b[0m" in combined
+        if expected_backend == "windows_conpty":
+            # ConPTY re-renders VT frames: SGR reset normalizes (`ESC[0m` -> `ESC[m`), may pad cells or wrap cursor CRLF.
+            assert re.search(r"\x1b\[36m(?:\r?\n)?ECHO:olá hydra 🚀 *\x1b\[0?m", combined), repr(combined)
+        else:
+            assert "\x1b[36mECHO:olá hydra 🚀\x1b[0m" in combined
         assert "sk-inline-secret-123456" not in combined
         assert "[REDACTED]" in combined
     finally:

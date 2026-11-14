@@ -263,7 +263,8 @@ Esta subseção cobre a superfície implementada em **M5 (`T29–T38`)**. Exempl
 
 - **Matriz PTY por SO & Restrições Honestas (`T31`):**
   - **Unix / Linux / macOS:** usa backend nativo `posix_pty` (`pty_certified = true`), aplicando `TIOCSWINSZ`/`TIOCSCTTY` e fazendo fallback gracioso para `pipe_interactive_bridge` caso `pty.openpty()` falhe com `OSError`.
-  - **Windows:** opera atualmente via `pipe_interactive_bridge` (`pty_certified = false`), reportado honestamente em `/v1/control-plane/bootstrap`, `/v1/control-plane/capabilities` e no terminal da GUI como `degraded` / `Pipe bridge (não ConPTY certificado)` até certificação futura de ConPTY.
+  - **Windows:** usa backend nativo Windows ConPTY `windows_conpty` (`src/hydra_orch/bridge/conpty.py`, `pty_certified = true` no Windows 10 1809+), com `CreatePseudoConsole`, `ResizePseudoConsole`, encerramento de árvore via Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`), execução nativa de shims `.cmd`/`.bat` via `cmd.exe /d /s /c` e fallback explícito para `pipe_interactive_bridge` (`pty_certified = false`) quando `HYDRA_PTY_BACKEND=pipe` ou a API ConPTY não estiver disponível.
+  - **Validação OmniRoute v3.x:** o protocolo real do gateway local, mapeamentos de modelos/quotas/contas, regras de redação de PII/segredos e a execução opt-in (`HYDRA_OMNIROUTE_LIVE=1`) estão detalhados em [`omniroute_validacao_real.md`](omniroute_validacao_real.md).
   - Em todos os SOs, `PtyRunner.close_session(..., keep_running=False)` e `PtyRunner.close_all()` (incluindo shutdown do servidor) encerram toda a árvore de processos sem deixar PIDs pais ou netos órfãos.
 
 - **Painéis Capability-Gated (Parking Lot `F06` / `F07`):**
@@ -291,6 +292,7 @@ Este diretório concentra os manuais operacionais do **hydra-orch** para usuári
 | **Recuperação de Desastres** | `disaster_recovery.md` | Admins | Crash, órfãos, disco cheio, banco corrompido |
 | **Auditoria e Conformidade** | `audit_compliance.md` | Segurança | Logs, redactor, exportação, retenção |
 | **Acessibilidade** | `accessibility.md` | Todos | Teclado, leitores de tela, contraste, redução movimento |
+| **Validação Real OmniRoute v3** | [`omniroute_validacao_real.md`](omniroute_validacao_real.md) | Operadores & Devs | Contrato HTTP real (`127.0.0.1:20128`), auth Bearer, quotas/contas sem PII e testes `HYDRA_OMNIROUTE_LIVE=1` |
 
 ---
 
