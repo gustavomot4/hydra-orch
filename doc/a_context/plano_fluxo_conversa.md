@@ -8,6 +8,8 @@ As etapas 1 a 3 estão implementadas juntas: conversa/turno, migração de hist�
 
 O contrato implementado, as evidências e os limites estão em [fluxo de conversa](../b_spc/fluxo_conversa.md). As propostas abaixo continuam como referência da expansão; não representam capacidades adicionais já entregues.
 
+A próxima integração de agente, conexão e combos está detalhada no [plano de conexão ao OmniRoute](plano_conexao_omniroute.md). Esse recorte preserva a conversa atual e não equivale à coordenação entre vários agentes da etapa 5.
+
 ## Resultado esperado
 
 A pessoa abre **Novo chat**, escolhe o projeto quando necessário, escreve o pedido e clica em **Enviar**. O Hydra inicia o agente e apresenta a resposta na mesma conversa. Ela pode escrever outra mensagem, interromper a resposta, sair da tela e voltar ao histórico.
