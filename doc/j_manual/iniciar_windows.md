@@ -4,6 +4,8 @@
 
 O executável local fica em `ws/b_output/launcher/Hydra.exe`. Ele usa este checkout e as instalações locais de Python e Node; mantenha o arquivo dentro do projeto ou use um atalho para ele.
 
+Nesta máquina, o atalho **Hydra** na Área de Trabalho aponta para esse executável com a opção `--start`: abrir o atalho já inicia o sistema e o navegador. A janela de controle permanece disponível para **Parar** e **Abrir Hydra**.
+
 1. Abra **Hydra.exe** e clique em **Iniciar**. O programa prepara a interface quando necessário, inicia o backend e abre o navegador já conectado.
 2. Use **Abrir Hydra** para voltar à interface.
 3. Use **Parar** para encerrar a instância iniciada por essa janela. Fechar a janela também encerra seus agentes e terminais; os históricos persistidos permanecem.
@@ -55,3 +57,7 @@ Fontes do controle: [C#](../../src/launcher/HydraLauncher.cs), [build](../../src
 O executável compilado foi iniciado com runtime e banco de teste isolados. O navegador conectou sem digitar token, cadastrou uma pasta sem Git e carregou a interface. A parada encerrou o backend e liberou a porta. Há também testes do bootstrap local contra origem externa, cliente remoto, Host indevido, ausência dos cabeçalhos e acesso à API sem Bearer.
 
 A pasta comum foi exercitada com dois pedidos reais ao Codex autenticado, mantendo contexto e sem criar `.git` na origem. Os testes de navegador cobrem retorno ao mesmo terminal após trocar de tela. Medições de abertura da CLI Claude variaram sob carga; reconectar a uma sessão não representa uma promessa sobre o tempo de inicialização da CLI ou de resposta do modelo.
+
+Na rodada final de 14/11/2026, passaram 49 testes de frontend, a checagem TypeScript, 22 testes de conversa/pasta/desktop e 4 testes selecionados do servidor. As 5 jornadas Playwright passaram, incluindo cadastro de pasta comum, dois turnos de conversa, recarga durante execução, histórico, cancelamento e reconexão do terminal por WebSocket. O executável foi recompilado e repetiu o teste de iniciar/parar preservando uma porta ocupada. A instância de uso também abriu com acesso automático e a rota de conversas presente, preservando o servidor anterior.
+
+O verificador do kit, em bundle de produção com dados fictícios, registrou zero falhas em Novo chat e Conversa. Restam 3 avisos em cada tela: controles móveis entre 24 e 44 px, fonte Inter mantida para preservar a interface aprovada e a primeira parada de Tab após o foco programático da navegação. O verificador foi repetido com um adaptador local que aguarda o formulário pronto antes de medir cada tamanho; as capturas da rodada anterior incluíam um estado de carregamento no celular. As capturas e relatórios ficam apenas na saída local de verificação. Leitor de tela real e teste com pessoas não foram executados. O seletor de pastas tem testes de API e de cancelamento; a escolha manual no diálogo nativo ainda precisa ser exercitada pelo operador.
