@@ -62,6 +62,41 @@ async function runAxeWcagAA(page: Page, contextLabel: string): Promise<void> {
 }
 
 test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Responsividade)', () => {
+  test('keeps a responsive WebSocket terminal while resizing its viewport', async ({ page }) => {
+    await loginControlPlane(page);
+    await expect(page.getByLabel('Projeto', { exact: true })).toContainText('hydra-e2e-repo');
+    await page.getByRole('navigation', { name: 'Navegação principal' })
+      .getByRole('button', { name: 'Terminal', exact: true }).click();
+    const started = Date.now();
+    await page.getByRole('button', { name: 'Iniciar Codex CLI' }).click();
+    const terminal = page.locator('[data-session-id][data-renderer="xterm"]');
+    await expect(terminal).toHaveAttribute('data-transport', 'ws');
+    await expect(terminal.getByText('HYDRA-PTY-READY:codex', { exact: true })).toBeVisible();
+    console.log(`PTY de teste pronto em ${Date.now() - started} ms`);
+    await expect(page.getByTestId('split-terminal-view')).toHaveAttribute('data-layout-mode', 'single-primary');
+    await expect(terminal.locator('textarea.xterm-helper-textarea')).toBeFocused();
+    const inputRequests: string[] = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/pty/sessions/') && request.url().endsWith('/input')) {
+        inputRequests.push(request.url());
+      }
+    });
+    const typed = Date.now();
+    await page.keyboard.type('teste-pty');
+    await page.keyboard.press('Enter');
+    await expect(terminal.getByText('ECHO:codex:teste-pty', { exact: true })).toBeVisible();
+    console.log(`Entrada e eco visíveis em ${Date.now() - typed} ms`);
+    const initialXterm = await terminal.locator('.xterm').elementHandle();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(terminal.getByText('ECHO:codex:teste-pty', { exact: true })).toBeVisible();
+    expect(await initialXterm?.evaluate((element) => element.isConnected)).toBe(true);
+    expect(inputRequests).toHaveLength(0);
+    await page.screenshot({ path: '../ws/b_output/terminal/desktop.png' });
+    await page.getByRole('button', { name: 'Fechar terminal', exact: true }).click();
+    await page.getByRole('button', { name: 'Encerrar processo', exact: true }).click();
+    await expect(page.getByTestId('terminal-close-dialog')).toBeHidden();
+  });
+
   test('opens the task created from Novo chat and clears its draft', async ({ page }) => {
     await loginControlPlane(page);
     const taskObjective = 'Verificar criação pelo Novo chat';
@@ -83,7 +118,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await expect(composer).toHaveValue('');
   });
 
-  test('executes full 10-step E2E scenario against real FastAPI backend without fake bridges', async ({
+  test('executes full 10-step E2E scenario against isolated FastAPI backend with test executors', async ({
     page,
   }) => {
     test.setTimeout(120_000);

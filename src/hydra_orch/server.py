@@ -109,6 +109,8 @@ DEFAULT_CORS_ALLOW_ORIGINS: List[str] = [
     "http://localhost:3000",
     "http://127.0.0.1:5173",
     "http://localhost:5173",
+    "http://127.0.0.1:5197",
+    "http://localhost:5197",
 ]
 
 config = load_config()
@@ -2749,7 +2751,28 @@ async def pty_websocket_endpoint(
     auth_header = websocket.headers.get("authorization", "")
     scheme, _, token = auth_header.partition(" ")
     verifier = getattr(app.state, "token_verifier", None)
-    if scheme.lower() != "bearer" or verifier is None or not await asyncio.to_thread(verifier.verify, token):
+    if verifier is None or (not auth_header and origin is None):
+        await websocket.close(code=1008)
+        return
+
+    browser_auth = not auth_header
+    if browser_auth:
+        # Browsers can send the Bearer credential in a frame, after the origin check.
+        # Do not expose any session state or accept commands before verification.
+        await websocket.accept()
+        try:
+            auth = await asyncio.wait_for(websocket.receive_json(), timeout=5)
+        except WebSocketDisconnect:
+            return
+        except (ValueError, KeyError, asyncio.TimeoutError):
+            await websocket.close(code=1008)
+            return
+        if not isinstance(auth, dict) or auth.get("type") != "authenticate" or not isinstance(auth.get("token"), str):
+            await websocket.close(code=1008)
+            return
+        scheme, token = "bearer", auth["token"]
+
+    if scheme.lower() != "bearer" or not await asyncio.to_thread(verifier.verify, token):
         await websocket.close(code=1008)
         return
 
@@ -2760,7 +2783,10 @@ async def pty_websocket_endpoint(
         await websocket.close(code=1008)
         return
 
-    await websocket.accept()
+    if not browser_auth:
+        await websocket.accept()
+    else:
+        await websocket.send_json({"type": "ready"})
 
     async def _pump_output() -> None:
         async for chunk in runner.stream(session_id, after_seq=after_seq):
@@ -2776,7 +2802,8 @@ async def pty_websocket_endpoint(
             if op == "input":
                 await runner.write_input(session_id, str(raw.get("data", "")))
             elif op == "resize":
-                await runner.resize(session_id, cols=int(raw.get("cols", 80)), rows=int(raw.get("rows", 24)))
+                info = await runner.resize(session_id, cols=int(raw.get("cols", 80)), rows=int(raw.get("rows", 24)))
+                await websocket.send_json({"type": "state", "session": info.model_dump(mode="json")})
             elif op == "interrupt":
                 await runner.interrupt(session_id)
             elif op == "close":

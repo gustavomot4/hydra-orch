@@ -233,7 +233,7 @@ Esta subseção cobre a superfície implementada em **M5 (`T29–T38`)**. Exempl
 
 - **Backend API & Autenticação Local:**
   - Inicie o servidor Control Plane com `hydra serve --host 127.0.0.1 --port 8000` configurando `HYDRA_API_TOKEN` (32–4096 caracteres sem whitespace) ou `HYDRA_API_TOKEN_HASH` (`pbkdf2_sha256$...`; nunca configure ambos simultaneamente).
-  - O CORS aceita apenas origens HTTP(S) loopback explícitas via `HYDRA_CORS_ALLOW_ORIGINS` (o padrão já inclui `http://127.0.0.1:5173`, `http://localhost:5173`, `http://127.0.0.1:8000`, `http://localhost:8000`, `http://127.0.0.1:3000` e `http://localhost:3000`).
+  - O CORS aceita apenas origens HTTP(S) loopback explícitas via `HYDRA_CORS_ALLOW_ORIGINS` (o padrão inclui localhost e 127.0.0.1 nas portas 5173, 5197, 8000 e 3000).
   - Na interface web, o operador informa o token no `AuthGate`, que o mantém exclusivamente no `sessionStorage` da aba e nunca em parâmetros de URL.
 
 - **Frontend Web (`frontend/`):**
@@ -266,6 +266,8 @@ Esta subseção cobre a superfície implementada em **M5 (`T29–T38`)**. Exempl
   - **Windows:** usa backend nativo Windows ConPTY `windows_conpty` (`src/hydra_orch/bridge/conpty.py`, `pty_certified = true` no Windows 10 1809+), com `CreatePseudoConsole`, `ResizePseudoConsole`, encerramento de árvore via Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`), execução nativa de shims `.cmd`/`.bat` via `cmd.exe /d /s /c` e fallback explícito para `pipe_interactive_bridge` (`pty_certified = false`) quando `HYDRA_PTY_BACKEND=pipe` ou a API ConPTY não estiver disponível.
   - **Validação OmniRoute v3.x:** o protocolo real do gateway local, mapeamentos de modelos/quotas/contas, regras de redação de PII/segredos e a execução opt-in (`HYDRA_OMNIROUTE_LIVE=1`) estão detalhados em [`omniroute_validacao_real.md`](omniroute_validacao_real.md).
   - Em todos os SOs, `PtyRunner.close_session(..., keep_running=False)` e `PtyRunner.close_all()` (incluindo shutdown do servidor) encerram toda a árvore de processos sem deixar PIDs pais ou netos órfãos.
+  - O terminal do navegador autentica o WebSocket com o token local em um frame inicial e mantém entrada, saída e redimensionamento nesse canal. A abertura usa `TERM=xterm-256color`. Quando o executável Codex disponível é o distribuído em `app/resources` pelo aplicativo desktop, o Hydra verifica o `--help` local e usa `--no-daemon` se suportado.
+  - O primeiro agente aberto ocupa um painel completo. O seletor no topo permite alternar para a outra CLI ou para a visualização lado a lado. A próxima implementação da conversa pelo Novo chat está descrita em [plano do fluxo de conversa](../a_context/plano_fluxo_conversa.md).
 
 - **Painéis Capability-Gated (Parking Lot `F06` / `F07`):**
   - As rotas `/dispositivos` (**Emulador móvel**, `F06`) e `/computador` (**Controle do computador**, `F07`) inspecionam `/v1/control-plane/capabilities` via `CapabilityGate` e renderizam `Indisponível` sempre que não houver certificação ativa no host (`uncertified_parking_lot_bridge`), nunca simulando execução falsa.

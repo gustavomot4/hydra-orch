@@ -8,6 +8,7 @@ from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import lru_cache
 import logging
 import os
 from pathlib import Path
@@ -66,6 +67,30 @@ def detect_pty_backend() -> Tuple[str, bool]:
     if _windows_conpty_enabled():
         return ("windows_conpty", True)
     return ("pipe_interactive_bridge", False)
+
+
+@lru_cache(maxsize=8)
+def _bundled_codex_needs_no_daemon(executable: str) -> bool:
+    """Use the supported standalone mode for Codex shipped inside the desktop app."""
+    path = Path(executable)
+    if (path.name.lower() != "codex.exe" or path.parent.name.lower() != "resources"
+            or path.parent.parent.name.lower() != "app"):
+        return False
+    try:
+        help_result = subprocess.run(
+            [executable, "--help"],
+            env=filter_worker_env(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return help_result.returncode == 0 and "--no-daemon" in help_result.stdout
 
 
 def _thread_future(loop: asyncio.AbstractEventLoop, fn: Any, *, name: str) -> "asyncio.Future[Any]":
@@ -297,7 +322,8 @@ class PtyRunner:
         if allowed_env:
             extra_env.update({str(k): str(v) for k, v in allowed_env.items()})
         child_env = filter_worker_env(allowed_env=extra_env or None)
-        child_env.setdefault("TERM", "xterm-256color")
+        # The browser embeds xterm; do not inherit TERM=dumb from the server's shell.
+        child_env["TERM"] = extra_env.get("TERM") or "xterm-256color"
         child_env.setdefault("PYTHONIOENCODING", "utf-8")
         child_env.setdefault("PYTHONUTF8", "1")
         child_env["COLUMNS"] = str(cols_val)
@@ -432,6 +458,8 @@ class PtyRunner:
         resolved = shutil.which(exec_command[0], path=env.get("PATH"))
         if resolved:
             exec_command[0] = resolved
+        if len(exec_command) == 1 and await asyncio.to_thread(_bundled_codex_needs_no_daemon, exec_command[0]):
+            exec_command.append("--no-daemon")
         try:
             conpty = ConPtyProcess(exec_command, cwd=cwd, env=env, cols=cols, rows=rows)
         except ConPtyError as exc:
@@ -442,7 +470,7 @@ class PtyRunner:
                 ) from exc
             return await self._spawn_pipe_bridge(
                 sid=sid,
-                command=command,
+                command=tuple(exec_command),
                 cwd=cwd,
                 env=env,
                 workspace_id=workspace_id,
@@ -768,22 +796,28 @@ class PtyRunner:
         if state.status != "running":
             raise ContractViolation("pty_session_closed", f"Cannot resize non-running PTY session '{session_id}'")
 
-        state.cols = cols_val
-        state.rows = rows_val
-        if state.conpty is not None:
-            with suppress(OSError):
-                state.conpty.resize(cols_val, rows_val)
-        if (
-            state.backend_kind == "posix_pty"
-            and state.master_fd is not None
-            and not state.master_closed
-            and fcntl is not None
-            and termios is not None
-        ):
-            winsize = struct.pack("HHHH", rows_val, cols_val, 0, 0)
-            with suppress(OSError):
-                fcntl.ioctl(state.master_fd, termios.TIOCSWINSZ, winsize)
-        return state.to_info()
+        async with state.write_lock:
+            if (state.cols, state.rows) == (cols_val, rows_val):
+                return state.to_info()
+
+            if state.conpty is not None:
+                try:
+                    await asyncio.to_thread(state.conpty.resize, cols_val, rows_val)
+                except OSError as exc:
+                    raise ContractViolation("pty_resize_failed", f"Failed resizing ConPTY: {exc}") from exc
+            if (
+                state.backend_kind == "posix_pty"
+                and state.master_fd is not None
+                and not state.master_closed
+                and fcntl is not None
+                and termios is not None
+            ):
+                winsize = struct.pack("HHHH", rows_val, cols_val, 0, 0)
+                with suppress(OSError):
+                    fcntl.ioctl(state.master_fd, termios.TIOCSWINSZ, winsize)
+            state.cols = cols_val
+            state.rows = rows_val
+            return state.to_info()
 
     async def interrupt(self, session_id: str) -> PtySessionInfo:
         """Send an interactive interrupt signal (\\x03 / SIGINT / Ctrl+Break) to the session."""

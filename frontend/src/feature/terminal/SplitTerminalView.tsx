@@ -4,11 +4,7 @@ import { ControlPlaneClient, useControlPlaneClient } from '@/hook/useControlPlan
 import { ControlPlaneApiError } from '@/type/controlPlane';
 import { openPtySession } from './ptyApi';
 import { TerminalPane } from './TerminalPane';
-import {
-  PtySessionInfo,
-  PtyWebSocketLike,
-  TerminalAdapterFactory,
-} from './terminalTypes';
+import { PtySessionInfo, PtyWebSocketLike, TerminalAdapterFactory } from './terminalTypes';
 
 export type TerminalLayoutMode = 'split' | 'single-primary' | 'single-secondary';
 
@@ -60,7 +56,8 @@ export function SplitTerminalView({
   const [launchingSlot, setLaunchingSlot] = useState<'primary' | 'secondary' | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
 
-  const activePrimary = primaryProp !== undefined && primaryProp !== null ? primaryProp : primarySession;
+  const activePrimary =
+    primaryProp !== undefined && primaryProp !== null ? primaryProp : primarySession;
   const activeSecondary =
     secondaryProp !== undefined && secondaryProp !== null ? secondaryProp : secondarySession;
 
@@ -81,6 +78,9 @@ export function SplitTerminalView({
         setPrimarySession(created);
       } else {
         setSecondarySession(created);
+      }
+      if (!activePrimary && !activeSecondary) {
+        setMode(slot === 'primary' ? 'single-primary' : 'single-secondary');
       }
       onSessionChange?.(slot, created);
     } catch (err) {
@@ -107,10 +107,14 @@ export function SplitTerminalView({
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#303030] bg-[#1C1C1C] px-3 py-2">
         <div className="flex items-center gap-2">
           <Terminal aria-hidden="true" className="h-4 w-4 text-[#969696]" />
-          <h1 className="text-xs font-semibold text-[#E8E8E8]">Terminais interativos PTY</h1>
+          <h1 className="text-sm font-semibold text-[#E8E8E8]">Terminal</h1>
         </div>
 
-        <div role="group" aria-label="Modo de visualização do terminal" className="flex flex-wrap items-center gap-1">
+        <div
+          role="group"
+          aria-label="Modo de visualização do terminal"
+          className="flex flex-wrap items-center gap-1"
+        >
           <button
             type="button"
             aria-pressed={mode === 'split'}
@@ -172,7 +176,7 @@ export function SplitTerminalView({
       >
         <div
           data-testid="terminal-slot-primary"
-          className={showPrimary ? 'flex min-h-0 flex-col' : 'hidden'}
+          className={showPrimary ? 'flex min-h-0 min-w-0 flex-col' : 'hidden'}
         >
           {activePrimary ? (
             <TerminalPane
@@ -184,6 +188,7 @@ export function SplitTerminalView({
               webSocketFactory={webSocketFactory}
               terminalAdapterFactory={terminalAdapterFactory}
               compact={mode === 'split'}
+              autoFocus={showPrimary}
               onSessionChange={(updated) => {
                 setPrimarySession(updated);
                 onSessionChange?.('primary', updated);
@@ -201,18 +206,18 @@ export function SplitTerminalView({
               <div>
                 <p className="text-sm font-medium text-[#E8E8E8]">{primaryTitle}</p>
                 <p className="mt-1 text-xs text-[#969696]">
-                  Nenhuma sessão PTY ativa para este painel.
+                  Abra o Codex e digite seu prompt no terminal.
                 </p>
               </div>
               <button
                 type="button"
-                disabled={launchingSlot === 'primary'}
+                disabled={launchingSlot !== null}
                 onClick={() => void handleLaunchSlot('primary')}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-3 py-1.5 text-xs font-medium text-[#181818] hover:bg-white disabled:opacity-60"
               >
                 <Play aria-hidden="true" className="h-3.5 w-3.5" />
                 <span>
-                  {launchingSlot === 'primary' ? 'Abrindo sessão...' : `Iniciar ${primaryTitle}`}
+                  {launchingSlot === 'primary' ? 'Abrindo Codex…' : `Iniciar ${primaryTitle}`}
                 </span>
               </button>
             </div>
@@ -221,7 +226,7 @@ export function SplitTerminalView({
 
         <div
           data-testid="terminal-slot-secondary"
-          className={showSecondary ? 'flex min-h-0 flex-col' : 'hidden'}
+          className={showSecondary ? 'flex min-h-0 min-w-0 flex-col' : 'hidden'}
         >
           {activeSecondary ? (
             <TerminalPane
@@ -233,6 +238,7 @@ export function SplitTerminalView({
               webSocketFactory={webSocketFactory}
               terminalAdapterFactory={terminalAdapterFactory}
               compact={mode === 'split'}
+              autoFocus={showSecondary}
               onSessionChange={(updated) => {
                 setSecondarySession(updated);
                 onSessionChange?.('secondary', updated);
@@ -250,20 +256,18 @@ export function SplitTerminalView({
               <div>
                 <p className="text-sm font-medium text-[#E8E8E8]">{secondaryTitle}</p>
                 <p className="mt-1 text-xs text-[#969696]">
-                  Nenhuma sessão PTY ativa para este painel.
+                  Abra o Claude e digite seu prompt no terminal.
                 </p>
               </div>
               <button
                 type="button"
-                disabled={launchingSlot === 'secondary'}
+                disabled={launchingSlot !== null}
                 onClick={() => void handleLaunchSlot('secondary')}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-3 py-1.5 text-xs font-medium text-[#181818] hover:bg-white disabled:opacity-60"
               >
                 <Play aria-hidden="true" className="h-3.5 w-3.5" />
                 <span>
-                  {launchingSlot === 'secondary'
-                    ? 'Abrindo sessão...'
-                    : `Iniciar ${secondaryTitle}`}
+                  {launchingSlot === 'secondary' ? 'Abrindo Claude…' : `Iniciar ${secondaryTitle}`}
                 </span>
               </button>
             </div>

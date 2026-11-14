@@ -52,6 +52,7 @@ export interface PtyInputResponse {
 }
 
 export type PtyWsServerMessage =
+  | { type: 'ready' }
   | { type: 'chunk'; chunk: PtyChunk }
   | { type: 'state'; session: PtySessionInfo };
 
@@ -94,6 +95,7 @@ export interface TerminalViewportAdapter {
 export interface TerminalAdapterOptions {
   cols: number;
   rows: number;
+  backendKind?: string;
   onMultilinePaste?: (pastedText: string) => void;
   onInterruptShortcut?: () => void;
 }

@@ -15,6 +15,8 @@ import {
   type PtyChunk,
   type PtySessionInfo,
   type PtyWebSocketLike,
+  type TerminalAdapterOptions,
+  type TerminalViewportAdapter,
 } from '@/feature/terminal';
 
 function makeSession(overrides: Partial<PtySessionInfo> = {}): PtySessionInfo {
@@ -110,6 +112,73 @@ class FakeWebSocket implements PtyWebSocketLike {
 }
 
 describe('TerminalPane & SplitTerminalView (PTY)', () => {
+  it('keeps the renderer and WebSocket mounted when the parent changes its session callback', async () => {
+    const session = makeSession();
+    const requests = vi.fn().mockResolvedValue(session);
+    const client = { request: requests } as unknown as ControlPlaneClient;
+    const sockets: FakeWebSocket[] = [];
+    const write = vi.fn();
+    const dispose = vi.fn();
+    let resized: ((dimensions: { cols: number; rows: number }) => void) | undefined;
+    const adapter: TerminalViewportAdapter = {
+      kind: 'xterm',
+      write,
+      clear: vi.fn(),
+      resize: vi.fn(),
+      fit: () => ({ cols: 120, rows: 32 }),
+      focus: vi.fn(),
+      getSelection: () => '',
+      onData: () => () => {},
+      onResize: (listener) => {
+        resized = listener;
+        return () => {};
+      },
+      dispose,
+    };
+    const factory = vi.fn((_container: HTMLElement, _options: TerminalAdapterOptions) => adapter);
+    const socketFactory = (url: string) => {
+      const ws = new FakeWebSocket(url);
+      sockets.push(ws);
+      return ws;
+    };
+    const { rerender } = render(
+      <TerminalPane
+        session={session}
+        client={client}
+        terminalAdapterFactory={factory}
+        webSocketFactory={socketFactory}
+        onSessionChange={() => {}}
+      />,
+    );
+    sockets[0].emitOpen();
+    resized?.({ cols: 92, rows: 26 });
+    await waitFor(() => {
+      expect(sockets[0].sent.map((raw) => JSON.parse(raw))).toContainEqual({
+        type: 'resize',
+        cols: 92,
+        rows: 26,
+      });
+    });
+    rerender(
+      <TerminalPane
+        session={{ ...session, cols: 92, rows: 26 }}
+        client={client}
+        terminalAdapterFactory={factory}
+        webSocketFactory={socketFactory}
+        onSessionChange={() => {}}
+      />,
+    );
+    sockets[0].emitServerJson({
+      type: 'chunk',
+      chunk: makeChunk(1, session.session_id, 'still connected'),
+    });
+    await waitFor(() => expect(write).toHaveBeenCalledWith('still connected'));
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(sockets).toHaveLength(1);
+    expect(dispose).not.toHaveBeenCalled();
+    expect(requests).not.toHaveBeenCalled();
+  });
+
   it('displays host_id, cwd, session_id, honest Pipe bridge capability badge, ANSI & Unicode via WS, and handles multiline paste + close dialog', async () => {
     const sockets: FakeWebSocket[] = [];
     const requests: Array<{ path: string; method?: string; body?: unknown }> = [];
@@ -198,7 +267,11 @@ describe('TerminalPane & SplitTerminalView (PTY)', () => {
       },
     });
     expect(screen.getByTestId('multiline-paste-dialog')).toBeInTheDocument();
-    fireEvent.click(within(screen.getByTestId('multiline-paste-dialog')).getByRole('button', { name: 'Cancelar' }));
+    fireEvent.click(
+      within(screen.getByTestId('multiline-paste-dialog')).getByRole('button', {
+        name: 'Cancelar',
+      }),
+    );
     expect(screen.queryByTestId('multiline-paste-dialog')).not.toBeInTheDocument();
     expect(sockets[0].sent).toHaveLength(sentBeforePaste);
 
@@ -217,16 +290,6 @@ describe('TerminalPane & SplitTerminalView (PTY)', () => {
         .slice(sentBeforePaste)
         .map((raw) => JSON.parse(raw) as { type: string; data?: string });
       expect(afterPaste).toContainEqual({ type: 'input', data: 'echo linha1\necho linha2\n' });
-    });
-
-    // Resize triggers POST /resize
-    fireEvent.click(screen.getByRole('button', { name: 'Ajustar dimensões do terminal' }));
-    await waitFor(() => {
-      expect(
-        requests.some(
-          (r) => r.path.endsWith('/pty/sessions/pty-sess-01/resize') && r.method === 'POST',
-        ),
-      ).toBe(true);
     });
 
     // Close button opens TerminalCloseDialog and sends keep_running: true
@@ -293,14 +356,12 @@ describe('TerminalPane & SplitTerminalView (PTY)', () => {
     } as unknown as ControlPlaneClient;
 
     render(
-      <TerminalPane
-        session={certifiedSession}
-        client={mockClient}
-        transportPreference="poll"
-      />,
+      <TerminalPane session={certifiedSession} client={mockClient} transportPreference="poll" />,
     );
 
-    expect(screen.getByTestId('pty-capability-badge')).toHaveTextContent('PTY certificado (conpty)');
+    expect(screen.getByTestId('pty-capability-badge')).toHaveTextContent(
+      'PTY certificado (conpty)',
+    );
 
     await waitFor(() => {
       expect(screen.getByTestId('terminal-output')).toHaveTextContent('backlog restaurado');

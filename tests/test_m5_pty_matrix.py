@@ -29,6 +29,31 @@ from hydra_orch.core.search_index import build_host_capabilities
 from hydra_orch.server import app, set_run_service
 
 
+def test_bundled_codex_uses_only_a_supported_no_daemon_option(tmp_path, monkeypatch):
+    bundled = str(tmp_path / "app" / "resources" / "codex.exe")
+    standalone = str(tmp_path / "bin" / "codex.exe")
+    calls = []
+
+    def help_with_option(*args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=0, stdout="Options: --no-daemon")
+
+    pty_runner_mod._bundled_codex_needs_no_daemon.cache_clear()
+    try:
+        monkeypatch.setattr(pty_runner_mod.subprocess, "run", help_with_option)
+        assert pty_runner_mod._bundled_codex_needs_no_daemon(bundled) is True
+        assert pty_runner_mod._bundled_codex_needs_no_daemon(bundled) is True
+        assert pty_runner_mod._bundled_codex_needs_no_daemon(standalone) is False
+        assert len(calls) == 1
+
+        pty_runner_mod._bundled_codex_needs_no_daemon.cache_clear()
+        monkeypatch.setattr(pty_runner_mod.subprocess, "run",
+                            lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="Options: --help"))
+        assert pty_runner_mod._bundled_codex_needs_no_daemon(bundled) is False
+    finally:
+        pty_runner_mod._bundled_codex_needs_no_daemon.cache_clear()
+
+
 async def _wait_for_dead(pids: List[int], *, attempts: int = 100, interval: float = 0.05) -> None:
     """Poll until all tracked OS process IDs have terminated."""
     for _ in range(attempts):

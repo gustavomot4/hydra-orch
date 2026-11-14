@@ -57,6 +57,7 @@ import {
 } from './terminalTypes';
 
 const MAX_HEADLESS_CHARS = 250_000;
+const RESIZE_DELAY_MS = 90;
 
 function canUseCanvasRenderer(): boolean {
   if (typeof document === 'undefined') {
@@ -80,8 +81,9 @@ function createXtermAdapter(
   const term = new Terminal({
     cols: options.cols,
     rows: options.rows,
+    windowsPty: options.backendKind === 'windows_conpty' ? { backend: 'conpty' } : undefined,
     cursorBlink: true,
-    fontFamily: "JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: 13,
     lineHeight: 1.4,
     scrollback: 2000,
@@ -104,14 +106,20 @@ function createXtermAdapter(
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
   term.open(container);
-  try {
-    fitAddon.fit();
-  } catch {
-    // Container pode ainda não estar dimensionado
-  }
+
+  const fit = () => {
+    if (!container.clientWidth || !container.clientHeight) return null;
+    const dimensions = fitAddon.proposeDimensions();
+    if (!dimensions) return null;
+    if (dimensions.cols !== term.cols || dimensions.rows !== term.rows) {
+      fitAddon.fit();
+    }
+    return { cols: term.cols, rows: term.rows };
+  };
 
   const pasteCaptureHandler = (event: globalThis.ClipboardEvent) => {
-    const pasted = event.clipboardData?.getData('text/plain') ?? event.clipboardData?.getData('text') ?? '';
+    const pasted =
+      event.clipboardData?.getData('text/plain') ?? event.clipboardData?.getData('text') ?? '';
     if (pasted && isMultilinePaste(pasted) && options.onMultilinePaste) {
       event.preventDefault();
       event.stopPropagation();
@@ -124,13 +132,7 @@ function createXtermAdapter(
 
   let resizeObserver: ResizeObserver | null = null;
   if (typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(() => {
-      try {
-        fitAddon.fit();
-      } catch {
-        // Ignora resize enquanto painel estiver oculto
-      }
-    });
+    resizeObserver = new ResizeObserver(fit);
     resizeObserver.observe(container);
   }
 
@@ -139,14 +141,7 @@ function createXtermAdapter(
     write: (text) => term.write(text),
     clear: () => term.clear(),
     resize: (cols, rows) => term.resize(cols, rows),
-    fit: () => {
-      try {
-        fitAddon.fit();
-        return { cols: term.cols, rows: term.rows };
-      } catch {
-        return null;
-      }
-    },
+    fit,
     focus: () => term.focus(),
     getSelection: () => term.getSelection(),
     onData: (listener) => {
@@ -174,6 +169,7 @@ export interface TerminalPaneProps {
   pollIntervalMs?: number;
   webSocketFactory?: (url: string, options: { token: string | null }) => PtyWebSocketLike;
   terminalAdapterFactory?: TerminalAdapterFactory;
+  autoFocus?: boolean;
   onSessionChange?: (session: PtySessionInfo) => void;
   onClosed?: (session: PtySessionInfo, keepRunning: boolean) => void;
   className?: string;
@@ -189,6 +185,7 @@ export function TerminalPane({
   pollIntervalMs = 500,
   webSocketFactory,
   terminalAdapterFactory,
+  autoFocus = false,
   onSessionChange,
   onClosed,
   className = '',
@@ -202,7 +199,7 @@ export function TerminalPane({
   const [session, setSession] = useState<PtySessionInfo>(initialSession);
   const [transportMode, setTransportMode] = useState<PtyTransportMode>('connecting');
   const [headlessBuffer, setHeadlessBuffer] = useState<string>('');
-  const [rendererKind, setRendererKind] = useState<'xterm' | 'headless-dom'>('headless-dom');
+  const [rendererKind, setRendererKind] = useState<'xterm' | 'headless-dom' | 'loading'>('loading');
   const [lastSeqDisplay, setLastSeqDisplay] = useState<number>(0);
   const [cursorExpiredNotice, setCursorExpiredNotice] = useState<string | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
@@ -219,22 +216,46 @@ export function TerminalPane({
   const adapterRef = useRef<TerminalViewportAdapter | null>(null);
   const wsRef = useRef<PtyWebSocketLike | null>(null);
   const lastSeqRef = useRef<number>(0);
+  const displaySeqFrame = useRef<number | null>(null);
+  const resizeTimer = useRef<number | null>(null);
+  const requestedSize = useRef<TerminalDimensions | null>(null);
+  const httpInputQueue = useRef(Promise.resolve());
   const sessionRef = useRef<PtySessionInfo>(initialSession);
   const isComposingRef = useRef<boolean>(false);
+  const onSessionChangeRef = useRef(onSessionChange);
+  const autoFocusRef = useRef(autoFocus);
 
-  const updateSession = useCallback(
-    (next: PtySessionInfo) => {
-      sessionRef.current = next;
-      setSession(next);
-      onSessionChange?.(next);
+  useEffect(() => {
+    onSessionChangeRef.current = onSessionChange;
+  }, [onSessionChange]);
+  useEffect(() => {
+    autoFocusRef.current = autoFocus;
+  }, [autoFocus]);
+
+  useEffect(
+    () => () => {
+      if (displaySeqFrame.current !== null) window.cancelAnimationFrame(displaySeqFrame.current);
+      if (resizeTimer.current !== null) window.clearTimeout(resizeTimer.current);
+      displaySeqFrame.current = null;
+      resizeTimer.current = null;
     },
-    [onSessionChange],
+    [],
   );
+
+  const updateSession = useCallback((next: PtySessionInfo) => {
+    if (next.session_id !== sessionRef.current.session_id) return;
+    sessionRef.current = next;
+    setSession(next);
+    onSessionChangeRef.current?.(next);
+  }, []);
 
   // Sync if caller switches to a different session_id
   useEffect(() => {
     if (initialSession.session_id !== sessionRef.current.session_id) {
       lastSeqRef.current = 0;
+      requestedSize.current = null;
+      if (resizeTimer.current !== null) window.clearTimeout(resizeTimer.current);
+      resizeTimer.current = null;
       setLastSeqDisplay(0);
       setHeadlessBuffer('');
       setCursorExpiredNotice(null);
@@ -253,11 +274,16 @@ export function TerminalPane({
       return;
     }
     lastSeqRef.current = chunk.seq;
-    setLastSeqDisplay(chunk.seq);
-
     if (adapterRef.current) {
       adapterRef.current.write(chunk.text);
+      if (displaySeqFrame.current === null) {
+        displaySeqFrame.current = window.requestAnimationFrame(() => {
+          displaySeqFrame.current = null;
+          setLastSeqDisplay(lastSeqRef.current);
+        });
+      }
     } else {
+      setLastSeqDisplay(chunk.seq);
       setHeadlessBuffer((prev) => {
         const combined = prev + chunk.text;
         return combined.length > MAX_HEADLESS_CHARS
@@ -281,34 +307,55 @@ export function TerminalPane({
           // Fallback para HTTP POST /input se o socket falhar ao enviar
         }
       }
-      try {
-        await writePtyInput(client, sessionRef.current.session_id, data);
-      } catch (err) {
-        const msg =
-          err instanceof ControlPlaneApiError
-            ? err.payload.message
-            : 'Falha ao enviar entrada para o terminal.';
-        setErrorBanner(msg);
-      }
+      const { session_id: sessionId } = sessionRef.current;
+      httpInputQueue.current = httpInputQueue.current.then(async () => {
+        if (sessionRef.current.session_id !== sessionId || sessionRef.current.status !== 'running')
+          return;
+        try {
+          await writePtyInput(client, sessionId, data);
+        } catch (err) {
+          const msg =
+            err instanceof ControlPlaneApiError
+              ? err.payload.message
+              : 'Falha ao enviar entrada para o terminal.';
+          setErrorBanner(msg);
+        }
+      });
     },
     [client],
   );
 
   const handleResizeDimensions = useCallback(
-    async (dims: TerminalDimensions) => {
+    (dims: TerminalDimensions) => {
       if (sessionRef.current.status !== 'running') {
         return;
       }
       const cols = Math.max(1, Math.min(1000, Math.round(dims.cols)));
       const rows = Math.max(1, Math.min(1000, Math.round(dims.rows)));
-      try {
-        const updated = await resizePtySession(client, sessionRef.current.session_id, cols, rows);
-        updateSession(updated);
-      } catch (err) {
-        if (err instanceof ControlPlaneApiError && err.status !== 409) {
-          setErrorBanner(err.payload.message);
+      const { session_id: sessionId } = sessionRef.current;
+      if (resizeTimer.current !== null) window.clearTimeout(resizeTimer.current);
+      resizeTimer.current = window.setTimeout(async () => {
+        resizeTimer.current = null;
+        if (sessionRef.current.session_id !== sessionId || sessionRef.current.status !== 'running')
+          return;
+        const previous = requestedSize.current ?? sessionRef.current;
+        if (previous.cols === cols && previous.rows === rows) return;
+        const requested = { cols, rows };
+        requestedSize.current = requested;
+        try {
+          const ws = wsRef.current;
+          if (ws?.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+            return;
+          }
+          const updated = await resizePtySession(client, sessionId, cols, rows);
+          updateSession(updated);
+        } catch (err) {
+          if (requestedSize.current === requested) requestedSize.current = null;
+          if (err instanceof ControlPlaneApiError && err.status !== 409)
+            setErrorBanner(err.payload.message);
         }
-      }
+      }, RESIZE_DELAY_MS);
     },
     [client, updateSession],
   );
@@ -342,6 +389,7 @@ export function TerminalPane({
       created = terminalAdapterFactory(container, {
         cols: sessionRef.current.cols,
         rows: sessionRef.current.rows,
+        backendKind: sessionRef.current.backend_kind,
         onMultilinePaste: (text) => setPendingPasteText(text),
         onInterruptShortcut: () => void handleInterrupt(),
       });
@@ -350,6 +398,7 @@ export function TerminalPane({
         created = createXtermAdapter(container, {
           cols: sessionRef.current.cols,
           rows: sessionRef.current.rows,
+          backendKind: sessionRef.current.backend_kind,
           onMultilinePaste: (text) => setPendingPasteText(text),
           onInterruptShortcut: () => void handleInterrupt(),
         });
@@ -366,12 +415,23 @@ export function TerminalPane({
 
     adapterRef.current = created;
     setRendererKind(created.kind);
+    if (autoFocusRef.current && container.clientWidth > 0) created.focus();
     const unsubData = created.onData((data) => {
       void sendInputData(data);
     });
     const unsubResize = created.onResize((dims) => {
       void handleResizeDimensions(dims);
     });
+    const fitToViewport = () => {
+      if (adapterRef.current !== created) return;
+      const dimensions = created.fit();
+      if (dimensions) handleResizeDimensions(dimensions);
+    };
+    // Keep the initial replay in the dimensions the process used, then fit the viewport.
+    if (created.kind === 'xterm') {
+      if (document.fonts) void document.fonts.ready.then(fitToViewport);
+      else fitToViewport();
+    }
 
     return () => {
       unsubData();
@@ -393,8 +453,13 @@ export function TerminalPane({
     const abortController = new AbortController();
     let activeWs: PtyWebSocketLike | null = null;
     let pollTimer: number | null = null;
+    let wsAuthTimer: number | null = null;
 
     const cleanupWs = () => {
+      if (wsAuthTimer !== null) {
+        window.clearTimeout(wsAuthTimer);
+        wsAuthTimer = null;
+      }
       if (activeWs) {
         activeWs.onopen = null;
         activeWs.onmessage = null;
@@ -408,6 +473,7 @@ export function TerminalPane({
         activeWs = null;
       }
       wsRef.current = null;
+      requestedSize.current = null;
     };
 
     const runHttpBacklogRead = async (resetOnExpired = true): Promise<PtySessionInfo | null> => {
@@ -532,7 +598,7 @@ export function TerminalPane({
 
       const canAttemptWs =
         Boolean(webSocketFactory) ||
-        (typeof window !== 'undefined' && typeof window.WebSocket === 'function');
+        (Boolean(token) && typeof window !== 'undefined' && typeof window.WebSocket === 'function');
 
       if (!canAttemptWs) {
         await runSseFallback();
@@ -556,7 +622,7 @@ export function TerminalPane({
         activeWs = webSocketFactory
           ? webSocketFactory(wsUrl, { token })
           : (new window.WebSocket(wsUrl) as unknown as PtyWebSocketLike);
-        wsRef.current = activeWs;
+        wsAuthTimer = window.setTimeout(triggerFallback, 2500);
       } catch {
         await runSseFallback();
         return;
@@ -566,9 +632,27 @@ export function TerminalPane({
         if (cancelled) {
           return;
         }
+        if (webSocketFactory) {
+          markReady();
+        } else {
+          try {
+            activeWs?.send(JSON.stringify({ type: 'authenticate', token }));
+          } catch {
+            triggerFallback();
+          }
+        }
+      };
+
+      function markReady() {
+        if (opened) return;
+        if (wsAuthTimer !== null) {
+          window.clearTimeout(wsAuthTimer);
+          wsAuthTimer = null;
+        }
+        wsRef.current = activeWs;
         opened = true;
         setTransportMode('ws');
-      };
+      }
 
       activeWs.onmessage = (event) => {
         if (cancelled) {
@@ -576,7 +660,9 @@ export function TerminalPane({
         }
         try {
           const msg = JSON.parse(event.data) as PtyWsServerMessage;
-          if (msg.type === 'chunk') {
+          if (msg.type === 'ready') {
+            markReady();
+          } else if (msg.type === 'chunk') {
             appendOutputChunk(msg.chunk);
           } else if (msg.type === 'state') {
             updateSession(msg.session);
@@ -653,7 +739,7 @@ export function TerminalPane({
     }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
       const selected =
-        typeof window !== 'undefined' ? window.getSelection()?.toString() ?? '' : '';
+        typeof window !== 'undefined' ? (window.getSelection()?.toString() ?? '') : '';
       if (selected.length === 0) {
         event.preventDefault();
         void handleInterrupt();
@@ -714,7 +800,7 @@ export function TerminalPane({
   const handleCopySelection = async () => {
     const adapterSelection = adapterRef.current?.getSelection() ?? '';
     const domSelection =
-      typeof window !== 'undefined' ? window.getSelection()?.toString() ?? '' : '';
+      typeof window !== 'undefined' ? (window.getSelection()?.toString() ?? '') : '';
     const text = adapterSelection || domSelection || headlessBuffer;
     if (!text || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
       return;
@@ -765,16 +851,15 @@ export function TerminalPane({
       onClosed?.(updated, keepRunning);
     } catch (err) {
       const msg =
-        err instanceof ControlPlaneApiError
-          ? err.payload.message
-          : 'Erro ao fechar sessão PTY.';
+        err instanceof ControlPlaneApiError ? err.payload.message : 'Erro ao fechar sessão PTY.';
       setCloseError(msg);
     } finally {
       setIsClosingSession(false);
     }
   };
 
-  const resolvedTitle = title ?? (session.command.length > 0 ? session.command.join(' ') : 'Terminal PTY');
+  const resolvedTitle =
+    title ?? (session.command.length > 0 ? session.command.join(' ') : 'Terminal PTY');
   const statusLabel = PTY_STATUS_LABELS[session.status] ?? session.status;
   const transportLabel =
     transportMode === 'ws'
@@ -794,6 +879,7 @@ export function TerminalPane({
       data-session-id={session.session_id}
       data-pty-certified={String(session.pty_certified)}
       data-renderer={rendererKind}
+      data-transport={transportMode}
       className={`flex h-full min-h-[340px] flex-col overflow-hidden rounded-xl border border-[#303030] bg-[#141414] text-[#E8E8E8] ${className}`}
     >
       {/* Header without macOS dots; always shows host_id, cwd, session_id, status, exit_code & certification */}
@@ -980,7 +1066,7 @@ export function TerminalPane({
             headlessInputRef.current?.focus();
           }
         }}
-        className="relative flex min-h-[240px] flex-1 flex-col overflow-hidden bg-[#141414]"
+        className="relative flex min-h-[240px] min-w-0 flex-1 flex-col overflow-hidden bg-[#141414] [&>.xterm]:h-full [&>.xterm]:w-full"
       >
         {rendererKind === 'headless-dom' ? (
           <div className="flex min-h-0 flex-1 flex-col">

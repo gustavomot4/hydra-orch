@@ -1902,6 +1902,24 @@ def test_wave12_omniroute_pty_attachments_search_and_automations(isolated_run_se
                         break
                     msgs.append(ws.receive_json())
                 assert any(m.get("type") in {"chunk", "state"} for m in msgs)
+
+            origin = {"Origin": "http://127.0.0.1:5173"}
+            with pytest.raises(Exception):
+                with unauth_client.websocket_connect(
+                    f"/v1/control-plane/pty/sessions/{ws_sid}/ws",
+                    headers={"Origin": "https://untrusted.example"},
+                ):
+                    pass
+            with unauth_client.websocket_connect(f"/v1/control-plane/pty/sessions/{ws_sid}/ws", headers=origin) as ws:
+                ws.send_json({"type": "input", "data": "before auth"})
+                assert ws.receive()["code"] == 1008
+            with unauth_client.websocket_connect(f"/v1/control-plane/pty/sessions/{ws_sid}/ws", headers=origin) as ws:
+                ws.send_json({"type": "authenticate", "token": "invalid"})
+                assert ws.receive()["code"] == 1008
+            with unauth_client.websocket_connect(f"/v1/control-plane/pty/sessions/{ws_sid}/ws", headers=origin) as ws:
+                ws.send_json({"type": "authenticate", "token": headers["Authorization"].split(" ", 1)[1]})
+                assert ws.receive_json() == {"type": "ready"}
+                assert ws.receive_json()["type"] in {"chunk", "state"}
     finally:
         app.state.pty_runner = old_runner
         app.state.omniroute_connection_mode = old_mode

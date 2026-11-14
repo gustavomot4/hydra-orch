@@ -43,12 +43,14 @@ async def test_pty_interactive_echo_ansi_unicode_redaction_and_env(
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-leak-env-12345678")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_leak_env_99999999")
+    monkeypatch.setenv("TERM", "dumb")
 
     script = (
         "import os, sys\n"
         "env_clean = 'OPENAI_API_KEY' not in os.environ and 'GITHUB_TOKEN' not in os.environ\n"
         "allowed = os.environ.get('HYDRA_TEST_ALLOWED', '')\n"
-        "print(f'BOOT env_clean={env_clean} allowed={allowed}', flush=True)\n"
+        "term = os.environ.get('TERM', '')\n"
+        "print(f'BOOT env_clean={env_clean} allowed={allowed} term={term}', flush=True)\n"
         "line = sys.stdin.readline().strip()\n"
         "print(f'\\x1b[36mECHO:{line}\\x1b[0m token=sk-inline-secret-123456', flush=True)\n"
     )
@@ -81,6 +83,7 @@ async def test_pty_interactive_echo_ansi_unicode_redaction_and_env(
         boot_text = "".join(c.text for c in runner.read_output("pty-echo-1"))
         assert "env_clean=True" in boot_text
         assert "allowed=ok-42" in boot_text
+        assert "term=xterm-256color" in boot_text
 
         await runner.write_input("pty-echo-1", "olá hydra 🚀\n")
         final_info = await runner.wait("pty-echo-1", timeout=5.0)

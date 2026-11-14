@@ -73,6 +73,14 @@ Formalizar, segundo o padrão **DBC-9**, os contratos backend e a matriz de rast
 | `close(keep_running)` | `await close_session(session_id, *, keep_running=False) -> PtySessionInfo` | `POST /v1/control-plane/pty/sessions/{session_id}/close` | `keep_running=True`: desconecta assinantes ativos (`stream`) mantendo `status="running"` e `detached=True`. `keep_running=False`: encerra toda a árvore de processos com `cancel_process_tree` e fecha leitores sem órfãos. |
 | Shutdown | `await close_all() -> None` | *Lifespan shutdown* | Encerra todas as sessões com `keep_running=False`. |
 
+#### Canal WebSocket do navegador
+
+`/v1/control-plane/pty/sessions/{session_id}/ws` aceita clientes com Bearer no cabeçalho e navegadores com origem loopback explicitamente permitida. No navegador, o primeiro frame deve ser `{"type":"authenticate","token":"..."}`, recebido em até cinco segundos. O servidor verifica a credencial antes de entregar saída ou executar comandos e responde `{"type":"ready"}`. A credencial é transmitida no frame. A URL contém apenas a sessão e o cursor de saída.
+
+Depois da confirmação, entrada e resize usam o mesmo canal. Resize retorna o estado atualizado. O cliente mantém a instância xterm e a conexão quando o pai recebe esse estado, agrupa atualizações de dimensão e preserva a ordem da entrada no fallback HTTP. Os padrões locais de CORS incluem as portas 5173 e 5197. Uma lista definida em `HYDRA_CORS_ALLOW_ORIGINS` continua tendo precedência.
+
+O ambiente do processo usa `TERM=xterm-256color` por padrão, com possibilidade de override explícito em `allowed_env`. Para o `codex.exe` distribuído em `app/resources` pelo aplicativo desktop, a abertura padrão consulta o `--help` local uma vez e usa `--no-daemon` quando disponível. Argumentos fornecidos explicitamente pelo chamador são preservados.
+
 ---
 
 ### 3.3. Contrato de Anexos (`AttachmentRef` & `AttachmentService`)
