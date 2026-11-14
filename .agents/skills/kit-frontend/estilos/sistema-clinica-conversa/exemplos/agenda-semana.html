@@ -1,0 +1,802 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agenda — Vila Serena</title>
+<!-- Exemplo do PRD "Sistema de clínica no estilo conversa", versão 2.0.0. Clínica, pessoas, telefones e datas fictícios. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* Tokens e base da seção 2 do PRD, copiados sem alteração. */
+:root {
+  /* cor: superfícies e texto */
+  --background: #F6F2EC;
+  --foreground: #1B2529;
+  --foreground-hover: #0F171A;
+  --card: #FFFFFF;
+  --card-soft: #FBF8F4;
+  --muted: #EEE8DF;
+  --muted-foreground: #5B676C;
+  --placeholder: #6B7579;
+  --border: #EAE3D9;
+  --border-strong: #CFC6B9;
+  --input: #8F8577;
+  --on-dark: #FFFFFF;
+
+  /* cor: marca e ação */
+  --primary: #0D6E66;
+  --primary-hover: #0A5C55;
+  --primary-foreground: #FFFFFF;
+  --primary-soft: #E1F0EC;
+  --primary-soft-hover: #D2E9E3;
+  --on-primary-muted: #CDEBE6;
+  --ring: var(--primary);
+
+  /* cor: sobre superfície escura (--foreground como fundo) */
+  --on-dark-accent: #8EE3D6;
+  --on-dark-muted: #C9D2D5;
+  --on-dark-danger: #FFB4A6;
+  --on-dark-fill: rgba(255, 255, 255, .12);
+  --ring-on-dark: var(--on-dark-accent);
+
+  /* cor: marcador "agora" */
+  --accent: #E8613C;
+  --accent-text: #B9472A;
+  --accent-soft: #FDE9E2;
+
+  /* cor: retorno */
+  --destructive: #B23B3B;
+  --destructive-soft: #FBE7E7;
+  --warning: #7A5000;
+  --warning-soft: #FFF1D2;
+  --success: #1D7A45;
+  --success-soft: #E2F3E8;
+  --info: #2F5E9E;
+  --info-soft: #E5EDF8;
+
+  /* cor: canal de contato (botão que abre a conversa) */
+  --whatsapp: #187A43;
+  --whatsapp-hover: #136437;
+  --whatsapp-soft: #E3F4EA;
+
+  /* cor: gráficos e agenda */
+  --chart-in: #2E9D67;
+  --chart-out: #E0603C;
+  --chart-grid: #F0EBE3;
+  --grid-half: #F3EEE7;
+  --today-column: #F5FAF8;
+  --slot-edge: rgba(255, 255, 255, .9);
+  --overlay: rgba(20, 28, 31, .42);
+
+  /* cor: iniciais das pessoas, fundo e texto de cada tom (4.2; o tom 0 usa o par 1) */
+  --avatar-1-bg: #FCE3D6; --avatar-1-fg: #8E3A19;
+  --avatar-2-bg: #DDF0E6; --avatar-2-fg: #1D6B45;
+  --avatar-3-bg: #E3E8FB; --avatar-3-fg: #3446A3;
+  --avatar-4-bg: #F7E3EF; --avatar-4-fg: #8E2F6B;
+  --avatar-5-bg: #FFEFC4; --avatar-5-fg: #6E4B00;
+  --avatar-6-bg: #DDEDF6; --avatar-6-fg: #245D7E;
+
+  /* situações da consulta: texto (fg), fundo (bg) e barra ou contorno (bar) */
+  --status-agendado-fg: #7A5000;     --status-agendado-bg: #FFFFFF;     --status-agendado-bar: #D9940E;
+  --status-confirmado-fg: #17663B;   --status-confirmado-bg: #DCF3E5;   --status-confirmado-bar: #1F8A4C;
+  --status-atendimento-fg: #FFFFFF;  --status-atendimento-bg: #5B45C2;  --status-atendimento-bar: #3E2C99;
+  --status-atendimento-muted: #E4DEFB;
+  --status-concluido-fg: #4A5559;    --status-concluido-bg: #ECEEEF;    --status-concluido-bar: #A3ACB0;
+  --status-cancelado-fg: #A12F2F;    --status-cancelado-bg: #FBE7E7;    --status-cancelado-bar: #D16464;
+  --status-faltou-fg: #934010;       --status-faltou-bg: #FCEBDD;       --status-faltou-bar: #E07B3F;
+  --hatch: repeating-linear-gradient(135deg, rgba(255, 255, 255, .55) 0 6px, transparent 6px 12px);
+
+  /* tipografia */
+  --font: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --text-hero: clamp(2.25rem, 4vw, 3.375rem);
+  --text-display: 2.125rem; --text-display-sm: 1.75rem; --text-title: 1.375rem; --text-heading: 1.25rem; --text-section: 1.125rem; --text-lead: 1.0625rem;
+  --text-body: 1rem; --text-ui: 0.9375rem; --text-small: 0.875rem; --text-caption: 0.8125rem; --text-micro: 0.75rem;
+  --weight-regular: 400; --weight-medium: 500; --weight-semibold: 600; --weight-bold: 700; --weight-extrabold: 800;
+  --leading-tight: 1.1; --leading-card: 1.22; --leading-body: 1.5;
+  --tracking-hero: -1.6px; --tracking-display: -0.8px; --tracking-title: -0.4px; --tracking-caps: 0.6px;
+
+  /* espaço */
+  --space-2: 2px; --space-4: 4px; --space-6: 6px; --space-8: 8px; --space-10: 10px; --space-12: 12px; --space-14: 14px; --space-16: 16px;
+  --space-18: 18px; --space-20: 20px; --space-24: 24px; --space-28: 28px; --space-32: 32px; --space-40: 40px; --space-48: 48px; --space-56: 56px;
+
+  /* forma */
+  --radius-sm: 10px; --radius-md: 12px; --radius: 14px; --radius-box: 16px;
+  --radius-lg: 20px; --radius-xl: 24px; --radius-sheet: 28px; --radius-full: 999px;
+  --line: 1px; --line-control: 1.5px; --line-error: 2px;
+
+  /* tamanhos */
+  --target: 44px; --control-sm: 38px; --control-md: 46px; --control-lg: 54px; --field: 50px; --chip: 40px; --fab: 56px;
+  --icon-xs: 14px; --icon-sm: 16px; --icon-md: 18px; --icon: 20px; --icon-lg: 24px;
+
+  /* sombra */
+  --shadow-sm: 0 1px 4px rgba(40, 30, 20, .12);
+  --shadow: 0 8px 24px rgba(27, 37, 41, .08);
+  --shadow-lg: 0 24px 50px rgba(27, 37, 41, .18);
+  --shadow-bar: 0 -8px 24px rgba(27, 37, 41, .08);
+  --shadow-fab: 0 10px 24px color-mix(in srgb, var(--primary) 35%, transparent);
+  --shadow-selected: 0 0 0 2.5px var(--primary), 0 8px 18px color-mix(in srgb, var(--primary) 25%, transparent);
+  --shadow-live: 0 4px 12px color-mix(in srgb, var(--status-atendimento-bg) 30%, transparent);
+
+  /* movimento */
+  --duration-fast: 120ms; --duration-base: 160ms; --duration-slow: 200ms; --duration-spin: 800ms; --duration-shimmer: 1300ms;
+
+  /* casca */
+  --topbar: 68px; --topbar-mobile: 60px; --tabbar: 76px; --page-x: 32px;
+  --page-max: 1480px; --page-form: 820px; --page-wide: 1180px;
+  --side: 420px; --side-narrow: 380px; --summary: 360px; --overlay-width: 460px;
+  --z-footer: 5; --z-topbar: 20; --z-fab: 25; --z-tabbar: 30; --z-popup: 30;
+  --z-overlay: 40; --z-panel: 41; --z-menu: 50; --z-toast: 60; --z-skip: 100;
+}
+@media (max-width: 767px) { :root { --page-x: 16px; } }
+
+*, *::before, *::after { box-sizing: border-box; }
+html { font-family: var(--font); color: var(--foreground); background: var(--background); line-height: var(--leading-body); font-synthesis: none; -webkit-text-size-adjust: 100%; }
+body { margin: 0; font-size: var(--text-body); background: var(--background); }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+h1, h2, h3, p, dl, dd, figure { margin: 0; }
+ul, ol { margin: 0; padding: 0; }
+a { color: var(--primary); text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
+[data-surface="dark"] :focus-visible { outline-color: var(--ring-on-dark); }
+[data-autofocus]:focus { outline: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+/* Componentes das seções 4.3, 6.1, 6.5 e 7.2, copiados do PRD. */
+.button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-8);
+  height: var(--control-md); padding: 0 var(--space-18); border: var(--line-control) solid transparent; border-radius: var(--radius-md);
+  font-size: var(--text-body); font-weight: var(--weight-semibold); white-space: nowrap; text-decoration: none;
+  transition: background-color var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast); }
+.button svg { width: var(--icon); height: var(--icon); flex: none; }
+.button.sm { height: var(--control-sm); padding: 0 var(--space-14); border-radius: var(--radius-sm); font-size: var(--text-small); }
+.button.sm svg { width: var(--icon-md); height: var(--icon-md); }
+.button.lg { height: var(--control-lg); padding: 0 var(--space-24); border-radius: var(--radius); font-size: var(--text-lead); }
+.button.block { width: 100%; }
+.button:active:not(:disabled) { transform: translateY(1px); }
+.button:disabled { opacity: .55; }
+
+.status { --fg: var(--status-agendado-fg); --bg: var(--status-agendado-bg);
+  display: inline-flex; align-items: center; gap: var(--space-6); height: 30px; padding: 0 var(--space-12) 0 var(--space-10);
+  border-radius: var(--radius-full); background-color: var(--bg); color: var(--fg);
+  font-size: var(--text-small); font-weight: var(--weight-semibold); white-space: nowrap; }
+.status svg { width: var(--icon-sm); height: var(--icon-sm); stroke-width: 2.4; flex: none; }
+.status[data-status="agendado"] { border: var(--line-control) dashed var(--status-agendado-bar); }
+.status[data-status="confirmado"] { --fg: var(--status-confirmado-fg); --bg: var(--status-confirmado-bg); }
+.status[data-status="atendimento"] { --fg: var(--status-atendimento-fg); --bg: var(--status-atendimento-bg); }
+.status[data-status="concluido"] { --fg: var(--status-concluido-fg); --bg: var(--status-concluido-bg); }
+.status[data-status="cancelado"] { --fg: var(--status-cancelado-fg); --bg: var(--status-cancelado-bg); }
+.status[data-status="faltou"] { --fg: var(--status-faltou-fg); --bg: var(--status-faltou-bg); }
+.status[data-status="cancelado"], .status[data-status="faltou"] { background-image: var(--hatch); }
+
+.agenda-list { background: var(--card); border: var(--line) solid var(--border); border-radius: var(--radius-lg); padding: var(--space-6); }
+.agenda-group { padding: var(--space-12) var(--space-14) var(--space-6); font-size: var(--text-caption); font-weight: var(--weight-extrabold);
+  letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--muted-foreground); }
+.agenda-row { width: 100%; display: grid; grid-template-columns: 58px 44px minmax(0, 1fr) auto; gap: var(--space-12); align-items: center;
+  padding: var(--space-10) var(--space-12); border: 0; border-radius: var(--radius); background: transparent; text-align: left; color: var(--foreground); }
+.agenda-row:hover { background: var(--card-soft); }
+.agenda-row:active { background: var(--muted); }
+.agenda-row[aria-pressed="true"] { background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
+.agenda-row .time { font-size: var(--text-lead); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.agenda-row .duration { display: block; font-size: var(--text-caption); color: var(--muted-foreground); }
+.agenda-row .name { display: block; font-weight: var(--weight-bold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agenda-row .meta { display: block; font-size: var(--text-small); color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agenda-row[data-status="concluido"] .time, .agenda-row[data-status="concluido"] .name { color: var(--muted-foreground); }
+.agenda-row[data-status="cancelado"] .name { text-decoration: line-through; text-decoration-color: var(--border-strong); }
+@media (max-width: 599px) { .agenda-row { grid-template-columns: 50px 44px minmax(0, 1fr) auto; gap: var(--space-10); padding: var(--space-10) var(--space-8); } }
+
+/* Ícones: tamanho padrão; cada componente ajusta o seu. */
+.ic { width: var(--icon); height: var(--icon); flex: none; }
+
+/* Iniciais coloridas (4.2): tamanhos; os tons vêm da receita do PRD, no fim da folha. */
+.avatar { --size: 44px; --fs: 15px; display: inline-grid; place-items: center; flex: none; width: var(--size); height: var(--size);
+  border-radius: var(--radius-full); font-size: var(--fs); font-weight: var(--weight-bold); letter-spacing: 0.2px; line-height: 1; }
+.avatar.xxs { --size: 18px; --fs: 8.5px; }
+.avatar.xs { --size: 24px; --fs: 10.5px; }
+.avatar.sm { --size: 36px; --fs: 13px; }
+.avatar.md { --size: 44px; --fs: 15px; }
+.avatar.lg { --size: 56px; --fs: 19px; }
+.avatar.xl { --size: 68px; --fs: 24px; }
+
+/* Botões: variantes da tabela do 6.1 */
+.button.primary { background: var(--primary); color: var(--primary-foreground); }
+.button.primary:hover { background: var(--primary-hover); }
+.button.secondary { background: var(--card); color: var(--foreground); border-color: var(--border); }
+.button.secondary:hover { border-color: var(--border-strong); background: var(--card-soft); }
+.button.ghost { background: transparent; color: var(--foreground); }
+.button.ghost:hover { background: var(--muted); }
+.button.soft { background: var(--primary-soft); color: var(--primary); }
+.button.soft:hover { background: var(--primary-soft-hover); }
+.button.danger { background: var(--card); color: var(--destructive); border-color: var(--border); }
+.button.danger:hover { background: var(--destructive-soft); border-color: color-mix(in srgb, var(--destructive) 25%, var(--card)); }
+.button.whatsapp { background: var(--whatsapp); color: var(--on-dark); }
+.button.whatsapp:hover { background: var(--whatsapp-hover); }
+.button.dark { background: var(--foreground); color: var(--on-dark); }
+.button.dark:hover { background: var(--foreground-hover); }
+.button.icon-only { width: var(--target); height: var(--target); padding: 0; border-radius: var(--radius-md); }
+.button.icon-only svg { width: var(--icon); height: var(--icon); }
+.button.icon-only.lg-icon svg { width: var(--icon-lg); height: var(--icon-lg); }
+
+/* Pílula compacta (4.3) */
+.status.compact { width: 30px; padding: 0; justify-content: center; gap: 0; }
+.status.compact svg { stroke-width: 2.5; }
+@media (min-width: 1100px) { .status.compact { display: none; } }
+@media (max-width: 1099px) { .status:not(.compact) { display: none; } }
+
+/* Casca (5.3) */
+html { scroll-padding-top: calc(var(--topbar) + var(--space-16)); }
+.skip { position: absolute; top: 12px; left: -9999px; padding: var(--space-10) var(--space-16); background: var(--card); color: var(--foreground);
+  border-radius: var(--radius-md); box-shadow: var(--shadow); font-weight: var(--weight-bold); text-decoration: none; z-index: var(--z-skip); }
+.skip:focus { left: 16px; }
+.topbar { position: sticky; top: 0; z-index: var(--z-topbar); display: flex; align-items: center; gap: var(--space-28); height: var(--topbar);
+  padding: 0 var(--page-x); background: var(--card); border-bottom: var(--line) solid var(--border); }
+.brand { display: inline-flex; align-items: center; min-height: var(--target); gap: var(--space-10); color: var(--foreground); text-decoration: none;
+  font-size: var(--text-heading); font-weight: var(--weight-extrabold); letter-spacing: var(--tracking-title); line-height: var(--leading-tight); }
+.brand .nome-2 { color: var(--primary); }
+.tabs { display: flex; gap: var(--space-4); }
+.tab { display: inline-flex; align-items: center; gap: var(--space-8); height: 42px; padding: 0 14px; border-radius: var(--radius-full);
+  color: var(--muted-foreground); font-size: var(--text-ui); font-weight: var(--weight-semibold); text-decoration: none; white-space: nowrap; transition: background-color var(--duration-fast), color var(--duration-fast); }
+.tab:hover { background: var(--muted); color: var(--foreground); }
+.tab[aria-current="page"] { background: var(--primary-soft); color: var(--primary); }
+.account { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-10); min-height: var(--target); padding: 0 var(--space-8) 0 var(--space-4);
+  border: 0; border-radius: var(--radius-full); background: transparent; text-align: left; }
+.account:hover { background: var(--muted); }
+.account-text { display: grid; line-height: var(--leading-card); }
+.account-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-ui); font-weight: var(--weight-bold); }
+.account-role { font-size: var(--text-caption); color: var(--muted-foreground); }
+.account .ic { width: var(--icon-md); height: var(--icon-md); color: var(--muted-foreground); }
+main { max-width: var(--page-max); margin: 0 auto; padding: var(--space-28) var(--page-x) var(--space-40); }
+main:focus { outline: none; }
+
+/* Barra de abas e botão flutuante (só abaixo de 1100 px) */
+.tabbar, .fab { display: none; }
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-tabbar); height: calc(var(--tabbar) + env(safe-area-inset-bottom));
+  padding: 6px 8px env(safe-area-inset-bottom); background: var(--card); border-top: var(--line) solid var(--border); grid-template-columns: repeat(4, 1fr); }
+.tabbar a { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); min-height: 56px; border-radius: var(--radius-md);
+  color: var(--muted-foreground); font-size: var(--text-micro); font-weight: var(--weight-bold); text-decoration: none; }
+.tabbar .pill { display: grid; place-items: center; width: 58px; height: 32px; border-radius: var(--radius-full); }
+.tabbar .pill .ic { width: var(--icon-lg); height: var(--icon-lg); }
+.tabbar a[aria-current="page"] { color: var(--primary); }
+.tabbar a[aria-current="page"] .pill { background: var(--primary-soft); }
+.fab { position: fixed; right: var(--space-18); bottom: calc(var(--tabbar) + var(--space-18) + env(safe-area-inset-bottom)); z-index: var(--z-fab);
+  height: var(--fab); padding: 0 var(--space-24) 0 var(--space-18); border-radius: var(--radius-lg); box-shadow: var(--shadow-fab); font-size: var(--text-lead); }
+
+@media (max-width: 1279px) {
+  .tab { padding: 0 11px; }
+  .topbar { gap: var(--space-18); }
+  .account-text, .account > .ic { display: none; }
+}
+@media (max-width: 1099px) {
+  html { scroll-padding-top: calc(var(--topbar-mobile) + var(--space-16)); scroll-padding-bottom: calc(var(--tabbar) + var(--fab) + var(--space-32)); }
+  .topbar { height: var(--topbar-mobile); background: color-mix(in srgb, var(--background) 94%, transparent); backdrop-filter: blur(10px); gap: 0; justify-content: space-between; }
+  .brand { font-size: var(--text-section); }
+  .tabs { display: none; }
+  .account { margin-left: 0; padding: 0; min-width: var(--target); justify-content: center; }
+  main { padding: var(--space-18) var(--page-x) calc(var(--tabbar) + var(--space-32) + env(safe-area-inset-bottom)); }
+  .tabbar { display: grid; }
+  .fab { display: inline-flex; }
+  .page-action-desktop { display: none; }
+}
+
+/* Cabeçalho de tela (5.4) */
+.page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-16) var(--space-24); margin-bottom: var(--space-20); }
+.page-head h1 { font-size: var(--text-display); font-weight: var(--weight-extrabold); line-height: var(--leading-tight); letter-spacing: var(--tracking-display); overflow-wrap: anywhere; }
+.page-head h1:focus { outline: none; }
+.page-head .sub { margin-top: var(--space-4); font-size: var(--text-body); color: var(--muted-foreground); }
+.page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }
+@media (max-width: 767px) { .page-head { margin-bottom: var(--space-16); } .page-head h1 { font-size: var(--text-display-sm); } }
+
+/* Faixa de dias (6.15) */
+.days { display: flex; gap: var(--space-8); overflow-x: auto; scrollbar-width: none; padding: var(--space-6); margin: calc(-1 * var(--space-6)) calc(-1 * var(--space-6)) calc(var(--space-14) - var(--space-6)); }
+.day { flex: 1 0 58px; max-width: 72px; height: 66px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: var(--radius-box); background: var(--card); border: var(--line) solid var(--border); color: var(--foreground); text-decoration: none; }
+.day:hover { border-color: var(--border-strong); }
+.day small { font-size: var(--text-caption); font-weight: var(--weight-semibold); color: var(--muted-foreground); line-height: var(--leading-body); }
+.day b { font-size: var(--text-heading); font-weight: var(--weight-bold); line-height: var(--leading-tight); }
+.day[aria-current="date"] { background: var(--primary); border-color: var(--primary); }
+.day[aria-current="date"] small { color: var(--on-primary-muted); }
+.day[aria-current="date"] b { color: var(--primary-foreground); }
+
+/* Chips e segmentado (6.4) */
+.chips { display: flex; gap: var(--space-8); overflow-x: auto; scrollbar-width: none; padding: var(--space-6); margin: calc(-1 * var(--space-6)); }
+.chip { display: inline-flex; align-items: center; flex: none; gap: var(--space-8); height: var(--chip); padding: 0 var(--space-14); border-radius: var(--radius-full);
+  background: var(--card); border: var(--line) solid var(--border); color: var(--foreground); font-size: var(--text-ui); font-weight: var(--weight-semibold); white-space: nowrap; }
+.chip .avatar { margin-left: -6px; }
+.chip .count { color: var(--muted-foreground); }
+.chip:hover { border-color: var(--border-strong); }
+.chip:active { background: var(--muted); }
+.chip[aria-pressed="true"] { background: var(--foreground); border-color: var(--foreground); color: var(--on-dark); }
+.chip[aria-pressed="true"] .count { color: var(--on-dark-muted); }
+.segmented { display: inline-flex; gap: var(--space-2); padding: var(--space-4); background: var(--muted); border-radius: var(--radius-md); }
+.segmented button { height: var(--control-sm); padding: 0 var(--space-16); border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--muted-foreground); font-size: var(--text-ui); font-weight: var(--weight-bold); }
+.segmented button:hover { color: var(--foreground); }
+.segmented button:active { background: var(--card-soft); }
+.segmented button[aria-pressed="true"] { background: var(--card); color: var(--foreground); box-shadow: var(--shadow-sm); }
+.filters { margin-bottom: var(--space-14); }
+
+/* Linha "agora" na lista (6.7) */
+.now-line { display: flex; align-items: center; gap: var(--space-8); margin: var(--space-4) var(--space-14); font-size: var(--text-caption); font-weight: var(--weight-bold); color: var(--accent-text); }
+.now-line::before { content: ''; flex: none; width: 10px; height: 10px; border-radius: var(--radius-full); background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.now-line::after { content: ''; flex: 1; height: 2px; background: var(--accent); }
+
+/* Lembrete de confirmação (7.1) */
+.reminder { display: flex; align-items: center; gap: var(--space-10); padding: var(--space-12) var(--space-16); margin-bottom: var(--space-14);
+  border-radius: var(--radius-box); background: var(--status-agendado-bg); color: var(--status-agendado-fg); font-size: var(--text-ui); font-weight: var(--weight-semibold); }
+
+/* Cartão "Próximo" (6.6) */
+.next { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-16); margin-bottom: var(--space-14);
+  padding: var(--space-10) var(--space-12) var(--space-10) var(--space-18); border-radius: var(--radius-lg); background: var(--foreground); color: var(--on-dark); }
+.next-label { flex: 0 0 100%; display: flex; align-items: center; gap: var(--space-12); margin: 0; color: var(--on-dark-accent);
+  font-size: var(--text-micro); font-weight: var(--weight-extrabold); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
+.next-label::before { content: ''; flex: none; width: 8px; height: 8px; margin-left: var(--space-4); border-radius: var(--radius-full); background: var(--on-dark-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--on-dark-accent) 22%, transparent); }
+.next-body { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--space-14); padding: var(--space-6) var(--space-12) var(--space-6) var(--space-8); margin-left: calc(-1 * var(--space-8));
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--on-dark); text-align: left; }
+.next-body:hover { background: color-mix(in srgb, var(--on-dark) 6%, transparent); }
+.next-time { font-size: var(--text-display-sm); font-weight: var(--weight-extrabold); line-height: var(--leading-tight); letter-spacing: var(--tracking-display); font-variant-numeric: tabular-nums; }
+.next-info { display: grid; min-width: 0; }
+.next-name { font-size: var(--text-lead); font-weight: var(--weight-bold); line-height: var(--leading-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.next-meta { font-size: var(--text-small); color: var(--on-dark-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.next-actions { display: flex; flex: none; gap: var(--space-8); }
+.next-actions .button { height: var(--control-md); }
+.next-actions .start { background: var(--on-dark-accent); color: var(--foreground); }
+.next-actions .chat { background: var(--on-dark-fill); color: var(--on-dark); }
+
+/* Hoje: a grade e a coluna de detalhe vêm do PRD (receitas no fim da folha). */
+@media (max-width: 1099px) { .agenda-list { margin-bottom: 72px; } }
+@media (min-width: 1100px) { .next.hide-desktop { display: none; } }
+
+/* Detalhe da consulta (6.8) */
+.who-head { display: flex; align-items: center; gap: var(--space-16); }
+.who-name { font-size: var(--text-title); font-weight: var(--weight-extrabold); line-height: var(--leading-tight); letter-spacing: var(--tracking-title); }
+.who-meta { margin-top: var(--space-4); font-size: var(--text-ui); color: var(--muted-foreground); }
+.shortcuts { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: var(--space-8); }
+.facts { display: flex; flex-direction: column; gap: var(--space-14); padding: var(--space-18); border-radius: var(--radius-box); background: var(--card-soft); }
+.fact { display: grid; grid-template-columns: 24px 1fr; gap: var(--space-12); }
+.fact > .ic { color: var(--muted-foreground); margin-top: 2px; }
+.fact dt { font-size: var(--text-caption); font-weight: var(--weight-semibold); color: var(--muted-foreground); }
+.fact dd { margin: 0; font-size: var(--text-body); font-weight: var(--weight-medium); }
+.fact dd.vazio { color: var(--muted-foreground); font-weight: var(--weight-regular); }
+.steps-legend { margin-bottom: var(--space-12); font-size: var(--text-small); color: var(--muted-foreground); }
+.steps-legend b { color: var(--foreground); font-weight: var(--weight-bold); }
+.steps { list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); }
+.step { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--space-8); text-align: center;
+  font-size: var(--text-caption); font-weight: var(--weight-semibold); line-height: var(--leading-body); color: var(--muted-foreground); }
+.step::before { content: ''; position: absolute; top: 12px; right: 50%; width: 100%; height: 2px; background: var(--border); }
+.step:first-child::before { display: none; }
+.step-dot { position: relative; z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--radius-full);
+  background: var(--background); border: 2px solid var(--border); color: var(--primary-foreground); }
+.step-dot .ic { width: var(--icon-xs); height: var(--icon-xs); stroke-width: 3; }
+.step[data-state="done"] { color: var(--foreground); }
+.step[data-state="done"]::before { background: var(--primary); }
+.step[data-state="done"] .step-dot { background: var(--primary); border-color: var(--primary); }
+.step[data-state="next"] { color: var(--primary); font-weight: var(--weight-extrabold); }
+.step[data-state="next"] .step-dot { background: var(--card); border: 2px dashed var(--primary); box-shadow: 0 0 0 4px var(--primary-soft); }
+.actions-secondary { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-8); }
+
+/* Aviso com "Desfazer" (6.10) */
+.toasts { position: fixed; left: 50%; bottom: var(--space-24); transform: translateX(-50%); z-index: var(--z-toast);
+  display: flex; flex-direction: column; gap: var(--space-10); width: min(var(--overlay-width), calc(100vw - 32px)); }
+@media (max-width: 1099px) { .toasts { bottom: calc(var(--tabbar) + var(--space-16) + env(safe-area-inset-bottom)); } }
+.toast { display: flex; align-items: center; gap: var(--space-12); padding: var(--space-12) var(--space-10) var(--space-12) var(--space-14);
+  border-radius: var(--radius-box); background: var(--foreground); color: var(--on-dark); box-shadow: var(--shadow-lg); }
+.toast-icon { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: var(--radius-full); background: var(--on-dark-fill); color: var(--on-dark-accent); }
+.toast-icon .ic { width: var(--icon-md); height: var(--icon-md); }
+.toast-text { flex: 1; min-width: 0; font-size: var(--text-ui); font-weight: var(--weight-bold); line-height: var(--leading-body); }
+.toast-undo { flex: none; height: var(--control-sm); padding: 0 var(--space-12); border: 0; border-radius: var(--radius-sm); background: var(--on-dark-fill);
+  color: var(--on-dark-accent); font-size: var(--text-ui); font-weight: var(--weight-bold); }
+.toast-close { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--on-dark-muted); }
+.toast-close .ic { width: var(--icon-md); height: var(--icon-md); }
+
+/* Receitas que o PRD traz prontas (4.2, 6.6, 6.8, 6.9, 6.10, 7.1). */
+.avatar[data-tone="0"] { background: var(--avatar-1-bg); color: var(--avatar-1-fg); }
+.avatar[data-tone="1"] { background: var(--avatar-2-bg); color: var(--avatar-2-fg); }
+.avatar[data-tone="2"] { background: var(--avatar-3-bg); color: var(--avatar-3-fg); }
+.avatar[data-tone="3"] { background: var(--avatar-4-bg); color: var(--avatar-4-fg); }
+.avatar[data-tone="4"] { background: var(--avatar-5-bg); color: var(--avatar-5-fg); }
+.avatar[data-tone="5"] { background: var(--avatar-6-bg); color: var(--avatar-6-fg); }
+
+.detail-column { display: flex; flex-direction: column; overflow: hidden; background: var(--card); border: var(--line) solid var(--border); border-radius: var(--radius-xl); }
+.detail-column .detail-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--space-20); padding: var(--space-24); overflow-y: auto; overscroll-behavior: contain; }
+.detail-column .detail-foot { flex: none; padding: var(--space-14) var(--space-24) var(--space-20); border-top: var(--line) solid var(--border); }
+
+.today { display: grid; grid-template-columns: minmax(0, 1fr) var(--side); gap: var(--space-24); align-items: start; }
+.today-main { min-width: 0; }
+.today-detail { position: sticky; top: calc(var(--topbar) + var(--space-20)); max-height: calc(100dvh - var(--topbar) - var(--space-40)); }
+@media (max-width: 1279px) { .today { grid-template-columns: minmax(0, 1fr) var(--side-narrow); } }
+@media (max-width: 1099px) { .today { display: block; } .today-detail { display: none; } }
+
+.fab { transition: bottom var(--duration-slow) ease-out; }
+html[data-toast] .fab { bottom: calc(var(--tabbar) + var(--space-16) + var(--toast-stack) + var(--space-10) + env(safe-area-inset-bottom)); }
+
+@media (max-width: 599px) {
+  .next-body, .next-actions { flex: 1 1 100%; }
+  .next-actions { min-width: 0; }
+  .next-actions .button { flex: 1 1 auto; min-width: 0; padding: 0 var(--space-12); }
+}
+
+@media (max-width: 599px) {
+  .toast { flex-wrap: wrap; row-gap: var(--space-8); }
+  .toast-text { flex: 1 1 calc(100% - 34px - var(--space-12)); }
+  .toast-undo, .toast-text + .toast-close { margin-left: auto; }
+}
+
+/* Grade (7.2), copiada do PRD. */
+.grid { --axis: 58px; --hour: 80px; display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+  background: var(--card); border: var(--line) solid var(--border); border-radius: var(--radius-lg); }
+.grid-head, .grid-canvas { display: grid; grid-template-columns: var(--axis) repeat(var(--columns), minmax(0, 1fr)); }
+.grid-head { border-bottom: var(--line) solid var(--border); }
+.grid-col-head { display: flex; align-items: center; gap: var(--space-10); min-width: 0; padding: var(--space-10) var(--space-12); border-left: var(--line) solid var(--border); }
+.grid-col-head b { display: block; font-size: var(--text-body); font-weight: var(--weight-extrabold); }
+.grid-col-head small { display: block; font-size: var(--text-caption); font-weight: var(--weight-semibold); color: var(--muted-foreground); }
+.grid-col-head[data-today] { background: var(--primary-soft); }
+.grid-col-head[data-today] b, .grid-col-head[data-today] small { color: var(--primary); }
+.grid-col-head[data-past] b { color: var(--muted-foreground); }
+.grid-body { flex: 1 1 auto; min-height: calc(var(--hour) * 3); overflow-y: auto; overscroll-behavior: contain; }
+.grid-canvas { position: relative; }
+.grid-hours { position: relative; }
+.grid-hours span { position: absolute; right: var(--space-10); transform: translateY(-50%); font-size: var(--text-micro);
+  font-weight: var(--weight-bold); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.grid-hours span:first-child { transform: none; top: var(--space-4) !important; }
+.grid-column { position: relative; border-left: var(--line) solid var(--border);
+  background-image: repeating-linear-gradient(to bottom,
+    var(--border) 0, var(--border) 1px, transparent 1px, transparent calc(var(--hour) / 2),
+    var(--grid-half) calc(var(--hour) / 2), var(--grid-half) calc(var(--hour) / 2 + 1px), transparent calc(var(--hour) / 2 + 1px), transparent var(--hour)); }
+.grid-column[data-today] { background-color: var(--today-column); }
+.grid-column[data-past], .grid-column[data-empty] { background-color: var(--card-soft); }
+.grid-empty { position: absolute; top: var(--space-16); left: 0; right: 0; text-align: center;
+  font-size: var(--text-caption); font-weight: var(--weight-semibold); color: var(--muted-foreground); }
+@media (max-width: 899px) {
+  .grid { --axis: 46px; --hour: 68px; }
+  .grid-col-head { justify-content: center; text-align: center; padding: var(--space-8) var(--space-4); }
+  .grid-hours span { right: var(--space-6); }
+}
+
+/* Cartão da consulta (7.2), copiado do PRD. */
+.slot { --fg: var(--status-confirmado-fg); --bg: var(--status-confirmado-bg); --bar: var(--status-confirmado-bar);
+  position: absolute; z-index: 1; display: flex; flex-direction: column; gap: 1px; overflow: hidden; text-align: left;
+  padding: var(--space-4) var(--space-6) var(--space-4) var(--space-10); border: var(--line) solid var(--slot-edge);
+  border-radius: var(--radius-sm); background-color: var(--bg); color: var(--foreground);
+  font-size: var(--text-micro); line-height: var(--leading-card); }
+.slot::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--bar); }
+.slot:hover { filter: brightness(.97); z-index: 2; }
+.slot:focus-visible { outline-offset: 1px; z-index: 3; }
+.slot[aria-current="true"] { box-shadow: var(--shadow-selected); z-index: 3; }
+.slot .time { display: flex; align-items: center; gap: var(--space-4); font-weight: var(--weight-bold); color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.slot .time svg { width: var(--icon-xs); height: var(--icon-xs); stroke-width: 2.6; margin-left: auto; flex: none; }
+.slot .name { font-size: var(--text-caption); font-weight: var(--weight-bold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slot .detail, .slot .who { color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slot .who { display: flex; align-items: center; gap: var(--space-4); margin-top: auto; font-weight: var(--weight-semibold); }
+.slot.one-line { flex-direction: row; align-items: center; gap: var(--space-4); }
+.slot.one-line .time { flex: none; }
+.slot.one-line .name { flex: 1 1 auto; min-width: 0; }
+.slot { container-type: inline-size; }
+@container (width < 86px) { .slot .to { display: none; } }
+@container (width < 50px) { .slot .at { display: none; } }
+@container (width < 150px) { .slot.one-line .to { display: none; } }
+@container (width < 114px) { .slot.one-line .at { display: none; } }
+@container (width < 38px) { .slot.packed .name { display: none; } }
+.slot[data-status="agendado"] { --fg: var(--status-agendado-fg); --bg: var(--status-agendado-bg); border: var(--line-control) dashed var(--status-agendado-bar); }
+.slot[data-status="agendado"]::before { display: none; }
+.slot[data-status="atendimento"] { --fg: var(--status-atendimento-fg); --bg: var(--status-atendimento-bg); --bar: var(--status-atendimento-bar); color: var(--status-atendimento-fg); box-shadow: var(--shadow-live); }
+.slot[data-status="atendimento"] .detail, .slot[data-status="atendimento"] .who { color: var(--status-atendimento-muted); }
+.slot[data-status="concluido"] { --fg: var(--status-concluido-fg); --bg: var(--status-concluido-bg); --bar: var(--status-concluido-bar); }
+.slot[data-status="concluido"] .name { color: var(--status-concluido-fg); }
+.slot[data-status="cancelado"] { --fg: var(--status-cancelado-fg); --bg: var(--status-cancelado-bg); --bar: var(--status-cancelado-bar); background-image: var(--hatch); }
+.slot[data-status="cancelado"] .name { color: var(--muted-foreground); text-decoration: line-through; }
+.slot[data-status="faltou"] { --fg: var(--status-faltou-fg); --bg: var(--status-faltou-bg); --bar: var(--status-faltou-bar); background-image: var(--hatch); }
+
+/* Página da Agenda e coluna de detalhe (7.2), copiadas do PRD. */
+.agenda-main { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: var(--space-24); height: calc(100dvh - var(--topbar)); }
+.agenda-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.agenda-col > .grid { flex: 1 1 auto; min-height: 0; }
+.agenda-col .page-actions { margin-left: auto; }
+.filters-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12) var(--space-20); margin-bottom: var(--space-14); }
+.filters-row .legend { margin-left: auto; }
+.agenda-detail { min-height: 0; }
+.agenda-detail .detail-head { display: flex; align-items: center; justify-content: space-between; padding: var(--space-18) var(--space-24) var(--space-4); }
+.agenda-detail .detail-body { padding-top: var(--space-10); }
+@media (min-width: 1280px) { .agenda-main[data-panel] { grid-template-columns: minmax(0, 1fr) var(--overlay-width); } }
+@media (max-width: 1099px) { .agenda-main { height: calc(100dvh - var(--topbar-mobile)); } }
+
+/* Só neste exemplo: abaixo de 1280 px o PRD abre o detalhe como painel por cima, com véu; o exemplo estático não o desenha. */
+@media (max-width: 1279px) { .agenda-detail { display: none; } }
+
+/* Legenda das situações (4.3) */
+.legend { list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6) var(--space-16); }
+.legend li { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--text-caption); font-weight: var(--weight-semibold); color: var(--muted-foreground); white-space: nowrap; }
+.swatch { --bg: var(--status-confirmado-bg); --bar: var(--status-confirmado-bar); position: relative; flex: none; width: 20px; height: 14px; overflow: hidden; border-radius: 4px; background-color: var(--bg); }
+.swatch::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--bar); }
+.swatch[data-status="agendado"] { --bg: var(--status-agendado-bg); border: var(--line-control) dashed var(--status-agendado-bar); }
+.swatch[data-status="agendado"]::before { display: none; }
+.swatch[data-status="atendimento"] { --bg: var(--status-atendimento-bg); --bar: var(--status-atendimento-bar); box-shadow: var(--shadow-live); }
+.swatch[data-status="concluido"] { --bg: var(--status-concluido-bg); --bar: var(--status-concluido-bar); }
+.swatch[data-status="cancelado"] { --bg: var(--status-cancelado-bg); --bar: var(--status-cancelado-bar); background-image: var(--hatch); }
+.swatch[data-status="faltou"] { --bg: var(--status-faltou-bg); --bar: var(--status-faltou-bar); background-image: var(--hatch); }
+@media (max-width: 1279px) { .legend { display: none; } }
+
+/* Linha "agora" na grade (7.2) */
+.now-grid { position: absolute; left: var(--axis); right: 0; height: 2px; margin-top: -1px; z-index: 4; pointer-events: none; background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.now-grid::before { content: ''; position: absolute; left: 0; top: 50%; width: 10px; height: 10px; transform: translateY(-50%); border-radius: var(--radius-full); background: var(--accent); }
+.now-today { position: absolute; left: 0; right: 0; height: 3px; margin-top: -1.5px; z-index: 4; pointer-events: none; background: var(--accent); }
+.now-label { position: absolute; left: 4px; z-index: 4; transform: translateY(-50%); pointer-events: none; padding: var(--space-2) var(--space-4); border-radius: 6px;
+  background: var(--accent-text); color: var(--on-dark); font-size: var(--text-micro); font-weight: var(--weight-extrabold); font-variant-numeric: tabular-nums; }
+.slot .who .avatar { flex: none; }
+
+/* Título da coluna de detalhe (6.8) */
+.panel-title { font-size: var(--text-small); font-weight: var(--weight-bold); color: var(--muted-foreground); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
+/* Abaixo de 900 px a semana vira 3 dias (PRD 5.1): terça, quarta (hoje) e quinta */
+@media (max-width: 899px) {
+  .grid { --columns: 3 !important; }
+  .grid-head > :nth-child(2), .grid-head > :nth-child(6), .grid-head > :nth-child(7), .grid-head > :nth-child(8),
+  .grid-canvas > :nth-child(2), .grid-canvas > :nth-child(6), .grid-canvas > :nth-child(7), .grid-canvas > :nth-child(8) { display: none; }
+}
+/* Altura baixa: a agenda deixa de ter altura fixa e rolagem própria */
+@media (max-height: 480px) {
+  .agenda-main { height: auto; }
+  .grid-body { overflow: visible; }
+}
+@media (max-width: 899px) {
+  .next { padding: var(--space-8) var(--space-12); border-radius: var(--radius-box); }
+  .next-time { font-size: var(--text-title); }
+  .next-name { font-size: var(--text-ui); }
+  .next-meta { font-size: var(--text-caption); }
+  .next-actions { display: none; }
+}
+
+/* Altura até 480px (zoom alto): tudo o que é fixo rola junto (PRD 5.3). Diálogo, painel e folha continuam fixos. */
+@media (max-height: 480px) {
+  .topbar, .tabbar, .fab, .toasts { position: static; }
+  .toasts { transform: none; }
+  .today-detail { position: static; max-height: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#conteudo">Ir para o conteúdo</a>
+<header class="topbar">
+  <a class="brand" href="hoje.html" aria-label="Vila Serena, ir para Hoje"><span>Vila <span class="nome-2">Serena</span></span></a>
+  <nav class="tabs" aria-label="Principal">
+      <a class="tab" href="hoje.html"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>Hoje</a>
+      <a class="tab" href="agenda-semana.html" aria-current="page"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/></svg>Agenda</a>
+      <a class="tab" href="#pacientes"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Pacientes</a>
+      <a class="tab" href="#painel"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>Painel</a>
+      <a class="tab" href="#clinica"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>Clínica</a>
+  </nav>
+  <button class="account" type="button" aria-label="Conta de Carla Mendes, Responsável" aria-haspopup="menu" aria-expanded="false">
+    <span class="avatar sm" data-tone="1" aria-hidden="true">CM</span>
+    <span class="account-text"><span class="account-name">Carla Mendes</span><span class="account-role">Responsável</span></span>
+    <svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+  </button>
+</header>
+
+<main id="conteudo" tabindex="-1" class="agenda-main" data-panel>
+  <div class="agenda-col">
+    <div class="page-head">
+      <div>
+        <h1 tabindex="-1" data-autofocus>Agenda</h1>
+        <p class="sub">26 de outubro a 1 de novembro · 65 consultas</p>
+      </div>
+      <div class="page-actions">
+        <button class="button secondary icon-only" type="button" aria-label="Período anterior" title="Período anterior"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+        <button class="button secondary" type="button">Hoje</button>
+        <button class="button secondary icon-only" type="button" aria-label="Próximo período" title="Próximo período"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+        <div class="segmented" role="group" aria-label="Visão da agenda">
+          <button type="button" aria-pressed="false">Dia</button>
+          <button type="button" aria-pressed="true">Semana</button>
+          <button type="button" aria-pressed="false">Mês</button>
+        </div>
+        <button class="button primary page-action-desktop" type="button"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Agendar consulta</button>
+      </div>
+    </div>
+    <div class="filters-row">
+      <div class="chips" role="group" aria-label="Filtrar por profissional">
+      <button class="chip" type="button" aria-pressed="true">Todos <span class="count">65</span></button>
+      <button class="chip" type="button" aria-pressed="false"><span class="avatar xs" data-tone="3" aria-hidden="true">LM</span>Dra. Lia <span class="count">25</span></button>
+      <button class="chip" type="button" aria-pressed="false"><span class="avatar xs" data-tone="4" aria-hidden="true">CF</span>Dr. Caio <span class="count">25</span></button>
+      <button class="chip" type="button" aria-pressed="false"><span class="avatar xs" data-tone="0" aria-hidden="true">BR</span>Dra. Bianca <span class="count">15</span></button>
+    </div>
+      <ul class="legend" aria-label="Situações da consulta">
+        <li><span class="swatch" data-status="agendado"></span>Agendado</li>
+        <li><span class="swatch" data-status="confirmado"></span>Confirmado</li>
+        <li><span class="swatch" data-status="atendimento"></span>Em atendimento</li>
+        <li><span class="swatch" data-status="concluido"></span>Concluído</li>
+        <li><span class="swatch" data-status="cancelado"></span>Cancelado</li>
+        <li><span class="swatch" data-status="faltou"></span>Faltou</li>
+      </ul>
+    </div>
+    <section class="next" aria-label="Próximo paciente" data-surface="dark">
+      <p class="next-label">Próximo · em 20 min</p>
+      <button class="next-body" type="button" aria-label="Abrir a consulta de Helena Prado">
+        <span class="next-time">10:00</span>
+        <span class="next-info"><span class="next-name">Helena Prado</span><span class="next-meta">Limpeza · Dra. Lia Moura · 30 min</span></span>
+      </button>
+      <div class="next-actions">
+
+        <a class="button chat" href="https://wa.me/5511987654321?text=Ol%C3%A1%2C%20Helena!%20Lembrando%20da%20sua%20consulta%20de%20limpeza%20no%20dia%2028%2F10%2F2026%20%C3%A0s%2010%3A00.%20Podemos%20confirmar%3F" target="_blank" rel="noreferrer"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>WhatsApp</a>
+      </div>
+    </section>
+    <p class="sr-only">Para agendar num horário livre pelo teclado, use o botão Agendar consulta.</p>
+    <section class="grid" role="region" aria-label="Agenda: 26 de outubro a 1 de novembro" style="--columns: 7">
+      <div class="grid-head">
+        <div></div>
+        <div class="grid-col-head" data-past><div><b>Seg 26</b><small>11 consultas</small></div></div>
+      <div class="grid-col-head" data-past><div><b>Ter 27</b><small>12 consultas</small></div></div>
+      <div class="grid-col-head" data-today><div><b>Qua 28</b><small>Hoje · 14 consultas</small></div></div>
+      <div class="grid-col-head"><div><b>Qui 29</b><small>13 consultas</small></div></div>
+      <div class="grid-col-head"><div><b>Sex 30</b><small>12 consultas</small></div></div>
+      <div class="grid-col-head"><div><b>Sáb 31</b><small>3 consultas</small></div></div>
+      <div class="grid-col-head"><div><b>Dom 1</b><small>0 consultas</small></div></div>
+      </div>
+      <div class="grid-body">
+        <div class="grid-canvas" style="height:960px">
+          <div class="grid-hours"><span style="top:0px">07:00</span><span style="top:80px">08:00</span><span style="top:160px">09:00</span><span style="top:240px">10:00</span><span style="top:320px">11:00</span><span style="top:400px">12:00</span><span style="top:480px">13:00</span><span style="top:560px">14:00</span><span style="top:640px">15:00</span><span style="top:720px">16:00</span><span style="top:800px">17:00</span><span style="top:880px">18:00</span></div>
+        <div class="grid-column" data-past>
+
+        <button class="slot" type="button" data-status="concluido" style="top:81.5px;height:77px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="08:00 às 09:00, Nair Siqueira, Restauração, Dr. Caio Ferraz, Concluído"><span class="time"><span class="at">08:00<span class="to">–09:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name">Nair Siqueira</span><span class="detail">Restauração</span></button>
+        <button class="slot one-line" type="button" data-status="concluido" style="top:121.5px;height:37px;left:calc(1 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="08:30 às 09:00, Antônia Ribeiro, Manutenção do aparelho, Dra. Lia Moura, Concluído"><span class="time"><span class="at">08:30<span class="to">–09:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name">Antônia Ribeiro</span></button>
+        <button class="slot packed" type="button" data-status="concluido" style="top:161.5px;height:117px;left:calc(0 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="09:00 às 10:30, Silvana Teles, Tratamento de canal, Dra. Bianca Rocha, Concluído"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name" aria-hidden="true">ST</span></button>
+        <button class="slot one-line packed" type="button" data-status="concluido" style="top:201.5px;height:37px;left:calc(1 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="09:30 às 10:00, Gustavo Pires, Avaliação, Dra. Lia Moura, Concluído"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name" aria-hidden="true">GP</span></button>
+        <button class="slot one-line packed" type="button" data-status="concluido" style="top:201.5px;height:37px;left:calc(2 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="09:30 às 10:00, Heitor Campos, Limpeza, Dr. Caio Ferraz, Concluído"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name" aria-hidden="true">HC</span></button>
+        <button class="slot one-line" type="button" data-status="faltou" style="top:281.5px;height:37px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="10:30 às 11:00, Joana Faria, Manutenção do aparelho, Dra. Lia Moura, Faltou"><span class="time"><span class="at">10:30<span class="to">–11:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21a8 8 0 0 1 11.873-7"/><circle cx="10" cy="8" r="5"/><path d="m17 17 5 5"/><path d="m22 17-5 5"/></svg></span><span class="name">Joana Faria</span></button>
+        <button class="slot" type="button" data-status="concluido" style="top:281.5px;height:77px;left:calc(1 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="10:30 às 11:30, Lúcia Barreto, Clareamento, Dr. Caio Ferraz, Concluído"><span class="time"><span class="at">10:30<span class="to">–11:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name">Lúcia Barreto</span><span class="detail">Clareamento</span></button>
+        <button class="slot one-line" type="button" data-status="cancelado" style="top:321.5px;height:37px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="11:00 às 11:30, Otto Klein, Avaliação, Dra. Bianca Rocha, Cancelado"><span class="time"><span class="at">11:00<span class="to">–11:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span><span class="name">Otto Klein</span></button>
+        <button class="slot" type="button" data-status="concluido" style="top:561.5px;height:77px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="14:00 às 15:00, Davi Moreira, Restauração, Dr. Caio Ferraz, Concluído"><span class="time"><span class="at">14:00<span class="to">–15:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name">Davi Moreira</span><span class="detail">Restauração</span></button>
+        <button class="slot one-line" type="button" data-status="concluido" style="top:601.5px;height:37px;left:calc(1 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="14:30 às 15:00, Marcos Vidal, Manutenção do aparelho, Dra. Lia Moura, Concluído"><span class="time"><span class="at">14:30<span class="to">–15:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name">Marcos Vidal</span></button>
+        <button class="slot one-line" type="button" data-status="concluido" style="top:641.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="15:00 às 15:30, Elisa Menezes, Avaliação, Dra. Bianca Rocha, Concluído"><span class="time"><span class="at">15:00<span class="to">–15:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name">Elisa Menezes</span></button>
+
+      </div>
+      <div class="grid-column" data-past>
+
+        <button class="slot one-line packed" type="button" data-status="concluido" style="top:81.5px;height:37px;left:calc(0 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="08:00 às 08:30, Renato Gouveia, Avaliação, Dra. Lia Moura, Concluído"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name" aria-hidden="true">RG</span></button>
+        <button class="slot packed" type="button" data-status="concluido" style="top:81.5px;height:117px;left:calc(1 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="08:00 às 09:30, Cláudia Nunes, Tratamento de canal, Dra. Bianca Rocha, Concluído"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name" aria-hidden="true">CN</span></button>
+        <button class="slot one-line packed" type="button" data-status="concluido" style="top:121.5px;height:37px;left:calc(0 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="08:30 às 09:00, Paula Quintana, Manutenção do aparelho, Dra. Lia Moura, Concluído"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name" aria-hidden="true">PQ</span></button>
+        <button class="slot packed" type="button" data-status="concluido" style="top:121.5px;height:77px;left:calc(2 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="08:30 às 09:30, Isabela Ramos, Restauração, Dr. Caio Ferraz, Concluído"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name" aria-hidden="true">IR</span></button>
+        <button class="slot one-line" type="button" data-status="concluido" style="top:201.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="09:30 às 10:00, Miguel Arantes, Limpeza, Dra. Lia Moura, Concluído"><span class="time"><span class="at">09:30<span class="to">–10:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name">Miguel Arantes</span></button>
+        <button class="slot one-line" type="button" data-status="concluido" style="top:241.5px;height:37px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="10:00 às 10:30, Fernando Assis, Limpeza, Dr. Caio Ferraz, Concluído"><span class="time"><span class="at">10:00<span class="to">–10:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name">Fernando Assis</span></button>
+        <button class="slot one-line" type="button" data-status="cancelado" style="top:241.5px;height:37px;left:calc(1 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="10:00 às 10:30, Rodrigo Meireles, Avaliação, Dra. Bianca Rocha, Cancelado"><span class="time"><span class="at">10:00<span class="to">–10:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span><span class="name">Rodrigo Meireles</span></button>
+        <button class="slot one-line" type="button" data-status="concluido" style="top:281.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="10:30 às 11:00, Vera Dias, Manutenção do aparelho, Dra. Lia Moura, Concluído"><span class="time"><span class="at">10:30<span class="to">–11:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name">Vera Dias</span></button>
+        <button class="slot" type="button" data-status="concluido" style="top:321.5px;height:77px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="11:00 às 12:00, Mônica Leal, Clareamento, Dr. Caio Ferraz, Concluído"><span class="time"><span class="at">11:00<span class="to">–12:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name">Mônica Leal</span><span class="detail">Clareamento</span></button>
+        <button class="slot packed" type="button" data-status="concluido" style="top:561.5px;height:77px;left:calc(0 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="14:00 às 15:00, Breno Falcão, Restauração, Dr. Caio Ferraz, Concluído"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name" aria-hidden="true">BF</span></button>
+        <button class="slot packed" type="button" data-status="concluido" style="top:561.5px;height:77px;left:calc(1 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="14:00 às 15:00, Yasmin Cardoso, Extração, Dra. Bianca Rocha, Concluído"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name" aria-hidden="true">YC</span></button>
+        <button class="slot one-line packed" type="button" data-status="concluido" style="top:601.5px;height:37px;left:calc(2 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="14:30 às 15:00, Caetano Luz, Avaliação, Dra. Lia Moura, Concluído"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name" aria-hidden="true">CL</span></button>
+
+      </div>
+      <div class="grid-column" data-today>
+
+        <button class="slot one-line" type="button" data-status="concluido" style="top:121.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="08:30 às 09:00, Tiago Neves, Manutenção do aparelho, Dra. Lia Moura, Concluído"><span class="time"><span class="at">08:30<span class="to">–09:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span><span class="name">Tiago Neves</span></button>
+        <button class="slot one-line" type="button" data-status="faltou" style="top:161.5px;height:37px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="09:00 às 09:30, Otávio Brandão, Manutenção do aparelho, Dra. Lia Moura, Faltou"><span class="time"><span class="at">09:00<span class="to">–09:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21a8 8 0 0 1 11.873-7"/><circle cx="10" cy="8" r="5"/><path d="m17 17 5 5"/><path d="m22 17-5 5"/></svg></span><span class="name">Otávio Brandão</span></button>
+        <button class="slot" type="button" data-status="atendimento" style="top:161.5px;height:77px;left:calc(1 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="09:00 às 10:00, Elaine Duarte, Restauração, Dr. Caio Ferraz, Em atendimento"><span class="time"><span class="at">09:00<span class="to">–10:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg></span><span class="name">Elaine Duarte</span><span class="detail">Restauração</span></button>
+        <button class="slot one-line packed" type="button" data-status="agendado" style="top:241.5px;height:37px;left:calc(0 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="10:00 às 10:30, Helena Prado, Limpeza, Dra. Lia Moura, Agendado"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name" aria-hidden="true">HP</span></button>
+        <button class="slot packed" type="button" data-status="confirmado" style="top:241.5px;height:77px;left:calc(1 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="10:00 às 11:00, Carlos Eduardo Braga, Clareamento, Dr. Caio Ferraz, Confirmado" aria-current="true"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name" aria-hidden="true">CB</span></button>
+        <button class="slot packed" type="button" data-status="agendado" style="top:241.5px;height:117px;left:calc(2 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="10:00 às 11:30, Paulo Sérgio Lima, Tratamento de canal, Dra. Bianca Rocha, Agendado"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name" aria-hidden="true">PL</span></button>
+        <button class="slot one-line" type="button" data-status="agendado" style="top:561.5px;height:37px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="14:00 às 14:30, Luciana Moraes, Manutenção do aparelho, Dra. Lia Moura, Agendado"><span class="time"><span class="at">14:00<span class="to">–14:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name">Luciana Moraes</span></button>
+        <button class="slot" type="button" data-status="confirmado" style="top:561.5px;height:117px;left:calc(1 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="14:00 às 15:30, Wagner Teixeira, Tratamento de canal, Dra. Bianca Rocha, Confirmado"><span class="time"><span class="at">14:00<span class="to">–15:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Wagner Teixeira</span><span class="detail">Tratamento de canal</span><span class="who"><span class="avatar xxs" data-tone="0" aria-hidden="true">BR</span>Bianca</span></button>
+        <button class="slot one-line" type="button" data-status="cancelado" style="top:601.5px;height:37px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="14:30 às 15:00, Débora Siqueira, Limpeza, Dr. Caio Ferraz, Cancelado"><span class="time"><span class="at">14:30<span class="to">–15:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span><span class="name">Débora Siqueira</span></button>
+        <button class="slot one-line" type="button" data-status="confirmado" style="top:641.5px;height:37px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="15:00 às 15:30, Fábio Nogueira, Avaliação, Dra. Lia Moura, Confirmado"><span class="time"><span class="at">15:00<span class="to">–15:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Fábio Nogueira</span></button>
+        <button class="slot" type="button" data-status="confirmado" style="top:681.5px;height:77px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="15:30 às 16:30, Sônia Maria Pereira, Restauração, Dr. Caio Ferraz, Confirmado"><span class="time"><span class="at">15:30<span class="to">–16:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Sônia Maria Pereira</span><span class="detail">Restauração</span></button>
+        <button class="slot one-line" type="button" data-status="agendado" style="top:761.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="16:30 às 17:00, Ivan Coutinho, Manutenção do aparelho, Dra. Lia Moura, Agendado"><span class="time"><span class="at">16:30<span class="to">–17:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name">Ivan Coutinho</span></button>
+        <button class="slot" type="button" data-status="confirmado" style="top:801.5px;height:77px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="17:00 às 18:00, Rita Lopes, Clareamento, Dr. Caio Ferraz, Confirmado"><span class="time"><span class="at">17:00<span class="to">–18:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Rita Lopes</span><span class="detail">Clareamento</span></button>
+        <button class="slot one-line" type="button" data-status="confirmado" style="top:921.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="18:30 às 19:00, Beatriz Fontes, Avaliação, Dra. Bianca Rocha, Confirmado"><span class="time"><span class="at">18:30<span class="to">–19:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Beatriz Fontes</span></button>
+        <div class="now-today" aria-hidden="true" style="top:213.33333333333331px"></div>
+      </div>
+      <div class="grid-column">
+
+        <button class="slot packed" type="button" data-status="confirmado" style="top:81.5px;height:77px;left:calc(0 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="08:00 às 09:00, Jorge Amaral, Restauração, Dr. Caio Ferraz, Confirmado"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name" aria-hidden="true">JA</span></button>
+        <button class="slot one-line packed" type="button" data-status="confirmado" style="top:121.5px;height:37px;left:calc(1 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="08:30 às 09:00, Amanda Soares, Manutenção do aparelho, Dra. Lia Moura, Confirmado"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name" aria-hidden="true">AS</span></button>
+        <button class="slot packed" type="button" data-status="confirmado" style="top:121.5px;height:117px;left:calc(2 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="08:30 às 10:00, Osvaldo Pinheiro, Tratamento de canal, Dra. Bianca Rocha, Confirmado"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name" aria-hidden="true">OP</span></button>
+        <button class="slot one-line packed" type="button" data-status="confirmado" style="top:201.5px;height:37px;left:calc(0 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="09:30 às 10:00, Ricardo Matos, Avaliação, Dra. Lia Moura, Confirmado"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name" aria-hidden="true">RM</span></button>
+        <button class="slot packed" type="button" data-status="confirmado" style="top:201.5px;height:77px;left:calc(1 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="09:30 às 10:30, Alice Rangel, Clareamento, Dr. Caio Ferraz, Confirmado"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name" aria-hidden="true">AR</span></button>
+        <button class="slot one-line" type="button" data-status="agendado" style="top:281.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="10:30 às 11:00, Tereza Bastos, Limpeza, Dra. Lia Moura, Agendado"><span class="time"><span class="at">10:30<span class="to">–11:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name">Tereza Bastos</span></button>
+        <button class="slot one-line" type="button" data-status="agendado" style="top:321.5px;height:37px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="11:00 às 11:30, Sérgio Dantas, Limpeza, Dr. Caio Ferraz, Agendado"><span class="time"><span class="at">11:00<span class="to">–11:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name">Sérgio Dantas</span></button>
+        <button class="slot one-line" type="button" data-status="cancelado" style="top:321.5px;height:37px;left:calc(1 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="11:00 às 11:30, Letícia Ornelas, Avaliação, Dra. Bianca Rocha, Cancelado"><span class="time"><span class="at">11:00<span class="to">–11:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span><span class="name">Letícia Ornelas</span></button>
+        <button class="slot one-line" type="button" data-status="confirmado" style="top:561.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="14:00 às 14:30, Pedro Lemos, Manutenção do aparelho, Dra. Lia Moura, Confirmado"><span class="time"><span class="at">14:00<span class="to">–14:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Pedro Lemos</span></button>
+        <button class="slot" type="button" data-status="confirmado" style="top:601.5px;height:77px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="14:30 às 15:30, Marta Cunha, Restauração, Dr. Caio Ferraz, Confirmado"><span class="time"><span class="at">14:30<span class="to">–15:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Marta Cunha</span><span class="detail">Restauração</span></button>
+        <button class="slot" type="button" data-status="agendado" style="top:641.5px;height:77px;left:calc(1 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="15:00 às 16:00, Raul Tavares, Extração, Dra. Bianca Rocha, Agendado"><span class="time"><span class="at">15:00<span class="to">–16:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name">Raul Tavares</span><span class="detail">Extração</span></button>
+        <button class="slot one-line" type="button" data-status="agendado" style="top:681.5px;height:37px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="15:30 às 16:00, Natália Freitas, Manutenção do aparelho, Dra. Lia Moura, Agendado"><span class="time"><span class="at">15:30<span class="to">–16:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name">Natália Freitas</span></button>
+        <button class="slot one-line" type="button" data-status="agendado" style="top:721.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="16:00 às 16:30, Bruna Escobar, Limpeza, Dr. Caio Ferraz, Agendado"><span class="time"><span class="at">16:00<span class="to">–16:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name">Bruna Escobar</span></button>
+
+      </div>
+      <div class="grid-column">
+
+        <button class="slot one-line" type="button" data-status="confirmado" style="top:81.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="08:00 às 08:30, Cecília Prates, Manutenção do aparelho, Dra. Lia Moura, Confirmado"><span class="time"><span class="at">08:00<span class="to">–08:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Cecília Prates</span></button>
+        <button class="slot packed" type="button" data-status="confirmado" style="top:121.5px;height:77px;left:calc(0 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="08:30 às 09:30, Fabiana Castro, Restauração, Dr. Caio Ferraz, Confirmado"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name" aria-hidden="true">FC</span></button>
+        <button class="slot one-line packed" type="button" data-status="agendado" style="top:161.5px;height:37px;left:calc(1 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="09:00 às 09:30, Lauro Cavalcanti, Avaliação, Dra. Lia Moura, Agendado"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name" aria-hidden="true">LC</span></button>
+        <button class="slot packed" type="button" data-status="confirmado" style="top:161.5px;height:117px;left:calc(2 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="09:00 às 10:30, Ítalo Guedes, Tratamento de canal, Dra. Bianca Rocha, Confirmado"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name" aria-hidden="true">ÍG</span></button>
+        <button class="slot one-line packed" type="button" data-status="agendado" style="top:241.5px;height:37px;left:calc(0 / 3 * 100% + 3px);width:calc(100% / 3 - 6px)" aria-label="10:00 às 10:30, Hugo Salgado, Limpeza, Dr. Caio Ferraz, Agendado"><span class="time"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name" aria-hidden="true">HS</span></button>
+        <button class="slot one-line" type="button" data-status="confirmado" style="top:281.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="10:30 às 11:00, Dayane Rios, Manutenção do aparelho, Dra. Lia Moura, Confirmado"><span class="time"><span class="at">10:30<span class="to">–11:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Dayane Rios</span></button>
+        <button class="slot" type="button" data-status="confirmado" style="top:321.5px;height:77px;left:calc(0 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="11:00 às 12:00, Priscila Mota, Clareamento, Dr. Caio Ferraz, Confirmado"><span class="time"><span class="at">11:00<span class="to">–12:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Priscila Mota</span><span class="detail">Clareamento</span></button>
+        <button class="slot one-line" type="button" data-status="agendado" style="top:361.5px;height:37px;left:calc(1 / 2 * 100% + 3px);width:calc(100% / 2 - 6px)" aria-label="11:30 às 12:00, Samira Lacerda, Avaliação, Dra. Bianca Rocha, Agendado"><span class="time"><span class="at">11:30<span class="to">–12:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name">Samira Lacerda</span></button>
+        <button class="slot one-line" type="button" data-status="confirmado" style="top:561.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="14:00 às 14:30, Alan Pimentel, Avaliação, Dr. Caio Ferraz, Confirmado"><span class="time"><span class="at">14:00<span class="to">–14:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Alan Pimentel</span></button>
+        <button class="slot one-line" type="button" data-status="agendado" style="top:601.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="14:30 às 15:00, Emanuel Sá, Limpeza, Dra. Lia Moura, Agendado"><span class="time"><span class="at">14:30<span class="to">–15:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name">Emanuel Sá</span></button>
+        <button class="slot one-line" type="button" data-status="confirmado" style="top:641.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="15:00 às 15:30, Jonas Beltrão, Avaliação, Dra. Bianca Rocha, Confirmado"><span class="time"><span class="at">15:00<span class="to">–15:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Jonas Beltrão</span></button>
+        <button class="slot" type="button" data-status="agendado" style="top:681.5px;height:77px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="15:30 às 16:30, Rosana Veloso, Restauração, Dr. Caio Ferraz, Agendado"><span class="time"><span class="at">15:30<span class="to">–16:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name">Rosana Veloso</span><span class="detail">Restauração</span></button>
+
+      </div>
+      <div class="grid-column">
+
+        <button class="slot one-line" type="button" data-status="confirmado" style="top:121.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="08:30 às 09:00, Kelly Sampaio, Avaliação, Dra. Lia Moura, Confirmado"><span class="time"><span class="at">08:30<span class="to">–09:00</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Kelly Sampaio</span></button>
+        <button class="slot one-line" type="button" data-status="agendado" style="top:161.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="09:00 às 09:30, Leandro Porto, Limpeza, Dr. Caio Ferraz, Agendado"><span class="time"><span class="at">09:00<span class="to">–09:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="name">Leandro Porto</span></button>
+        <button class="slot one-line" type="button" data-status="confirmado" style="top:241.5px;height:37px;left:calc(0 / 1 * 100% + 3px);width:calc(100% / 1 - 6px)" aria-label="10:00 às 10:30, Mirela Torres, Avaliação, Dr. Caio Ferraz, Confirmado"><span class="time"><span class="at">10:00<span class="to">–10:30</span></span><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="name">Mirela Torres</span></button>
+
+      </div>
+      <div class="grid-column" data-empty>
+        <div class="grid-empty">Sem consultas</div>
+
+
+      </div>
+          <div class="now-grid" aria-hidden="true" style="top:213.33333333333331px"></div>
+          <span class="now-label" aria-hidden="true" style="top:213.33333333333331px">09:40</span>
+        </div>
+      </div>
+    </section>
+  </div>
+  <aside class="detail-column agenda-detail" aria-label="Detalhe da consulta">
+    <div class="detail-head">
+      <h2 class="panel-title">Consulta</h2>
+      <button class="button ghost icon-only lg-icon" type="button" aria-label="Fechar" title="Fechar"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+    <div class="detail-body">
+        <div class="who-head">
+          <span class="avatar xl" data-tone="5" aria-hidden="true">CB</span>
+          <div>
+            <h2 class="who-name">Carlos Eduardo Braga</h2>
+            <p class="who-meta">47 anos · (11) 97654-3210</p>
+          </div>
+        </div>
+        <div class="shortcuts">
+          <a class="button sm whatsapp" href="https://wa.me/5511976543210?text=Ol%C3%A1%2C%20Carlos!%20Lembrando%20da%20sua%20consulta%20de%20clareamento%20no%20dia%2028%2F10%2F2026%20%C3%A0s%2010%3A00.%20Podemos%20confirmar%3F" target="_blank" rel="noreferrer"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>WhatsApp</a>
+          <a class="button sm secondary" href="tel:+5511976543210"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>Ligar</a>
+          <a class="button sm secondary" href="#ficha"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>Ficha</a>
+        </div>
+        <dl class="facts">
+          <div class="fact"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><div><dt>Horário</dt><dd>Hoje, 10:00 às 11:00 · 60 min</dd></div></div>
+          <div class="fact"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg><div><dt>Procedimento</dt><dd>Clareamento · R$ 650,00</dd></div></div>
+          <div class="fact"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg><div><dt>Profissional</dt><dd>Dr. Caio Ferraz</dd></div></div>
+          <div class="fact"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/><path d="M15 3v6h6"/></svg><div><dt>Observação</dt><dd class="vazio">Não informado</dd></div></div>
+        </dl>
+        <div>
+          <p class="steps-legend">Situação: <b>Confirmado</b> · Próximo: <b>iniciar atendimento</b></p>
+          <ol class="steps" aria-label="Etapas da consulta">
+          <li class="step" data-state="done"><span class="step-dot"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span>Agendado</span></li>
+          <li class="step" data-state="done" aria-current="step"><span class="step-dot"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span>Confirmado</span></li>
+          <li class="step" data-state="next"><span class="step-dot"></span><span>Em atendimento<span class="sr-only"> (próximo passo)</span></span></li>
+          <li class="step" data-state="pend"><span class="step-dot"></span><span>Concluído</span></li>
+          </ol>
+        </div>
+        <div class="actions-secondary">
+          <button class="button sm secondary" type="button"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 10v4h4"/><path d="m11 14 1.535-1.605a5 5 0 0 1 8 1.5"/><path d="M16 2v4"/><path d="m21 18-1.535 1.605a5 5 0 0 1-8-1.5"/><path d="M21 22v-4h-4"/><path d="M21 8.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4.3"/><path d="M3 10h4"/><path d="M8 2v4"/></svg>Remarcar</button>
+          <button class="button sm danger" type="button"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21a8 8 0 0 1 11.873-7"/><circle cx="10" cy="8" r="5"/><path d="m17 17 5 5"/><path d="m22 17-5 5"/></svg>Faltou</button>
+          <button class="button sm danger" type="button"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>Cancelar</button>
+        </div>
+      </div>
+    <div class="detail-foot">
+        <button class="button lg block primary" type="button"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg>Iniciar atendimento</button>
+      </div>
+  </aside>
+</main>
+<nav class="tabbar" aria-label="Principal">
+  <a href="hoje.html"><span class="pill"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg></span>Hoje</a>
+  <a href="agenda-semana.html" aria-current="page"><span class="pill"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/></svg></span>Agenda</a>
+  <a href="#pacientes"><span class="pill"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Pacientes</a>
+  <a href="#mais"><span class="pill"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></span>Mais</a>
+</nav>
+
+<button class="button primary fab" type="button"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Agendar</button>
+<script>
+/* Rolagem inicial da grade (7.2): uma hora antes de agora, porque hoje está na tela. */
+(function () {
+  var grade = document.querySelector('.grid');
+  var corpo = document.querySelector('.grid-body');
+  var hora = parseFloat(getComputedStyle(grade).getPropertyValue('--hour'));
+  corpo.scrollTop = ((580 - 60) - 420) / 60 * hora;
+})();
+</script>
+</body>
+</html>

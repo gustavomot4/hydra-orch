@@ -5,7 +5,7 @@ import {
   PointerEvent as ReactPointerEvent,
   useState,
 } from 'react';
-import { Search } from 'lucide-react';
+import { Search, FolderGit2 } from 'lucide-react';
 import { AppRail } from '@/component/AppRail';
 import { WorkspaceTree } from '@/component/WorkspaceTree';
 import { ConversationHistory } from '@/feature/chat/ConversationHistory';
@@ -22,9 +22,10 @@ export function Sidebar({ onSelectTreeNode, ...navigation }: SidebarProps) {
   const mobileDrawerOpen = useLayoutStore((s) => s.mobileDrawerOpen);
   const setSidebarWidth = useLayoutStore((s) => s.setSidebarWidth);
   const setMobileDrawerOpen = useLayoutStore((s) => s.setMobileDrawerOpen);
+  const selectedProjectId = useLayoutStore((s) => s.selectedProjectId);
 
   const [filterQuery, setFilterQuery] = useState('');
-  const { tree, isLoading } = useWorkspaceHierarchy();
+  const { tree, projects, isLoading } = useWorkspaceHierarchy();
 
   const handleResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -74,19 +75,12 @@ export function Sidebar({ onSelectTreeNode, ...navigation }: SidebarProps) {
         />
       ) : null}
       <AppRail {...navigation}>
-        <ConversationHistory
-          filter={filterQuery}
-          onSelect={(node) => {
-            onSelectTreeNode(node);
-            setMobileDrawerOpen(false);
-          }}
-        />
         <section
           className="border-t border-[#303030] pb-2 pt-3"
           aria-labelledby="sidebar-projects-title"
         >
           <h2 id="sidebar-projects-title" className="px-2 text-sm font-semibold text-[#E8E8E8]">
-            Projetos e sessões
+            Seu trabalho
           </h2>
           <div className="relative mx-2 my-2 flex items-center">
             <Search
@@ -96,16 +90,61 @@ export function Sidebar({ onSelectTreeNode, ...navigation }: SidebarProps) {
             <input
               id="sidebar-tree-filter"
               type="search"
+              maxLength={100}
               value={filterQuery}
               onChange={(e) => setFilterQuery(e.target.value)}
-              placeholder="Filtrar projetos e sessões..."
-              aria-label="Filtrar projetos e sessões"
+              placeholder="Buscar pastas ou conversas"
+              aria-label="Buscar pastas ou conversas"
               className="min-h-9 w-full rounded-lg border border-[#666] bg-[#141414] py-1.5 pl-8 pr-2 text-sm text-[#E8E8E8] placeholder:text-[#969696]"
             />
           </div>
+          <ConversationHistory
+            filter={filterQuery}
+            onSelect={(node) => {
+              onSelectTreeNode(node);
+              setMobileDrawerOpen(false);
+            }}
+          />
+          <h3 className="mt-3 px-2 text-sm font-semibold text-[#E8E8E8]">Pastas</h3>
           {isLoading ? (
-            <div className="px-3 py-3 text-sm text-[#969696]">Carregando projetos e sessões…</div>
+            <div role="status" className="px-3 py-3 text-sm text-[#D1D1D1]">
+              Carregando pastas…
+            </div>
           ) : (
+            <div className="mt-2 space-y-1">
+              {projects
+                .filter((p) => p.name.toLocaleLowerCase().includes(filterQuery.toLocaleLowerCase()))
+                .map((project) => (
+                  <button
+                    key={project.id}
+                    className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-[#D1D1D1] ${selectedProjectId === project.id ? 'bg-[#282828] ring-1 ring-inset ring-[#666]' : ''}`}
+                    onClick={() => {
+                      onSelectTreeNode({
+                        id: `project:${project.id}`,
+                        kind: 'project',
+                        label: project.name,
+                        status: 'active',
+                        hostId: 'local',
+                        projectId: project.id,
+                        workspaceId: project.workspace_id,
+                        children: [],
+                      });
+                      setMobileDrawerOpen(false);
+                    }}
+                  >
+                    <FolderGit2 size={16} aria-hidden="true" />
+                    <span className="break-words">{project.name}</span>
+                  </button>
+                ))}
+              {!projects.length && (
+                <p className="px-2 py-2 text-sm text-[#D1D1D1]">Adicione uma pasta no Novo chat.</p>
+              )}
+            </div>
+          )}
+          <details className="mt-3 border-t border-[#303030] pt-2 text-sm text-[#D1D1D1]">
+            <summary className="flex min-h-11 cursor-pointer items-center px-2">
+              Organização avançada
+            </summary>
             <WorkspaceTree
               nodes={tree}
               filterQuery={filterQuery}
@@ -116,7 +155,7 @@ export function Sidebar({ onSelectTreeNode, ...navigation }: SidebarProps) {
                 }
               }}
             />
-          )}
+          </details>
         </section>
       </AppRail>
       {!sidebarCollapsed ? (

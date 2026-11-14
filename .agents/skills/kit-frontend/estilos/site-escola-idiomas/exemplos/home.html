@@ -1,0 +1,975 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voga Idiomas — Inglês, espanhol e mais 4 idiomas perto de você</title>
+<meta name="description" content="Escola fictícia de idiomas: inglês, espanhol, francês, alemão, italiano e português para estrangeiros. Faça a pré-matrícula ou o teste de nível.">
+<link rel="canonical" href="https://www.exemplo.com.br/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400..700&display=swap" rel="stylesheet">
+
+<!--
+  EXEMPLO — HOME (§5.2). Escola fictícia "Voga": marca, nomes, números e textos são inventados.
+  Segue o prd.md versão 3.0.0: tokens, receitas e medidas vêm de lá (o bloco de tokens e as receitas estão coladas sem alteração).
+  Seções presentes: 1, 2, 4, 5, 7, 8, 10, 11 e 12. Cortadas por altura: 3 (Sobre), 6 (Recursos digitais) e 9 (Linha do tempo).
+  Os depoimentos (item 10) aparecem em .grid-cards porque são 3 e cabem na tela; com mais de 3 viram o carrossel do §3.10.
+  Abaixo de 1200px aparecem o header de 64px e a barra fixa das duas conversões; a captura é de 1440px.
+-->
+<style>
+
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  color-scheme: light;   /* sem tema escuro */
+
+  /* ---------- MARCA (defina só --brand; o resto é derivado) ---------- */
+  --brand:            #d71920;                                      /* botões, faixa de CTA, destaques */
+  --brand-dark:       color-mix(in srgb, var(--brand) 79%, black);  /* #aa1419: footer, hover de botão, badge */
+  --brand-deep:       color-mix(in srgb, var(--brand) 42%, black);  /* #5a0b0d: "vinho", títulos de seção, botão pressionado */
+  --brand-light:      color-mix(in srgb, var(--brand) 88%, white);  /* #dc353b: só decorativa (gradientes, ilustrações) */
+  --brand-tint:       color-mix(in srgb, var(--brand) 6%, white);   /* #fdf1f2: fundo de seção suave */
+
+  /* texto ligado à marca: confira pelo §1.1 ao trocar --brand */
+  --on-brand:         #ffffff;            /* texto e ícone sobre --brand */
+  --on-brand-dark:    #ffffff;            /* texto e ícone sobre --brand-dark */
+  --brand-text:       var(--brand);       /* a marca como texto sobre fundo claro: tag, rótulo ativo, asterisco, números */
+  --brand-text-dark:  var(--brand-dark);  /* links, botão outline, ícones */
+
+  /* ---------- NEUTROS ---------- */
+  --heading:          #04000b;  /* títulos: quase-preto, NÃO #000 */
+  --paragraph:        #666666;  /* corpo de texto e placeholder */
+  --input-text:       #212529;  /* texto digitado em campo */
+  --dark:             #0e0f11;  /* cookie bar */
+  --white:            #ffffff;
+  --bg-gray:          #f2f3ef;  /* fundo de seção alternado (quente, não frio) */
+  --border:           #dee2e6;  /* divisórias e bordas decorativas; NÃO serve de limite de campo */
+  --border-input:     #6c757d;  /* limite de input e select; passos futuros do stepper */
+
+  /* ---------- ESTADO (sempre com ícone e texto, nunca só a cor) ---------- */
+  --danger:           #b3261e;
+  --success:          #1b6e3a;
+
+  /* ---------- TIPOGRAFIA ---------- */
+  --font: "Montserrat", system-ui, -apple-system, sans-serif;
+
+  --fs-hero:      clamp(2.25rem, 1.4rem + 3.2vw, 3.75rem);     /* h1 do hero: 36 a 60px */
+  --fs-section:   clamp(1.75rem, 1.2rem + 2.3vw, 3.125rem);    /* título de seção: 28 a 50px */
+  --fs-cta:       clamp(1.5rem, 1rem + 2vw, 2.5rem);           /* título da faixa de CTA: 24 a 40px */
+  --fs-hero-sub:  clamp(1.125rem, 1rem + .6vw, 1.5625rem);     /* subtítulo do hero: 18 a 25px */
+  --fs-card:      clamp(1.375rem, 1.2rem + .6vw, 1.6875rem);   /* h3 de tile e de bloco: 22 a 27px */
+  --fs-body-lg:   clamp(1.0625rem, .98rem + .35vw, 1.25rem);   /* corpo do hero: 17 a 20px */
+  --fs-item:      1.25rem;         /* 20px: h4 de item, título de card */
+  --fs-body:      1.0625rem;       /* 17px: corpo padrão (NÃO 16px) */
+  --fs-ui:        max(1rem, 16px); /* 16px: campos, labels, links de navegação */
+  --fs-caption:   .875rem;         /* 14px: eyebrow, badge, botão, data */
+
+  --lh-tight:     1.15;  /* h1 */
+  --lh-heading:   1.2;   /* h2..h6 e botões */
+  --lh-snug:      1.3;   /* subtítulo do hero, título de card */
+  --lh-caption:   1.4;   /* textos de 14px */
+  --lh-lead:      1.6;   /* corpo do hero */
+  --lh-body:      1.7;   /* parágrafos e leitura longa */
+
+  /* ---------- ESPAÇAMENTO (escala de 6 passos) ---------- */
+  --space-1: .25rem;  --space-2: .5rem;   --space-3: 1rem;
+  --space-4: 1.5rem;  --space-5: 2.5rem;  --space-6: 3.5rem;
+  --grid-gap:        2rem;    /* 32px: gap das grades de cards */
+
+  --section-pt:      60px;    /* padding de seção, em cima */
+  --section-pb:      60px;    /* padding de seção, embaixo */
+  --section-tight:   48px;    /* .section--tight, em cima e embaixo */
+  --heading-mb:      40px;    /* espaço entre título de seção e conteúdo */
+
+  /* ---------- LAYOUT ---------- */
+  --container:       1320px;  /* largura máxima do .container (1250px úteis com o respiro de 35px) */
+  --container-pad:   20px;    /* respiro lateral */
+  --header-h:        64px;    /* header de uma faixa */
+  --cta-bar-h:       56px;    /* barra fixa das duas conversões, abaixo de 1200px */
+  --cookie-h:        0px;     /* altura da cookie bar: o JS grava ao exibir e zera ao fechar */
+
+  /* ---------- FORMA ---------- */
+  --r-sm:   6px;    /* inputs e botões */
+  --r-md:   8px;    /* badges */
+  --r-lg:   20px;   /* cards, imagens, acordeão */
+  --r-xl:   32px;   /* faixa de CTA */
+  --r-full: 999px;  /* pílulas, eyebrow, campo da faixa de CTA */
+
+  /* ---------- ELEVAÇÃO ---------- */
+  --shadow-card:  0 2px 12px 0 rgb(0 0 0 / .09);
+  --shadow-hover: 0 20px 40px -12px rgb(0 0 0 / .12), 0 8px 20px -8px color-mix(in srgb, var(--brand) 14%, transparent);
+  --shadow-brand: 0 10px 30px 0 color-mix(in srgb, var(--brand) 40%, transparent); /* glow da bolha de chat */
+
+  /* ---------- MOVIMENTO ---------- */
+  --t-fast: .2s ease;          /* troca de cor em hover, dropdowns */
+  --t-base: .25s ease;         /* cards */
+  --t-slow: .35s ease-in-out;  /* imagem e overlay do tile */
+}
+
+@media (min-width: 768px) {
+  :root { --section-pt: 100px; --section-pb: 120px; --heading-mb: 60px; --container-pad: 35px; }
+}
+@media (min-width: 1200px) {
+  :root { --header-h: 143px; --cta-bar-h: 0px; }   /* header de duas faixas: 64 + 79 */
+}
+
+/* ---------- BASE ---------- */
+html { scroll-padding-top: var(--header-h); scroll-padding-bottom: calc(var(--cta-bar-h) + var(--cookie-h) + var(--space-4)); }
+body {
+  margin: 0; padding-bottom: calc(var(--cta-bar-h) + var(--cookie-h));
+  font-family: var(--font); font-size: var(--fs-body); line-height: var(--lh-body);
+  color: var(--paragraph); background: var(--white);
+}
+h1, h2, h3, h4 { margin: 0; color: var(--heading); line-height: var(--lh-heading); letter-spacing: 0; }
+h1 { line-height: var(--lh-tight); }
+a { color: var(--brand-text-dark); }               /* link em texto corrido: cor + sublinhado do navegador */
+button, input, select, textarea { font: inherit; } /* sem isso os controles saem em Arial */
+::placeholder { color: var(--paragraph); opacity: 1; }
+
+/* Foco: anel duplo, branco por dentro e escuro por fora. Um dos dois contrasta com qualquer fundo (§7). */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--white); outline-offset: 0;
+  box-shadow: 0 0 0 4px var(--heading);
+}
+
+/* ---------- Receitas do PRD, coladas como estão ---------- */
+/* §3.1 botões */
+/* comum às três formas */
+.btn-primary, .btn-outline, .btn-pill {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  min-height: 44px;                       /* alvo de toque */
+  font: inherit; font-size: var(--fs-caption); font-weight: 700; line-height: var(--lh-heading);
+  text-align: center; text-decoration: none; cursor: pointer;
+  transition: background-color var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+
+/* PRIMARIO — a acao da pagina */
+.btn-primary, .btn-outline { padding: 10px 20px; border: 1px solid; border-radius: var(--r-sm); }
+.btn-primary       { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+.btn-primary:hover { background: var(--brand-dark); color: var(--on-brand-dark); border-color: var(--brand-dark); }
+
+/* SECUNDARIO / OUTLINE — acao alternativa, mesmo peso visual, menos urgencia */
+.btn-outline       { background: var(--white); color: var(--brand-text-dark); border-color: var(--brand-text-dark); }
+.btn-outline:hover { background: var(--brand-dark); color: var(--on-brand-dark); border-color: var(--brand-dark); }
+
+/* PILULA — CTA de hero e de faixa colorida. Sempre em caixa alta. */
+.btn-pill {
+  width: 100%; padding: 15px var(--space-4);          /* celular: largura total, o rotulo pode quebrar */
+  border: 2px solid; border-radius: var(--r-full);
+  text-transform: uppercase;
+}
+@media (min-width: 576px) {
+  .btn-pill { width: auto; padding-inline: var(--space-5); white-space: nowrap; }
+}
+/* solida da marca: a conversao, sobre foto */
+.btn-pill--brand            { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+.btn-pill--brand:hover      { background: var(--brand-dark); color: var(--on-brand-dark); border-color: var(--brand-dark); }
+/* branca solida: a conversao, sobre fundo da marca -> vaza para transparente no hover */
+.btn-pill--on-brand         { background: var(--white); color: var(--brand-text); border-color: var(--white); }
+.btn-pill--on-brand:hover   { background: transparent; color: inherit; border-color: currentColor; }
+/* fantasma: a acao de baixo compromisso. Herda a cor do texto do bloco (hero ou faixa) */
+.btn-pill--ghost            { background: transparent; color: inherit; border-color: currentColor; }
+.btn-pill--ghost:hover      { background: var(--white); color: var(--heading); border-color: var(--white); }
+
+/* pressionado e desabilitado, nas tres formas (por ultimo, para valer sobre o hover) */
+.btn-primary:active, .btn-outline:active, .btn-pill:active {
+  background: var(--brand-deep); color: var(--white); border-color: var(--brand-deep);
+}
+.btn-primary:disabled, .btn-outline:disabled, .btn-pill:disabled,
+.btn-primary[aria-disabled="true"], .btn-outline[aria-disabled="true"], .btn-pill[aria-disabled="true"] {
+  background: var(--bg-gray); color: var(--paragraph); border-color: var(--border); cursor: not-allowed;
+}
+
+/* §3.2 tile de curso */
+.course-tile {
+  position: relative; display: block; overflow: hidden;
+  aspect-ratio: 298 / 256;              /* ~1.16:1 */
+  color: var(--white); text-decoration: none;
+}
+.course-tile img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform var(--t-slow); }
+.course-tile:hover img { transform: scale(1.06); }
+.course-tile::after {                    /* legibilidade do texto sobre foto */
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(to top, rgb(0 0 0 / .8) 0%, rgb(0 0 0 / .55) 50%, transparent 100%);
+  transition: background-color var(--t-slow);
+}
+.course-tile:hover::after { background-color: rgb(0 0 0 / .2); }   /* o overlay escurece */
+.course-tile__body { position: absolute; inset: auto 0 0 0; z-index: 1; padding: var(--space-4); }
+.course-tile__body h3 {
+  margin: 0 0 var(--space-2); font-size: var(--fs-card); font-weight: 600; color: inherit;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;   /* no maximo 2 linhas */
+}
+.course-tile__cta { font-size: var(--fs-caption); font-weight: 700; line-height: var(--lh-caption); text-transform: uppercase; }
+
+/* foco por dentro: o trilho do carrossel recorta o que sai do tile */
+.course-tile:focus-visible        { outline-offset: -2px; box-shadow: none; }
+.course-tile:focus-visible::after { box-shadow: inset 0 0 0 4px var(--heading); }
+.course-tile .ph { display: block; width: 100%; height: 100%; transition: transform var(--t-slow); }   /* a foto do exemplo é um SVG, não um <img> */
+.course-tile:hover .ph { transform: scale(1.06); }
+
+/* §3.3 card */
+.card {
+  background: var(--white); border-radius: var(--r-lg); overflow: hidden;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--t-base), transform var(--t-base);
+}
+.card:hover { box-shadow: var(--shadow-hover); transform: translateY(-4px); }
+.card--static:hover { box-shadow: var(--shadow-card); transform: none; }   /* card que nao e clicavel inteiro */
+.card__img   { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; }
+.card__body  { display: grid; gap: var(--space-2); padding: var(--space-4); }
+.card__meta  { font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--paragraph); }   /* "28 de agosto de 2026" */
+.card__tag   { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 700; color: var(--brand-text); text-transform: uppercase; }   /* "Dicas" */
+.card__title { margin: 0; font-size: var(--fs-item); font-weight: 600; line-height: var(--lh-snug); color: var(--heading); }
+.card__link  { justify-self: start; padding-block: var(--space-2); font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 700; color: var(--brand-text-dark); }   /* "Continuar lendo" */
+
+/* §3.4 faixa de CTA */
+.cta-band {
+  /* mesma largura util do .container: nunca encosta na borda da tela */
+  width: min(100% - 2 * var(--container-pad), var(--container) - 2 * var(--container-pad));
+  margin-inline: auto;
+  display: flex; flex-direction: column; gap: var(--space-4);
+  padding: var(--space-4) var(--container-pad);
+  background: var(--brand); color: var(--on-brand);
+  border-radius: var(--r-xl);
+}
+.cta-band h2 { margin: 0; font-size: var(--fs-cta); font-weight: 700; line-height: var(--lh-heading); text-transform: uppercase; color: inherit; }
+.cta-band p a { color: inherit; }  /* link do consentimento: o link da marca (§1) some sobre a propria marca */
+.cta-band--overlap { position: relative; z-index: 2; margin-top: -40px; }   /* so na home: invade o hero */
+@media (min-width: 768px) {
+  .cta-band { flex-direction: row; align-items: center; justify-content: space-between; }
+}
+
+/* §3.6 inputs */
+.input, .select {
+  display: block; width: 100%; min-height: 44px;
+  padding: var(--space-2) 12px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--r-sm);
+  font: inherit; font-size: var(--fs-ui); line-height: 1.5;   /* 16px+ evita zoom automatico no iOS */
+  background: var(--white); color: var(--input-text);
+}
+.cta-band .input { border-color: var(--white); border-radius: var(--r-full); padding-inline: var(--space-4); }   /* campo da faixa de CTA */
+.input:hover, .select:hover { border-color: var(--heading); }
+.input:disabled, .select:disabled { background: var(--bg-gray); color: var(--paragraph); cursor: not-allowed; }
+.input[aria-invalid="true"], .select[aria-invalid="true"] { border-width: 2px; border-color: var(--danger); }   /* a altura continua 44px */
+
+.label       { display: block; margin-bottom: var(--space-2); font-size: var(--fs-ui); font-weight: 600; line-height: 1.5; color: var(--heading); }
+.label .req  { color: var(--brand-text); }   /* asterisco na cor da marca ANTES do texto: "* E-mail" */
+.cta-band .label, .cta-band .label .req { color: inherit; }   /* sobre a marca, tudo na cor do texto da faixa */
+
+.field__error { display: flex; gap: var(--space-2); margin: var(--space-2) 0 0; font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 600; color: var(--danger); }
+.cta-band .field__error { color: inherit; }
+
+/* §4 layout */
+.container { max-width: var(--container); margin-inline: auto; padding-inline: var(--container-pad); }
+.section   { padding-block: var(--section-pt) var(--section-pb); }   /* 60/60; 100/120 a partir de 768px, pelos tokens */
+.section--tint  { background: var(--brand-tint); }   /* secao destacada */
+.section--gray  { background: var(--bg-gray); }      /* alternancia */
+.section--tight { padding-block: var(--section-tight); }
+.section__title { margin: 0 0 var(--heading-mb); font-size: var(--fs-section); font-weight: 700; color: var(--brand-deep); text-align: left; }
+
+.grid-cards { display: grid; grid-template-columns: 1fr; gap: var(--grid-gap); }
+.split      { display: grid; grid-template-columns: 1fr; gap: var(--grid-gap); align-items: center; }   /* imagem | texto */
+@media (min-width: 768px) {
+  .grid-cards { grid-template-columns: repeat(2, 1fr); }
+  .split      { grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+}
+@media (min-width: 1200px) {
+  .grid-cards    { grid-template-columns: repeat(3, 1fr); }
+  .grid-cards--4 { grid-template-columns: repeat(4, 1fr); }   /* modalidades */
+}
+
+/* §6 movimento reduzido */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important; scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================================
+   COMPLEMENTOS DO EXEMPLO — medidas e papéis que o PRD dá em texto (§2, §5.1, §5.6, §8)
+   Cada valor aqui vem de um token ou de uma medida escrita no PRD.
+   ============================================================ */
+:root { --cookie-h: 148px; }                         /* o JS do projeto grava este valor; no exemplo ele é fixo */
+@media (min-width: 768px) { :root { --cookie-h: 76px; } }
+
+ul, ol { margin: 0; padding: 0; list-style: none; }
+p, dl, dd, figure, blockquote { margin: 0; }          /* o reset de margens de p, listas e citações é do exemplo */
+svg { display: block; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.skip-link { position: absolute; left: var(--space-3); top: calc(-1 * var(--space-6)); z-index: 30; padding: var(--space-2) var(--space-3); border-radius: var(--r-sm); background: var(--white); color: var(--heading); font-weight: 600; }
+.skip-link:focus { top: var(--space-3); }
+
+/* ilustrações em SVG: a cor da marca passa pelos tokens */
+.f-brand { fill: var(--brand); } .f-brand-dark { fill: var(--brand-dark); } .f-brand-light { fill: var(--brand-light); }
+.f-deep { fill: var(--brand-deep); } .f-white { fill: var(--white); } .f-heading { fill: var(--heading); }
+.f-on-brand { fill: var(--on-brand); } .f-on-brand-dark { fill: var(--on-brand-dark); }
+
+/* §2 tipografia */
+.eyebrow { display: inline-block; margin-bottom: var(--space-3); padding: var(--space-2) var(--space-4); border: 1px solid var(--border); border-radius: var(--r-full); font-size: var(--fs-caption); font-weight: 700; line-height: var(--lh-caption); text-transform: uppercase; color: var(--heading); }
+.h3 { margin-bottom: var(--space-3); font-size: var(--fs-card); font-weight: 600; }
+h4 { margin-bottom: var(--space-3); font-size: var(--fs-item); font-weight: 600; }
+.section__title--column { margin-bottom: var(--space-4); }   /* H2 dentro de coluna do .split (§4) */
+.section-cta { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-5); }
+.media { overflow: hidden; border-radius: var(--r-lg); }
+.media svg { width: 100%; height: auto; }
+
+/* logo (marca fictícia) */
+.logo { display: flex; align-items: center; gap: 10px; flex: none; color: inherit; text-decoration: none; }
+.logo__text { display: flex; flex-direction: column; line-height: 1; }
+.logo__text b { font-size: 30px; font-weight: 700; color: var(--brand-text); }
+.logo__text small { margin-top: 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--heading); }
+.logo--branco .logo__text b, .logo--branco .logo__text small { color: inherit; }
+
+/* botões redondos: setas, pausa */
+.round-btn { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--r-full); background: var(--white); color: var(--heading); box-shadow: var(--shadow-card); cursor: pointer; }
+.round-btn:disabled { background: var(--bg-gray); color: var(--paragraph); cursor: not-allowed; }
+.icon-btn { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--heading); cursor: pointer; }
+.bullet { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
+.bullet::before { content: ""; width: 10px; height: 10px; border: 2px solid currentColor; border-radius: var(--r-full); }
+.bullet[aria-current="true"]::before { background: currentColor; }
+
+/* §5.1 header: abaixo de 1200px, uma faixa de 64px + barra das conversões */
+.site-header { position: sticky; top: 0; z-index: 10; background: var(--white); }
+.header-mobile { display: flex; align-items: center; justify-content: space-between; height: var(--header-h); padding-inline: calc(var(--container-pad) - 10px); border-bottom: 1px solid var(--border); }
+.header-top, .header-nav { display: none; }
+.cta-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); align-items: center; height: calc(var(--cta-bar-h) + env(safe-area-inset-bottom, 0px)); padding: 0 var(--container-pad) env(safe-area-inset-bottom, 0px); border-top: 1px solid var(--border); background: var(--white); }
+.cta-bar .btn-outline, .cta-bar .btn-primary { padding: 4px var(--space-2); white-space: normal; line-height: 1.2; }   /* 2 colunas de 124px em 320px: o rótulo quebra em vez de sair da barra */
+.main-nav { display: flex; align-items: center; gap: 28px; }
+.nav-link { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0; border: 0; background: none; font: inherit; font-size: var(--fs-ui); font-weight: 500; line-height: var(--lh-heading); color: var(--heading); text-decoration: none; cursor: pointer; }
+.nav-link[aria-current="page"] { color: var(--brand-text); font-weight: 700; }
+.unit-link { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-ui); font-weight: 600; color: var(--brand-text-dark); text-decoration: underline; }
+.site-search { position: relative; flex: 1; max-width: 560px; }
+.site-search svg { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--paragraph); pointer-events: none; }
+.site-search .input { padding-left: 48px; background: var(--brand-tint); }
+.header-cta { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-left: auto; }
+.header-cta__test { padding-block: 4px; font-size: var(--fs-caption); font-weight: 600; line-height: var(--lh-heading); color: var(--brand-text-dark); text-decoration: underline; }
+.dropdown { position: relative; }
+.dropdown__panel { position: absolute; right: 0; top: calc(100% + var(--space-2)); z-index: 5; min-width: 260px; padding: var(--space-2) 0; border-radius: var(--r-md); background: var(--white); box-shadow: var(--shadow-card); visibility: hidden; opacity: 0; transform: translateY(-6px); transition: opacity var(--t-fast), transform var(--t-fast), visibility var(--t-fast); }
+.dropdown [aria-expanded="true"] + .dropdown__panel { visibility: visible; opacity: 1; transform: none; }
+.dropdown__group { padding: var(--space-2) var(--space-3) 0; font-size: var(--fs-caption); font-weight: 700; line-height: var(--lh-caption); text-transform: uppercase; color: var(--paragraph); }
+.dropdown__panel a { display: flex; align-items: center; min-height: 44px; padding: 0 var(--space-3); font-size: var(--fs-ui); color: var(--heading); text-decoration: none; }
+@media (min-width: 1200px) {
+  .header-mobile, .cta-bar { display: none; }
+  .header-top { display: block; height: 64px; }
+  .header-nav { display: block; height: 79px; border-bottom: 1px solid var(--border); }
+  .header-top__inner, .header-nav__inner { display: flex; align-items: center; height: 100%; }
+  .header-top__inner { gap: var(--space-5); }
+  .header-top__inner .unit-link { margin-left: auto; }
+}
+
+/* §5.6 footer */
+.site-footer { padding: var(--space-6) 0 var(--space-4); background: var(--brand-dark); color: var(--on-brand-dark); }
+.site-footer a { color: inherit; text-decoration: none; }
+.site-footer a:hover, .site-footer a:focus-visible { text-decoration: underline; }
+.site-footer h4 { color: inherit; margin-bottom: var(--space-3); }
+.footer__top { display: grid; gap: var(--space-5); padding-bottom: var(--space-5); }
+.footer__brand p { max-width: 300px; margin-top: var(--space-3); }
+.footer__top ul { display: grid; gap: var(--space-2); }
+.footer__bottom { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); padding-top: var(--space-4); border-top: 1px solid color-mix(in srgb, var(--on-brand-dark) 25%, transparent); font-size: var(--fs-caption); line-height: var(--lh-caption); }
+.footer__bottom a { display: inline-flex; align-items: center; min-height: 44px; text-decoration: underline; }
+@media (min-width: 768px) {
+  .footer__top { grid-template-columns: repeat(4, 1fr); }
+  .footer__brand { grid-column: 1 / -1; }
+}
+@media (min-width: 1200px) {
+  .footer__top { grid-template-columns: 1.4fr repeat(4, 1fr); }
+  .footer__brand { grid-column: auto; }
+}
+
+/* §8 cookie bar, chat, Libras */
+.cookie-bar { position: fixed; left: 0; right: 0; bottom: var(--cta-bar-h); z-index: 20; height: var(--cookie-h); background: var(--dark); color: var(--white); }
+.cookie-bar__inner { display: flex; flex-direction: column; justify-content: center; gap: var(--space-2); height: 100%; font-size: var(--fs-caption); line-height: var(--lh-caption); }
+.cookie-bar a { color: inherit; text-decoration: underline; }
+.cookie-bar__actions { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.link-btn { min-height: 44px; padding: 0 var(--space-2); border: 0; background: none; font: inherit; font-size: var(--fs-caption); color: inherit; text-decoration: underline; cursor: pointer; }
+.btn-cookie, .btn-cookie:hover { background: var(--white); color: var(--heading); border-color: var(--white); }   /* Recusar e Aceitar: mesma receita, mesmo peso */
+.btn-cookie:hover { text-decoration: underline; }
+@media (min-width: 768px) {
+  .cookie-bar__inner { flex-direction: row; align-items: center; gap: var(--space-4); }
+  .cookie-bar__inner p { flex: 1; }
+}
+.chat-bubble { position: fixed; right: 24px; bottom: calc(var(--cta-bar-h) + var(--cookie-h) + 24px); z-index: 21; display: grid; place-items: center; width: 56px; height: 56px; padding: 0; border: 0; border-radius: var(--r-full); background: var(--brand); color: var(--on-brand); box-shadow: var(--shadow-brand); cursor: pointer; }
+.libras { position: fixed; right: 0; top: 50%; z-index: 21; display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; border-radius: var(--r-md) 0 0 var(--r-md); background: var(--dark); color: var(--white); transform: translateY(-50%); cursor: pointer; }   /* substituto do widget VLibras: o plugin real traz o visual dele */
+
+/* ============================================================
+   ESPECÍFICO DA HOME
+   ============================================================ */
+/* §5.2 item 1: hero. Base = celular, um slide só; coverflow a partir de 1200px (§4, §6) */
+.hero { padding-top: var(--space-4); overflow: hidden; }
+.hero__track { position: relative; }
+.hero__slide { position: relative; min-height: 600px; margin-inline: var(--container-pad); overflow: hidden; border-radius: var(--r-lg); color: var(--white); }
+.hero__art { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hero__slide::before { content: ""; position: absolute; inset: 0; z-index: 1; background: rgb(0 0 0 / .6); }   /* scrim obrigatório (§5.2) */
+.hero__slide--side { display: none; }
+.hero__content { position: relative; z-index: 2; padding: var(--space-5) var(--space-4) 180px; }
+.hero__title { margin-bottom: var(--space-3); font-size: var(--fs-hero); font-weight: 700; line-height: var(--lh-tight); color: inherit; }
+.hero__sub { margin-bottom: var(--space-3); font-size: var(--fs-hero-sub); font-weight: 600; line-height: var(--lh-snug); }
+.hero__lead { max-width: 600px; margin-bottom: var(--space-5); font-size: var(--fs-body-lg); font-weight: 500; line-height: var(--lh-lead); }
+.cta-pair { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.hero__controls { position: absolute; left: var(--space-4); bottom: var(--space-6); z-index: 3; display: flex; align-items: center; gap: var(--space-2); color: var(--white); }
+.hero__bullets { display: flex; }
+.hero__arrows { position: absolute; right: var(--space-4); bottom: var(--space-6); z-index: 3; display: flex; gap: var(--space-2); }
+@media (min-width: 768px) {
+  .hero__slide { min-height: 660px; }
+  .hero__slide::before { background: linear-gradient(90deg, rgb(0 0 0 / .7) 0%, rgb(0 0 0 / .55) 55%, transparent 100%); }
+  .hero__content { max-width: 55%; padding: var(--space-5) 0 0 72px; }   /* o texto fica nos 55% da esquerda */
+  .hero__controls { left: 72px; }
+}
+@media (min-width: 1200px) {
+  .hero__track { height: 660px; }
+  .hero__slide { position: absolute; top: 0; width: 1120px; height: 660px; min-height: 0; margin: 0; }
+  .hero__slide--active { left: 50%; z-index: 2; transform: translateX(-50%); }
+  .hero__slide--side { display: block; }
+  .hero__slide--prev { right: calc(50% + 560px - 40px); z-index: 1; transform-origin: right center; transform: perspective(1600px) rotateY(12deg) scale(.86); filter: blur(4px); }
+  .hero__slide--next { left: calc(50% + 560px - 40px); z-index: 1; transform-origin: left center; transform: perspective(1600px) rotateY(-12deg) scale(.86); filter: blur(4px); }
+}
+
+/* §3.5 formulário progressivo dentro da faixa de CTA */
+.lead-form { width: 100%; }
+.lead-form__row { display: flex; align-items: center; gap: var(--space-2); }
+.lead-form__row .input { flex: 1; }
+.lead-form__next { display: grid; flex: none; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--r-full); background: var(--white); color: var(--brand-text); cursor: pointer; }
+.lead-form__meta { display: flex; justify-content: space-between; margin-top: var(--space-1); font-size: var(--fs-caption); line-height: var(--lh-caption); }
+.lead-form__privacy { margin-top: var(--space-2); font-size: var(--fs-caption); line-height: var(--lh-caption); }
+@media (min-width: 768px) { .lead-form { flex: 0 1 460px; } .cta-band h2 { flex: 1; } }
+
+/* §3.10 carrossel de cursos (§5.2 item 4) */
+.carousel { position: relative; }
+.carousel__track { display: flex; overflow: hidden; }
+.carousel__slide { flex: 0 0 calc(100% / 1.2); min-width: 0; }   /* 1,2 tile por tela no celular */
+.carousel__btn { position: absolute; top: 50%; z-index: 2; transform: translateY(-50%); }
+.carousel__btn--prev { left: var(--space-3); }
+.carousel__btn--next { right: var(--space-3); }
+.carousel__dots { display: flex; justify-content: center; gap: var(--space-1); margin-top: var(--space-4); color: var(--brand-text); }
+@media (min-width: 768px) { .carousel__slide { flex-basis: 50%; } }
+@media (min-width: 1200px) { .carousel__slide { flex-basis: 25%; } }
+
+/* §5.2 item 5: busca de unidade (§5.4 sem o hero) */
+.unit-strip__inner { display: grid; gap: var(--space-4); }
+.unit-strip .section__title { margin-bottom: var(--space-2); font-size: var(--fs-card); }
+.unit-search__row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.unit-search__field { position: relative; flex: 1 1 260px; }
+.unit-search__field svg { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--paragraph); pointer-events: none; }
+.unit-search__field .input { padding-left: 48px; }
+@media (min-width: 1200px) { .unit-strip__inner { grid-template-columns: 1fr 2fr; align-items: center; gap: var(--space-6); } }
+
+/* §5.2 itens 7 e 8 */
+.item-list { display: grid; gap: var(--space-4); margin-block: var(--space-5); }
+.item-list h4 { margin-bottom: var(--space-1); }
+.icon-item { display: grid; grid-template-columns: 56px 1fr; gap: var(--space-3); align-items: start; }
+.icon-item h4 { margin-bottom: var(--space-1); }
+.icon-circle { display: grid; flex: none; place-items: center; width: 56px; height: 56px; border-radius: var(--r-full); background: var(--brand-tint); color: var(--brand-text-dark); }
+.counters { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-4); margin-bottom: var(--space-6); }
+.counter { display: flex; flex-direction: column-reverse; justify-content: flex-end; padding-left: var(--space-4); border-left: 1px solid var(--border); }
+.counter dd { font-size: var(--fs-section); font-weight: 700; line-height: var(--lh-heading); color: var(--brand-text); }
+.counter dt { font-size: var(--fs-caption); font-weight: 600; line-height: var(--lh-caption); color: var(--heading); }
+@media (min-width: 768px) { .counters { grid-template-columns: repeat(4, 1fr); gap: 0; } .counter:first-child { padding-left: 0; border-left: 0; } }
+
+/* §3.11 depoimento */
+.testimonial .card__body { grid-template-rows: auto 1fr auto; }
+.testimonial__person { display: flex; align-items: center; gap: var(--space-3); }
+.testimonial__quote-mark { color: var(--brand-text); transform: rotate(180deg); }
+.avatar { display: grid; flex: none; place-items: center; width: 48px; height: 48px; border-radius: var(--r-full); background: var(--brand-tint); color: var(--brand-text-dark); font-weight: 700; }
+.testimonial__name { font-size: var(--fs-ui); font-weight: 600; line-height: 1.5; color: var(--heading); }
+.card__meta { display: block; }
+
+/* Altura até 480px (zoom alto): tudo o que é fixo rola junto (PRD §4). A bolha de chat e o botão de Libras viram itens do fim da página. */
+@media (max-height: 480px) {
+  html { scroll-padding-top: 0; scroll-padding-bottom: 0; }
+  body { padding-bottom: 0; }
+  .site-header, .cta-bar, .cookie-bar, .chat-bubble, .libras { position: static; }
+  .cookie-bar { height: auto; padding-block: var(--space-3); }
+  .cookie-bar__inner { height: auto; }
+  .chat-bubble { margin: var(--space-3) 24px 24px auto; }
+  .libras { margin-left: auto; transform: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="site-header">
+  <!-- Abaixo de 1200px: uma faixa de 64px (hambúrguer, logo, atalho de unidades) + barra das conversões no pé da tela (§5.1) -->
+  <div class="header-mobile">
+    <button class="icon-btn" type="button" aria-label="Abrir menu" aria-haspopup="dialog"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <a class="logo" href="#" aria-label="Voga Idiomas — página inicial"><svg width="42" height="42" viewBox="0 0 40 40" aria-hidden="true"><path class="f-brand" d="M6 3h28a6 6 0 0 1 6 6v17a6 6 0 0 1-6 6H19l-9 7v-7H6a6 6 0 0 1-6-6V9a6 6 0 0 1 6-6z"/><path class="f-on-brand" d="M10.5 11l7.3 14h4.4l7.3-14h-4.8L20 20.4 15.3 11z"/></svg><span class="logo__text"><b>voga</b><small>idiomas</small></span></a>
+    <a class="icon-btn" href="#unidades" aria-label="Encontre uma unidade"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.1-7-11a7 7 0 0 1 14 0c0 4.9-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></a>
+  </div>
+  <!-- A partir de 1200px: faixa 1 (64px) + faixa 2 (79px) = 143px -->
+  <div class="header-top">
+    <div class="container header-top__inner">
+      <a class="logo" href="#" aria-label="Voga Idiomas — página inicial"><svg width="42" height="42" viewBox="0 0 40 40" aria-hidden="true"><path class="f-brand" d="M6 3h28a6 6 0 0 1 6 6v17a6 6 0 0 1-6 6H19l-9 7v-7H6a6 6 0 0 1-6-6V9a6 6 0 0 1 6-6z"/><path class="f-on-brand" d="M10.5 11l7.3 14h4.4l7.3-14h-4.8L20 20.4 15.3 11z"/></svg><span class="logo__text"><b>voga</b><small>idiomas</small></span></a>
+      <form class="site-search" role="search" action="#">
+        <label class="sr-only" for="q">Pesquisar no site</label>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input class="input" id="q" name="q" type="search" placeholder="Pesquisar no site" autocomplete="off">
+      </form>
+      <a class="unit-link" href="#unidades"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.1-7-11a7 7 0 0 1 14 0c0 4.9-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg> Encontre uma unidade</a>
+      <div class="dropdown">
+        <button class="btn-outline" type="button" aria-expanded="false" aria-controls="menu-acesso">Acesso <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+        <div class="dropdown__panel" id="menu-acesso">
+          <p class="dropdown__group">Para o aluno</p>
+          <ul><li><a href="#">Portal do Aluno</a></li><li><a href="#">Plataforma on-line</a></li></ul>
+          <p class="dropdown__group">Para o franqueado</p>
+          <ul><li><a href="#">Painel</a></li><li><a href="#">Sistema de gestão</a></li><li><a href="#">Webmail</a></li></ul>
+          <p class="dropdown__group">Para o professor</p>
+          <ul><li><a href="#">Portal do Professor</a></li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="header-nav">
+    <div class="container header-nav__inner">
+      <nav aria-label="Principal">
+        <ul class="main-nav">
+          <li><a class="nav-link" href="#" aria-current="page">Home</a></li>
+          <li><button class="nav-link" type="button" aria-expanded="false" aria-haspopup="true">Sobre nós <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></li>
+          <li><button class="nav-link" type="button" aria-expanded="false" aria-haspopup="true">Cursos <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></li>
+          <li><a class="nav-link" href="#">Blog</a></li>
+          <li><a class="nav-link" href="#">E-book</a></li>
+          <li><button class="nav-link" type="button" aria-expanded="false" aria-haspopup="true">Faça parte <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></li>
+          <li><a class="nav-link" href="#">Seja um franqueado</a></li>
+          <li><a class="nav-link" href="#">Fale conosco</a></li>
+        </ul>
+      </nav>
+      <div class="header-cta">
+        <a class="btn-primary" href="#">Pré-matrícula</a>
+        <a class="header-cta__test" href="#">Teste de nível</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="conteudo">
+
+<!-- 1. HERO CARROSSEL — fundo: foto + scrim. Um <h1> só, no slide 1 -->
+<section class="hero" aria-roledescription="carousel" aria-label="Destaques">
+  <div class="hero__track">
+
+    <div class="hero__slide hero__slide--side hero__slide--prev" aria-hidden="true" inert>
+      <svg class="hero__art" viewBox="0 0 1120 560" preserveAspectRatio="xMaxYMid slice">
+<defs><linearGradient id="hp" x1="0" x2="1"><stop offset="0" stop-color="#1e2a33"/><stop offset="1" stop-color="#5f7480"/></linearGradient></defs>
+<rect width="1120" height="560" fill="url(#hp)"/>
+<circle cx="900" cy="150" r="260" fill="#fff" opacity=".07"/>
+<g transform="translate(960 330) scale(1.3)">
+<path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#f1ede6"/>
+<rect x="-16" y="46" width="32" height="44" rx="12" fill="#c98f6b"/>
+<circle cx="0" cy="-8" r="62" fill="#2a1d18"/><circle cx="0" cy="8" r="52" fill="#dba27d"/>
+</g>
+</svg>
+    </div>
+
+    <div class="hero__slide hero__slide--active" role="group" aria-roledescription="slide" aria-label="1 de 4">
+      <svg class="hero__art" viewBox="0 0 1120 560" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+<defs>
+<linearGradient id="h1" x1="0" x2="1" y1="0" y2=".25"><stop offset="0" stop-color="#171516"/><stop offset=".5" stop-color="#2b2223"/><stop offset="1" stop-color="#6a4638"/></linearGradient>
+</defs>
+<rect width="1120" height="560" fill="url(#h1)"/>
+<circle cx="960" cy="140" r="270" fill="#ffb27a" opacity=".10"/>
+<circle cx="1090" cy="470" r="190" fill="#ff8a5c" opacity=".10"/>
+<circle cx="720" cy="560" r="150" fill="#fff" opacity=".04"/>
+<!-- aluna -->
+<g transform="translate(858 352) scale(1.22)">
+<path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#f4f1ec"/>
+<rect x="-16" y="46" width="32" height="44" rx="12" fill="#cf9872"/>
+<circle cx="0" cy="-10" r="64" fill="#2b1e1a"/><circle cx="0" cy="-76" r="22" fill="#2b1e1a"/>
+<circle cx="0" cy="8" r="52" fill="#e3b08d"/>
+</g>
+<!-- aluno -->
+<g transform="translate(1040 372) scale(1.1)">
+<path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" class="f-brand-light"/>
+<rect x="-16" y="46" width="32" height="44" rx="12" fill="#a56a48"/>
+<circle cx="0" cy="-8" r="60" fill="#1c1412"/>
+<circle cx="0" cy="8" r="52" fill="#b97a57"/>
+</g>
+<!-- balões -->
+<path d="M772 92h148a22 22 0 0 1 22 22v40a22 22 0 0 1-22 22h-56l-26 26v-26h-66a22 22 0 0 1-22-22v-40a22 22 0 0 1 22-22z" fill="#fff"/>
+<text x="846" y="146" text-anchor="middle" font-family="Montserrat, sans-serif" font-size="32" font-weight="700" class="f-heading">Hello!</text>
+<path d="M968 176h110a20 20 0 0 1 20 20v34a20 20 0 0 1-20 20h-18v22l-24-22h-68a20 20 0 0 1-20-20v-34a20 20 0 0 1 20-20z" class="f-brand"/>
+<text x="1023" y="223" text-anchor="middle" font-family="Montserrat, sans-serif" font-size="26" font-weight="700" fill="#fff">¡Hola!</text>
+<rect x="948" y="48" width="150" height="56" rx="18" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="2"/>
+<text x="1023" y="85" text-anchor="middle" font-family="Montserrat, sans-serif" font-size="22" font-weight="600" fill="#fff" fill-opacity=".9">Bonjour!</text>
+</svg>
+      <div class="hero__content">
+        <h1 class="hero__title">Matrículas abertas para 2027</h1>
+        <p class="hero__sub">Comece o ano falando um novo idioma.</p>
+        <p class="hero__lead">Faça sua pré-matrícula até 30 de novembro e garanta o material didático do primeiro semestre sem custo.</p>
+        <!-- par de CTA: baixo compromisso à esquerda (fantasma), conversão à direita (sólida da marca) -->
+        <div class="cta-pair">
+          <a class="btn-pill btn-pill--ghost" href="#">Fazer teste de nível <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          <a class="btn-pill btn-pill--brand" href="#">Fazer pré-matrícula</a>
+        </div>
+      </div>
+      <div class="hero__controls">
+        <button class="round-btn" type="button" aria-label="Pausar a troca automática de slides"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg></button>
+        <div class="hero__bullets" role="group" aria-label="Escolher slide">
+          <button class="bullet" type="button" aria-label="Slide 1 de 4" aria-current="true"></button>
+          <button class="bullet" type="button" aria-label="Slide 2 de 4"></button>
+          <button class="bullet" type="button" aria-label="Slide 3 de 4"></button>
+          <button class="bullet" type="button" aria-label="Slide 4 de 4"></button>
+        </div>
+      </div>
+      <div class="hero__arrows">
+        <button class="round-btn" type="button" aria-label="Slide anterior"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+        <button class="round-btn" type="button" aria-label="Próximo slide"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+      </div>
+    </div>
+
+    <div class="hero__slide hero__slide--side hero__slide--next" aria-hidden="true" inert>
+      <svg class="hero__art" viewBox="0 0 1120 560" preserveAspectRatio="xMaxYMid slice">
+<defs><linearGradient id="hn" x1="0" x2="1"><stop offset="0" stop-color="#3a2a22"/><stop offset="1" stop-color="#a8754f"/></linearGradient></defs>
+<rect width="1120" height="560" fill="url(#hn)"/>
+<circle cx="160" cy="420" r="240" fill="#fff" opacity=".06"/>
+</svg>
+      <div class="hero__content">
+        <p class="hero__title">Intercâmbio em Dublin</p>
+        <p class="hero__sub">4 semanas de imersão.</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- 2. FAIXA DE CTA DE LEAD — fundo --brand; formulário progressivo (§3.5) -->
+<section class="cta-band cta-band--overlap" aria-labelledby="lead-title">
+  <h2 id="lead-title">Receba dicas e novidades da Voga</h2>
+  <form class="lead-form" action="#">
+    <label class="label" for="lead-email"><span class="req" aria-hidden="true">*</span> E-mail</label>
+    <div class="lead-form__row">
+      <input class="input" id="lead-email" name="email" type="email" autocomplete="email" required placeholder="nome@exemplo.com" aria-describedby="lead-privacidade">
+      <button class="lead-form__next" type="button" aria-label="Próximo campo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    </div>
+    <div class="lead-form__meta">
+      <span>* obrigatório</span>
+      <span aria-live="polite">1 de 5</span>
+    </div>
+    <p class="lead-form__privacy" id="lead-privacidade">Ao continuar, você concorda em receber contato da Voga sobre cursos e matrícula. <a href="#">Política de Privacidade</a></p>
+  </form>
+</section>
+
+<!-- 4. CURSOS — fundo --white; cada tile é o link -->
+<section class="section" aria-labelledby="cursos-title">
+  <div class="container">
+    <span class="eyebrow">Cursos</span>
+    <h2 class="section__title" id="cursos-title">Seis idiomas, um jeito de aprender</h2>
+    <div class="carousel" role="group" aria-roledescription="carousel" aria-label="Cursos">
+      <div class="carousel__track">
+        <div class="carousel__slide" role="group" aria-roledescription="slide" aria-label="1 de 6"><a class="course-tile" href="#">
+              <svg class="ph" viewBox="0 0 298 256" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+<defs><linearGradient id="t1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34404d"/><stop offset="1" stop-color="#7b8c9a"/></linearGradient></defs>
+<rect width="298" height="256" fill="url(#t1)"/><circle cx="250" cy="40" r="110" fill="#fff" opacity=".08"/>
+<g transform="translate(196 122) scale(.72)"><path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#f4f1ec"/><rect x="-16" y="46" width="32" height="44" rx="12" fill="#cf9872"/><circle cx="0" cy="-8" r="62" fill="#3a2a1f"/><circle cx="0" cy="8" r="52" fill="#e3b08d"/></g>
+<path d="M30 28h92a14 14 0 0 1 14 14v26a14 14 0 0 1-14 14H74L58 98V82H30a14 14 0 0 1-14-14V42a14 14 0 0 1 14-14z" fill="#fff"/>
+<text x="76" y="63" text-anchor="middle" font-family="Montserrat, sans-serif" font-size="21" font-weight="700" class="f-heading">Hello!</text>
+</svg>
+              <div class="course-tile__body"><h3>Inglês</h3><span class="course-tile__cta">Conheça</span></div>
+            </a></div>
+        <div class="carousel__slide" role="group" aria-roledescription="slide" aria-label="2 de 6"><a class="course-tile" href="#">
+              <svg class="ph" viewBox="0 0 298 256" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+<defs><linearGradient id="t2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7a4630"/><stop offset="1" stop-color="#c58a5c"/></linearGradient></defs>
+<rect width="298" height="256" fill="url(#t2)"/><circle cx="40" cy="60" r="120" fill="#fff" opacity=".07"/>
+<g transform="translate(110 126) scale(.72)"><path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#f0c66a"/><rect x="-16" y="46" width="32" height="44" rx="12" fill="#9c6242"/><circle cx="0" cy="-8" r="60" fill="#1c1412"/><circle cx="0" cy="8" r="52" fill="#b97a57"/></g>
+<path d="M176 30h92a14 14 0 0 1 14 14v26a14 14 0 0 1-14 14h-28v16l-16-16h-48a14 14 0 0 1-14-14V44a14 14 0 0 1 14-14z" fill="#fff"/>
+<text x="222" y="65" text-anchor="middle" font-family="Montserrat, sans-serif" font-size="21" font-weight="700" class="f-heading">¡Hola!</text>
+</svg>
+              <div class="course-tile__body"><h3>Espanhol</h3><span class="course-tile__cta">Conheça</span></div>
+            </a></div>
+        <div class="carousel__slide" role="group" aria-roledescription="slide" aria-label="3 de 6"><a class="course-tile" href="#">
+              <svg class="ph" viewBox="0 0 298 256" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+<defs><linearGradient id="t3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f4ede2"/><stop offset="1" stop-color="#e3d6c4"/></linearGradient></defs>
+<rect width="298" height="256" fill="url(#t3)"/><circle cx="250" cy="50" r="100" fill="#fff" opacity=".5"/>
+<g transform="translate(200 124) scale(.72)"><path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#2c3e5c"/><rect x="-16" y="46" width="32" height="44" rx="12" fill="#cf9872"/><circle cx="0" cy="-10" r="64" fill="#8a5a35"/><circle cx="0" cy="8" r="52" fill="#ecc3a3"/></g>
+<path d="M28 28h112a14 14 0 0 1 14 14v26a14 14 0 0 1-14 14H74L58 98V82H28a14 14 0 0 1-14-14V42a14 14 0 0 1 14-14z" fill="#2c3e5c"/>
+<text x="84" y="63" text-anchor="middle" font-family="Montserrat, sans-serif" font-size="21" font-weight="700" fill="#fff">Bonjour!</text>
+</svg>
+              <div class="course-tile__body"><h3>Francês</h3><span class="course-tile__cta">Conheça</span></div>
+            </a></div>
+        <div class="carousel__slide" role="group" aria-roledescription="slide" aria-label="4 de 6"><a class="course-tile" href="#">
+              <svg class="ph" viewBox="0 0 298 256" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+<defs><linearGradient id="t4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#27322e"/><stop offset="1" stop-color="#63776d"/></linearGradient></defs>
+<rect width="298" height="256" fill="url(#t4)"/><circle cx="50" cy="40" r="110" fill="#fff" opacity=".07"/>
+<g transform="translate(108 124) scale(.72)"><path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#d9dedb"/><rect x="-16" y="46" width="32" height="44" rx="12" fill="#cf9872"/><circle cx="0" cy="-8" r="60" fill="#c9a36a"/><circle cx="0" cy="8" r="52" fill="#efc9ab"/></g>
+<path d="M184 30h84a14 14 0 0 1 14 14v26a14 14 0 0 1-14 14h-28v16l-16-16h-40a14 14 0 0 1-14-14V44a14 14 0 0 1 14-14z" fill="#fff"/>
+<text x="226" y="65" text-anchor="middle" font-family="Montserrat, sans-serif" font-size="21" font-weight="700" class="f-heading">Hallo!</text>
+</svg>
+              <div class="course-tile__body"><h3>Alemão</h3><span class="course-tile__cta">Conheça</span></div>
+            </a></div>
+        <div class="carousel__slide" role="group" aria-roledescription="slide" aria-label="5 de 6" inert><a class="course-tile" href="#">
+              <svg class="ph" viewBox="0 0 298 256" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+<defs><linearGradient id="t5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4a3540"/><stop offset="1" stop-color="#9a7a86"/></linearGradient></defs>
+<rect width="298" height="256" fill="url(#t5)"/><circle cx="240" cy="50" r="110" fill="#fff" opacity=".07"/>
+<g transform="translate(200 124) scale(.72)"><path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#f4f1ec"/><rect x="-16" y="46" width="32" height="44" rx="12" fill="#cf9872"/><circle cx="0" cy="-8" r="62" fill="#2b1e1a"/><circle cx="0" cy="8" r="52" fill="#e3b08d"/></g>
+<path d="M22 28h78a14 14 0 0 1 14 14v26a14 14 0 0 1-14 14H66L50 98V82H22A14 14 0 0 1 8 68V42a14 14 0 0 1 14-14z" fill="#fff"/>
+<text x="61" y="63" text-anchor="middle" font-family="Montserrat, sans-serif" font-size="21" font-weight="700" class="f-heading">Ciao!</text>
+</svg>
+              <div class="course-tile__body"><h3>Italiano</h3><span class="course-tile__cta">Conheça</span></div>
+            </a></div>
+        <div class="carousel__slide" role="group" aria-roledescription="slide" aria-label="6 de 6" inert><a class="course-tile" href="#">
+              <svg class="ph" viewBox="0 0 298 256" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+<rect width="298" height="256" fill="#5b5148"/>
+</svg>
+              <div class="course-tile__body"><h3>Português para estrangeiros</h3><span class="course-tile__cta">Conheça</span></div>
+            </a></div>
+      </div>
+      <button class="round-btn carousel__btn carousel__btn--prev" type="button" aria-label="Cursos anteriores" disabled><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+      <button class="round-btn carousel__btn carousel__btn--next" type="button" aria-label="Próximos cursos"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+    </div>
+    <div class="carousel__dots" role="group" aria-label="Escolher posição do carrossel">
+      <button class="bullet" type="button" aria-label="Posição 1 de 3" aria-current="true"></button>
+      <button class="bullet" type="button" aria-label="Posição 2 de 3"></button>
+      <button class="bullet" type="button" aria-label="Posição 3 de 3"></button>
+    </div>
+  </div>
+</section>
+
+<!-- 5. BUSCA DE UNIDADE — fundo --bg-gray; .section--tight; o envio leva a /unidades?q={termo} -->
+<section class="section section--gray section--tight unit-strip" id="unidades" aria-labelledby="unit-title">
+  <div class="container unit-strip__inner">
+    <div>
+      <h2 class="section__title" id="unit-title">Encontre uma unidade perto de você</h2>
+      <p>São 140 unidades em 19 estados, com aulas presenciais e on-line.</p>
+    </div>
+    <form class="unit-search" role="search" action="/unidades">
+      <label class="label" for="unit-q">Onde você quer estudar?</label>
+      <div class="unit-search__row">
+        <div class="unit-search__field">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input class="input" id="unit-q" name="q" type="search" placeholder="CEP, cidade, estado ou nome da unidade" autocomplete="postal-code">
+        </div>
+        <button class="btn-primary" type="submit">Buscar</button>
+        <button class="btn-outline" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg> Usar minha localização</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<!-- 7. VIAGENS E INTERCÂMBIOS — fundo --brand-tint; .split -->
+<section class="section section--tint" aria-labelledby="viagens-title">
+  <div class="container">
+    <div class="split">
+      <div>
+        <span class="eyebrow">Intercâmbio</span>
+        <h2 class="section__title section__title--column" id="viagens-title">Viagens e intercâmbios</h2>
+        <p>Leve o idioma para fora da sala. A Voga organiza embarques em grupo, com professor acompanhante, e programas individuais em escolas parceiras de sete países.</p>
+        <ul class="item-list">
+          <li><h4>Dublin, Irlanda</h4><p>Quatro semanas de inglês intensivo com hospedagem em casa de família.</p></li>
+          <li><h4>Salamanca, Espanha</h4><p>Curso de férias em julho para alunos a partir de 14 anos.</p></li>
+          <li><h4>Vancouver, Canadá</h4><p>Programa de estudo e trabalho de seis meses para maiores de 18.</p></li>
+        </ul>
+        <div class="section-cta"><a class="btn-outline" href="#">Conheça!</a></div>
+      </div>
+      <div class="media">
+        <svg viewBox="0 0 600 560" aria-hidden="true">
+<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f4257"/><stop offset=".55" stop-color="#a9735f"/><stop offset="1" stop-color="#f0b684"/></linearGradient></defs>
+<rect width="600" height="560" fill="url(#sky)"/>
+<circle cx="410" cy="372" r="86" fill="#ffe1ad"/>
+<path d="M0 420l60-40 50 26 70-70 60 52 46-30 64 44 70-80 80 66 100-58v230H0z" fill="#3b3140" opacity=".75"/>
+<path d="M0 468h70v-70h44v40h36v-96h56v70h30v-34h48v60h40v-110h50v80h36v-50h60v70h40v-40h50v80h40v92H0z" fill="#241c28"/>
+<path d="M70 250c120-110 280-150 430-120" fill="none" stroke="#fff" stroke-width="3" stroke-dasharray="2 12" stroke-linecap="round" opacity=".8"/>
+<path d="M498 118l44 6-10 10-28 2-26 30-10-2 12-30-22 2-10 10-6-2 6-14-6-14 6-2 10 10 22 2-12-30 10-2z" fill="#fff" transform="rotate(8 505 140)"/>
+</svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 8. POR QUE NÓS — fundo --white; contadores + itens com ícone -->
+<section class="section" aria-labelledby="porque-title">
+  <div class="container">
+    <span class="eyebrow">Por que a Voga</span>
+    <h2 class="section__title" id="porque-title">Três décadas formando quem fala</h2>
+    <dl class="counters">
+      <div class="counter"><dt>anos de ensino</dt><dd>32+</dd></div>
+      <div class="counter"><dt>unidades em 19 estados</dt><dd>140</dd></div>
+      <div class="counter"><dt>alunos formados</dt><dd>250 mil</dd></div>
+      <div class="counter"><dt>dos alunos renovam a matrícula</dt><dd>94%</dd></div>
+    </dl>
+    <div class="split">
+      <div class="media">
+        <svg viewBox="0 0 600 440" aria-hidden="true">
+<defs><linearGradient id="cls" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e9e5dd"/><stop offset="1" stop-color="#c9c1b4"/></linearGradient></defs>
+<rect width="600" height="440" fill="url(#cls)"/>
+<rect x="60" y="50" width="300" height="150" rx="10" fill="#2f3a36"/>
+<text x="92" y="112" font-family="Montserrat, sans-serif" font-size="30" font-weight="700" fill="#fff">Well done!</text>
+<path d="M92 138h150M92 160h96" stroke="#fff" stroke-opacity=".5" stroke-width="5" stroke-linecap="round"/>
+<g transform="translate(150 330) scale(.9)"><path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#f4f1ec"/><rect x="-16" y="46" width="32" height="44" rx="12" fill="#cf9872"/><circle cx="0" cy="-8" r="62" fill="#3a2a1f"/><circle cx="0" cy="8" r="52" fill="#e3b08d"/></g>
+<g transform="translate(330 345) scale(.9)"><path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" class="f-brand"/><rect x="-16" y="46" width="32" height="44" rx="12" fill="#9c6242"/><circle cx="0" cy="-8" r="60" fill="#1c1412"/><circle cx="0" cy="8" r="52" fill="#b97a57"/></g>
+<g transform="translate(500 320) scale(.95)"><path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#2c3e5c"/><rect x="-16" y="46" width="32" height="44" rx="12" fill="#cf9872"/><circle cx="0" cy="-10" r="64" fill="#8a5a35"/><circle cx="0" cy="8" r="52" fill="#ecc3a3"/></g>
+</svg>
+      </div>
+      <ul class="item-list" style="margin:0">
+        <li class="icon-item">
+            <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9" r="6"/><path d="M8.5 14.5 7 22l5-3 5 3-1.5-7.5"/></svg></span>
+            <div><h4>Rede mais recomendada do interior paulista</h4><p>Primeiro lugar na pesquisa regional de satisfação de alunos por seis anos seguidos.</p></div>
+          </li>
+        <li class="icon-item">
+            <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 14l2 2 4-4"/></svg></span>
+            <div><h4>Centro preparatório para exames internacionais</h4><p>Turmas específicas para as principais certificações de inglês e espanhol.</p></div>
+          </li>
+        <li class="icon-item">
+            <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16.5 14.2c2.9.3 5 2.3 5 5.3"/></svg></span>
+            <div><h4>Professores em formação contínua</h4><p>Cada docente cumpre 120 horas de capacitação por ano no método Voga.</p></div>
+          </li>
+      </ul>
+    </div>
+    <div class="section-cta"><a class="btn-outline" href="#">Saiba mais</a></div>
+  </div>
+</section>
+
+<!-- 10. DEPOIMENTOS — fundo --bg-gray; par: baixo compromisso + conversão -->
+<section class="section section--gray" aria-labelledby="depo-title">
+  <div class="container">
+    <span class="eyebrow">Depoimentos</span>
+    <h2 class="section__title" id="depo-title">Quem estuda na Voga recomenda</h2>
+    <div class="grid-cards">
+      <article class="card card--static testimonial">
+          <div class="card__body">
+            <svg class="testimonial__quote-mark" width="36" height="36" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 6h5v5c0 3.5-1.8 5.8-5 7v-2.4c1.3-.7 2-1.9 2-3.6H5zM14 6h5v5c0 3.5-1.8 5.8-5 7v-2.4c1.3-.7 2-1.9 2-3.6h-2z"/></svg>
+            <blockquote><p>Em um ano e meio saí do básico e passei na entrevista em inglês da empresa onde trabalho hoje. As aulas de conversação fizeram toda a diferença.</p></blockquote>
+            <div class="testimonial__person">
+              <span class="avatar" aria-hidden="true">MC</span>
+              <div><p class="testimonial__name">Mariana Coutinho</p><span class="card__meta">Inglês · Unidade Campinas Centro</span></div>
+            </div>
+          </div>
+        </article>
+      <article class="card card--static testimonial">
+          <div class="card__body">
+            <svg class="testimonial__quote-mark" width="36" height="36" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 6h5v5c0 3.5-1.8 5.8-5 7v-2.4c1.3-.7 2-1.9 2-3.6H5zM14 6h5v5c0 3.5-1.8 5.8-5 7v-2.4c1.3-.7 2-1.9 2-3.6h-2z"/></svg>
+            <blockquote><p>O Theo começou com seis anos e hoje canta, brinca e pede para assistir desenho em inglês. Ele adora as professoras e eu acompanho tudo pelo aplicativo.</p></blockquote>
+            <div class="testimonial__person">
+              <span class="avatar" aria-hidden="true">LP</span>
+              <div><p class="testimonial__name">Lúcia Prado</p><span class="card__meta">Mãe do Theo, 8 anos · Sorocaba</span></div>
+            </div>
+          </div>
+        </article>
+      <article class="card card--static testimonial">
+          <div class="card__body">
+            <svg class="testimonial__quote-mark" width="36" height="36" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 6h5v5c0 3.5-1.8 5.8-5 7v-2.4c1.3-.7 2-1.9 2-3.6H5zM14 6h5v5c0 3.5-1.8 5.8-5 7v-2.4c1.3-.7 2-1.9 2-3.6h-2z"/></svg>
+            <blockquote><p>Fiz espanhol on-line por causa do horário do plantão e não perdi nada em relação ao presencial. Em março embarco para a residência em Salamanca.</p></blockquote>
+            <div class="testimonial__person">
+              <span class="avatar" aria-hidden="true">RA</span>
+              <div><p class="testimonial__name">Rafael Antunes</p><span class="card__meta">Espanhol · Aulas on-line</span></div>
+            </div>
+          </div>
+        </article>
+    </div>
+    <div class="section-cta">
+      <a class="btn-outline" href="#">Fazer teste de nível</a>
+      <a class="btn-primary" href="#">Fazer pré-matrícula</a>
+    </div>
+  </div>
+</section>
+
+<!-- 11. BLOG — fundo --white; ordem do card: imagem, data, categoria, título, "Continuar lendo" -->
+<section class="section" aria-labelledby="blog-title">
+  <div class="container">
+    <span class="eyebrow">Blog</span>
+    <h2 class="section__title" id="blog-title">Dicas para aprender mais rápido</h2>
+    <div class="grid-cards">
+      <article class="card">
+          <svg class="card__img" preserveAspectRatio="xMidYMid slice" viewBox="0 0 400 240" aria-hidden="true">
+<defs><linearGradient id="b1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a2f3a"/><stop offset="1" stop-color="#5d6778"/></linearGradient></defs>
+<rect width="400" height="240" fill="url(#b1)"/>
+<rect x="96" y="52" width="208" height="124" rx="10" fill="#11141a"/><rect x="106" y="62" width="188" height="104" rx="4" fill="#3d4656"/>
+<path d="M186 96v36l32-18z" fill="#fff"/><path d="M168 192h64" stroke="#11141a" stroke-width="8" stroke-linecap="round"/>
+</svg>
+          <div class="card__body">
+            <time class="card__meta" datetime="2026-10-02">2 de outubro de 2026</time>
+            <span class="card__tag">Dicas</span>
+            <h3 class="card__title">7 séries para treinar o listening sem depender da legenda</h3>
+            <a class="card__link" href="#" aria-label="7 séries para treinar o listening sem depender da legenda. Continuar lendo">Continuar lendo</a>
+          </div>
+        </article>
+      <article class="card">
+          <svg class="card__img" preserveAspectRatio="xMidYMid slice" viewBox="0 0 400 240" aria-hidden="true">
+<defs><linearGradient id="b2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3d6a86"/><stop offset="1" stop-color="#b9d3dd"/></linearGradient></defs>
+<rect width="400" height="240" fill="url(#b2)"/>
+<path d="M0 190h60v-50h30v30h40v-80h36v60h44v-40h30v60h50v-96h40v70h70v46H0z" fill="#22394a"/>
+<rect y="188" width="400" height="52" fill="#16293a"/>
+<circle cx="320" cy="58" r="26" fill="#fff" opacity=".8"/>
+</svg>
+          <div class="card__body">
+            <time class="card__meta" datetime="2026-09-24">24 de setembro de 2026</time>
+            <span class="card__tag">Intercâmbio</span>
+            <h3 class="card__title">Quanto custa estudar inglês em Dublin em 2027</h3>
+            <a class="card__link" href="#" aria-label="Quanto custa estudar inglês em Dublin em 2027. Continuar lendo">Continuar lendo</a>
+          </div>
+        </article>
+      <article class="card">
+          <svg class="card__img" preserveAspectRatio="xMidYMid slice" viewBox="0 0 400 240" aria-hidden="true">
+<defs><linearGradient id="b3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6b4a3a"/><stop offset="1" stop-color="#c79d7a"/></linearGradient></defs>
+<rect width="400" height="240" fill="url(#b3)"/>
+<g transform="translate(140 150) scale(.62)"><path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#1f2937"/><rect x="-16" y="46" width="32" height="44" rx="12" fill="#cf9872"/><circle cx="0" cy="-8" r="62" fill="#2b1e1a"/><circle cx="0" cy="8" r="52" fill="#e3b08d"/></g>
+<path d="M226 60h112a14 14 0 0 1 14 14v40a14 14 0 0 1-14 14h-70l-18 18v-18h-24a14 14 0 0 1-14-14V74a14 14 0 0 1 14-14z" fill="#fff"/>
+<path d="M236 86h92M236 104h60" stroke="#6b4a3a" stroke-width="6" stroke-linecap="round"/>
+</svg>
+          <div class="card__body">
+            <time class="card__meta" datetime="2026-09-11">11 de setembro de 2026</time>
+            <span class="card__tag">Carreira</span>
+            <h3 class="card__title">Como se preparar para uma entrevista de emprego em inglês</h3>
+            <a class="card__link" href="#" aria-label="Como se preparar para uma entrevista de emprego em inglês. Continuar lendo">Continuar lendo</a>
+          </div>
+        </article>
+    </div>
+    <div class="section-cta"><a class="btn-outline" href="#" aria-label="Saiba mais: todos os posts do blog">Saiba mais</a></div>
+  </div>
+</section>
+
+</main>
+
+<!-- 12. FOOTER — fundo --brand-dark -->
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer__top">
+      <div class="footer__brand">
+        <a class="logo logo--branco" href="#" aria-label="Voga Idiomas — página inicial"><svg width="42" height="42" viewBox="0 0 40 40" aria-hidden="true"><path class="f-on-brand-dark" d="M6 3h28a6 6 0 0 1 6 6v17a6 6 0 0 1-6 6H19l-9 7v-7H6a6 6 0 0 1-6-6V9a6 6 0 0 1 6-6z"/><path class="f-brand-dark" d="M10.5 11l7.3 14h4.4l7.3-14h-4.8L20 20.4 15.3 11z"/></svg><span class="logo__text"><b>voga</b><small>idiomas</small></span></a>
+        <p>Inglês, espanhol, francês, alemão, italiano e português para estrangeiros desde 1994.</p>
+      </div>
+      <nav aria-label="Sobre nós">
+        <h4>Sobre nós</h4>
+        <ul><li><a href="#">Nossa história</a></li><li><a href="#">Método Voga</a></li><li><a href="#">Unidades</a></li><li><a href="#">Blog</a></li></ul>
+      </nav>
+      <nav aria-label="Cursos">
+        <h4>Cursos</h4>
+        <ul><li><a href="#">Inglês</a></li><li><a href="#">Espanhol</a></li><li><a href="#">Francês</a></li><li><a href="#">Alemão</a></li></ul>
+      </nav>
+      <nav aria-label="Faça parte">
+        <h4>Faça parte</h4>
+        <ul><li><a href="#">Pré-matrícula</a></li><li><a href="#">Teste de nível</a></li><li><a href="#">Trabalhe conosco</a></li><li><a href="#">Seja um franqueado</a></li></ul>
+      </nav>
+      <nav aria-label="Acesso">
+        <h4>Acesso</h4>
+        <ul><li><a href="#">Portal do Aluno</a></li><li><a href="#">Plataforma on-line</a></li><li><a href="#">Portal do Professor</a></li><li><a href="#">Painel do franqueado</a></li></ul>
+      </nav>
+    </div>
+    <div class="footer__bottom">
+      <span>© 2026 Voga Idiomas (escola fictícia). Todos os direitos reservados.</span>
+      <a href="#">Política de Privacidade</a>
+    </div>
+  </div>
+</footer>
+
+<div class="cta-bar">
+  <a class="btn-outline" href="#">Teste de nível</a>
+  <a class="btn-primary" href="#">Pré-matrícula</a>
+</div>
+
+<!-- Widgets fixos (§8, itens 8 e 9; §7): barra das conversões, cookie bar, chat e Libras, nessa ordem de baixo para cima -->
+<div class="cookie-bar" role="region" aria-label="Aviso de cookies">
+  <div class="container cookie-bar__inner">
+    <p>Usamos cookies para melhorar a navegação e medir o desempenho do site. Nenhum cookie de desempenho ou de marketing é ativado antes da sua escolha. Saiba mais na <a href="#">Política de Privacidade</a>.</p>
+    <div class="cookie-bar__actions">
+      <button class="link-btn" type="button">Preferências</button>
+      <button class="btn-outline btn-cookie" type="button">Recusar</button>
+      <button class="btn-outline btn-cookie" type="button">Aceitar</button>
+    </div>
+  </div>
+</div>
+<button class="chat-bubble" type="button" aria-label="Abrir chat"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button>
+<button class="libras" type="button" aria-label="Acessibilidade em Libras"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12m0-1V4.5a1.5 1.5 0 0 1 3 0V12m0-.5V6.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7L3.5 14a1.5 1.5 0 0 1 2.5-1.6L8 15"/></svg></button>
+
+</body>
+</html>

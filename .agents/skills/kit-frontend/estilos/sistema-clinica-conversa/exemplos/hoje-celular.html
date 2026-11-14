@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hoje — Vila Serena</title>
+<!-- Exemplo do PRD "Sistema de clínica no estilo conversa", versão 2.0.0. Clínica, pessoas, telefones e datas fictícios. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* Tokens e base da seção 2 do PRD, copiados sem alteração. */
+:root {
+  /* cor: superfícies e texto */
+  --background: #F6F2EC;
+  --foreground: #1B2529;
+  --foreground-hover: #0F171A;
+  --card: #FFFFFF;
+  --card-soft: #FBF8F4;
+  --muted: #EEE8DF;
+  --muted-foreground: #5B676C;
+  --placeholder: #6B7579;
+  --border: #EAE3D9;
+  --border-strong: #CFC6B9;
+  --input: #8F8577;
+  --on-dark: #FFFFFF;
+
+  /* cor: marca e ação */
+  --primary: #0D6E66;
+  --primary-hover: #0A5C55;
+  --primary-foreground: #FFFFFF;
+  --primary-soft: #E1F0EC;
+  --primary-soft-hover: #D2E9E3;
+  --on-primary-muted: #CDEBE6;
+  --ring: var(--primary);
+
+  /* cor: sobre superfície escura (--foreground como fundo) */
+  --on-dark-accent: #8EE3D6;
+  --on-dark-muted: #C9D2D5;
+  --on-dark-danger: #FFB4A6;
+  --on-dark-fill: rgba(255, 255, 255, .12);
+  --ring-on-dark: var(--on-dark-accent);
+
+  /* cor: marcador "agora" */
+  --accent: #E8613C;
+  --accent-text: #B9472A;
+  --accent-soft: #FDE9E2;
+
+  /* cor: retorno */
+  --destructive: #B23B3B;
+  --destructive-soft: #FBE7E7;
+  --warning: #7A5000;
+  --warning-soft: #FFF1D2;
+  --success: #1D7A45;
+  --success-soft: #E2F3E8;
+  --info: #2F5E9E;
+  --info-soft: #E5EDF8;
+
+  /* cor: canal de contato (botão que abre a conversa) */
+  --whatsapp: #187A43;
+  --whatsapp-hover: #136437;
+  --whatsapp-soft: #E3F4EA;
+
+  /* cor: gráficos e agenda */
+  --chart-in: #2E9D67;
+  --chart-out: #E0603C;
+  --chart-grid: #F0EBE3;
+  --grid-half: #F3EEE7;
+  --today-column: #F5FAF8;
+  --slot-edge: rgba(255, 255, 255, .9);
+  --overlay: rgba(20, 28, 31, .42);
+
+  /* cor: iniciais das pessoas, fundo e texto de cada tom (4.2; o tom 0 usa o par 1) */
+  --avatar-1-bg: #FCE3D6; --avatar-1-fg: #8E3A19;
+  --avatar-2-bg: #DDF0E6; --avatar-2-fg: #1D6B45;
+  --avatar-3-bg: #E3E8FB; --avatar-3-fg: #3446A3;
+  --avatar-4-bg: #F7E3EF; --avatar-4-fg: #8E2F6B;
+  --avatar-5-bg: #FFEFC4; --avatar-5-fg: #6E4B00;
+  --avatar-6-bg: #DDEDF6; --avatar-6-fg: #245D7E;
+
+  /* situações da consulta: texto (fg), fundo (bg) e barra ou contorno (bar) */
+  --status-agendado-fg: #7A5000;     --status-agendado-bg: #FFFFFF;     --status-agendado-bar: #D9940E;
+  --status-confirmado-fg: #17663B;   --status-confirmado-bg: #DCF3E5;   --status-confirmado-bar: #1F8A4C;
+  --status-atendimento-fg: #FFFFFF;  --status-atendimento-bg: #5B45C2;  --status-atendimento-bar: #3E2C99;
+  --status-atendimento-muted: #E4DEFB;
+  --status-concluido-fg: #4A5559;    --status-concluido-bg: #ECEEEF;    --status-concluido-bar: #A3ACB0;
+  --status-cancelado-fg: #A12F2F;    --status-cancelado-bg: #FBE7E7;    --status-cancelado-bar: #D16464;
+  --status-faltou-fg: #934010;       --status-faltou-bg: #FCEBDD;       --status-faltou-bar: #E07B3F;
+  --hatch: repeating-linear-gradient(135deg, rgba(255, 255, 255, .55) 0 6px, transparent 6px 12px);
+
+  /* tipografia */
+  --font: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --text-hero: clamp(2.25rem, 4vw, 3.375rem);
+  --text-display: 2.125rem; --text-display-sm: 1.75rem; --text-title: 1.375rem; --text-heading: 1.25rem; --text-section: 1.125rem; --text-lead: 1.0625rem;
+  --text-body: 1rem; --text-ui: 0.9375rem; --text-small: 0.875rem; --text-caption: 0.8125rem; --text-micro: 0.75rem;
+  --weight-regular: 400; --weight-medium: 500; --weight-semibold: 600; --weight-bold: 700; --weight-extrabold: 800;
+  --leading-tight: 1.1; --leading-card: 1.22; --leading-body: 1.5;
+  --tracking-hero: -1.6px; --tracking-display: -0.8px; --tracking-title: -0.4px; --tracking-caps: 0.6px;
+
+  /* espaço */
+  --space-2: 2px; --space-4: 4px; --space-6: 6px; --space-8: 8px; --space-10: 10px; --space-12: 12px; --space-14: 14px; --space-16: 16px;
+  --space-18: 18px; --space-20: 20px; --space-24: 24px; --space-28: 28px; --space-32: 32px; --space-40: 40px; --space-48: 48px; --space-56: 56px;
+
+  /* forma */
+  --radius-sm: 10px; --radius-md: 12px; --radius: 14px; --radius-box: 16px;
+  --radius-lg: 20px; --radius-xl: 24px; --radius-sheet: 28px; --radius-full: 999px;
+  --line: 1px; --line-control: 1.5px; --line-error: 2px;
+
+  /* tamanhos */
+  --target: 44px; --control-sm: 38px; --control-md: 46px; --control-lg: 54px; --field: 50px; --chip: 40px; --fab: 56px;
+  --icon-xs: 14px; --icon-sm: 16px; --icon-md: 18px; --icon: 20px; --icon-lg: 24px;
+
+  /* sombra */
+  --shadow-sm: 0 1px 4px rgba(40, 30, 20, .12);
+  --shadow: 0 8px 24px rgba(27, 37, 41, .08);
+  --shadow-lg: 0 24px 50px rgba(27, 37, 41, .18);
+  --shadow-bar: 0 -8px 24px rgba(27, 37, 41, .08);
+  --shadow-fab: 0 10px 24px color-mix(in srgb, var(--primary) 35%, transparent);
+  --shadow-selected: 0 0 0 2.5px var(--primary), 0 8px 18px color-mix(in srgb, var(--primary) 25%, transparent);
+  --shadow-live: 0 4px 12px color-mix(in srgb, var(--status-atendimento-bg) 30%, transparent);
+
+  /* movimento */
+  --duration-fast: 120ms; --duration-base: 160ms; --duration-slow: 200ms; --duration-spin: 800ms; --duration-shimmer: 1300ms;
+
+  /* casca */
+  --topbar: 68px; --topbar-mobile: 60px; --tabbar: 76px; --page-x: 32px;
+  --page-max: 1480px; --page-form: 820px; --page-wide: 1180px;
+  --side: 420px; --side-narrow: 380px; --summary: 360px; --overlay-width: 460px;
+  --z-footer: 5; --z-topbar: 20; --z-fab: 25; --z-tabbar: 30; --z-popup: 30;
+  --z-overlay: 40; --z-panel: 41; --z-menu: 50; --z-toast: 60; --z-skip: 100;
+}
+@media (max-width: 767px) { :root { --page-x: 16px; } }
+
+*, *::before, *::after { box-sizing: border-box; }
+html { font-family: var(--font); color: var(--foreground); background: var(--background); line-height: var(--leading-body); font-synthesis: none; -webkit-text-size-adjust: 100%; }
+body { margin: 0; font-size: var(--text-body); background: var(--background); }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+h1, h2, h3, p, dl, dd, figure { margin: 0; }
+ul, ol { margin: 0; padding: 0; }
+a { color: var(--primary); text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
+[data-surface="dark"] :focus-visible { outline-color: var(--ring-on-dark); }
+[data-autofocus]:focus { outline: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+/* Componentes das seções 4.3, 6.1, 6.5 e 7.2, copiados do PRD. */
+.button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-8);
+  height: var(--control-md); padding: 0 var(--space-18); border: var(--line-control) solid transparent; border-radius: var(--radius-md);
+  font-size: var(--text-body); font-weight: var(--weight-semibold); white-space: nowrap; text-decoration: none;
+  transition: background-color var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast); }
+.button svg { width: var(--icon); height: var(--icon); flex: none; }
+.button.sm { height: var(--control-sm); padding: 0 var(--space-14); border-radius: var(--radius-sm); font-size: var(--text-small); }
+.button.sm svg { width: var(--icon-md); height: var(--icon-md); }
+.button.lg { height: var(--control-lg); padding: 0 var(--space-24); border-radius: var(--radius); font-size: var(--text-lead); }
+.button.block { width: 100%; }
+.button:active:not(:disabled) { transform: translateY(1px); }
+.button:disabled { opacity: .55; }
+
+.status { --fg: var(--status-agendado-fg); --bg: var(--status-agendado-bg);
+  display: inline-flex; align-items: center; gap: var(--space-6); height: 30px; padding: 0 var(--space-12) 0 var(--space-10);
+  border-radius: var(--radius-full); background-color: var(--bg); color: var(--fg);
+  font-size: var(--text-small); font-weight: var(--weight-semibold); white-space: nowrap; }
+.status svg { width: var(--icon-sm); height: var(--icon-sm); stroke-width: 2.4; flex: none; }
+.status[data-status="agendado"] { border: var(--line-control) dashed var(--status-agendado-bar); }
+.status[data-status="confirmado"] { --fg: var(--status-confirmado-fg); --bg: var(--status-confirmado-bg); }
+.status[data-status="atendimento"] { --fg: var(--status-atendimento-fg); --bg: var(--status-atendimento-bg); }
+.status[data-status="concluido"] { --fg: var(--status-concluido-fg); --bg: var(--status-concluido-bg); }
+.status[data-status="cancelado"] { --fg: var(--status-cancelado-fg); --bg: var(--status-cancelado-bg); }
+.status[data-status="faltou"] { --fg: var(--status-faltou-fg); --bg: var(--status-faltou-bg); }
+.status[data-status="cancelado"], .status[data-status="faltou"] { background-image: var(--hatch); }
+
+.agenda-list { background: var(--card); border: var(--line) solid var(--border); border-radius: var(--radius-lg); padding: var(--space-6); }
+.agenda-group { padding: var(--space-12) var(--space-14) var(--space-6); font-size: var(--text-caption); font-weight: var(--weight-extrabold);
+  letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--muted-foreground); }
+.agenda-row { width: 100%; display: grid; grid-template-columns: 58px 44px minmax(0, 1fr) auto; gap: var(--space-12); align-items: center;
+  padding: var(--space-10) var(--space-12); border: 0; border-radius: var(--radius); background: transparent; text-align: left; color: var(--foreground); }
+.agenda-row:hover { background: var(--card-soft); }
+.agenda-row:active { background: var(--muted); }
+.agenda-row[aria-pressed="true"] { background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
+.agenda-row .time { font-size: var(--text-lead); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.agenda-row .duration { display: block; font-size: var(--text-caption); color: var(--muted-foreground); }
+.agenda-row .name { display: block; font-weight: var(--weight-bold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agenda-row .meta { display: block; font-size: var(--text-small); color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agenda-row[data-status="concluido"] .time, .agenda-row[data-status="concluido"] .name { color: var(--muted-foreground); }
+.agenda-row[data-status="cancelado"] .name { text-decoration: line-through; text-decoration-color: var(--border-strong); }
+@media (max-width: 599px) { .agenda-row { grid-template-columns: 50px 44px minmax(0, 1fr) auto; gap: var(--space-10); padding: var(--space-10) var(--space-8); } }
+
+/* Ícones: tamanho padrão; cada componente ajusta o seu. */
+.ic { width: var(--icon); height: var(--icon); flex: none; }
+
+/* Iniciais coloridas (4.2): tamanhos; os tons vêm da receita do PRD, no fim da folha. */
+.avatar { --size: 44px; --fs: 15px; display: inline-grid; place-items: center; flex: none; width: var(--size); height: var(--size);
+  border-radius: var(--radius-full); font-size: var(--fs); font-weight: var(--weight-bold); letter-spacing: 0.2px; line-height: 1; }
+.avatar.xxs { --size: 18px; --fs: 8.5px; }
+.avatar.xs { --size: 24px; --fs: 10.5px; }
+.avatar.sm { --size: 36px; --fs: 13px; }
+.avatar.md { --size: 44px; --fs: 15px; }
+.avatar.lg { --size: 56px; --fs: 19px; }
+.avatar.xl { --size: 68px; --fs: 24px; }
+
+/* Botões: variantes da tabela do 6.1 */
+.button.primary { background: var(--primary); color: var(--primary-foreground); }
+.button.primary:hover { background: var(--primary-hover); }
+.button.secondary { background: var(--card); color: var(--foreground); border-color: var(--border); }
+.button.secondary:hover { border-color: var(--border-strong); background: var(--card-soft); }
+.button.ghost { background: transparent; color: var(--foreground); }
+.button.ghost:hover { background: var(--muted); }
+.button.soft { background: var(--primary-soft); color: var(--primary); }
+.button.soft:hover { background: var(--primary-soft-hover); }
+.button.danger { background: var(--card); color: var(--destructive); border-color: var(--border); }
+.button.danger:hover { background: var(--destructive-soft); border-color: color-mix(in srgb, var(--destructive) 25%, var(--card)); }
+.button.whatsapp { background: var(--whatsapp); color: var(--on-dark); }
+.button.whatsapp:hover { background: var(--whatsapp-hover); }
+.button.dark { background: var(--foreground); color: var(--on-dark); }
+.button.dark:hover { background: var(--foreground-hover); }
+.button.icon-only { width: var(--target); height: var(--target); padding: 0; border-radius: var(--radius-md); }
+.button.icon-only svg { width: var(--icon); height: var(--icon); }
+.button.icon-only.lg-icon svg { width: var(--icon-lg); height: var(--icon-lg); }
+
+/* Pílula compacta (4.3) */
+.status.compact { width: 30px; padding: 0; justify-content: center; gap: 0; }
+.status.compact svg { stroke-width: 2.5; }
+@media (min-width: 1100px) { .status.compact { display: none; } }
+@media (max-width: 1099px) { .status:not(.compact) { display: none; } }
+
+/* Casca (5.3) */
+html { scroll-padding-top: calc(var(--topbar) + var(--space-16)); }
+.skip { position: absolute; top: 12px; left: -9999px; padding: var(--space-10) var(--space-16); background: var(--card); color: var(--foreground);
+  border-radius: var(--radius-md); box-shadow: var(--shadow); font-weight: var(--weight-bold); text-decoration: none; z-index: var(--z-skip); }
+.skip:focus { left: 16px; }
+.topbar { position: sticky; top: 0; z-index: var(--z-topbar); display: flex; align-items: center; gap: var(--space-28); height: var(--topbar);
+  padding: 0 var(--page-x); background: var(--card); border-bottom: var(--line) solid var(--border); }
+.brand { display: inline-flex; align-items: center; min-height: var(--target); gap: var(--space-10); color: var(--foreground); text-decoration: none;
+  font-size: var(--text-heading); font-weight: var(--weight-extrabold); letter-spacing: var(--tracking-title); line-height: var(--leading-tight); }
+.brand .nome-2 { color: var(--primary); }
+.tabs { display: flex; gap: var(--space-4); }
+.tab { display: inline-flex; align-items: center; gap: var(--space-8); height: 42px; padding: 0 14px; border-radius: var(--radius-full);
+  color: var(--muted-foreground); font-size: var(--text-ui); font-weight: var(--weight-semibold); text-decoration: none; white-space: nowrap; transition: background-color var(--duration-fast), color var(--duration-fast); }
+.tab:hover { background: var(--muted); color: var(--foreground); }
+.tab[aria-current="page"] { background: var(--primary-soft); color: var(--primary); }
+.account { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-10); min-height: var(--target); padding: 0 var(--space-8) 0 var(--space-4);
+  border: 0; border-radius: var(--radius-full); background: transparent; text-align: left; }
+.account:hover { background: var(--muted); }
+.account-text { display: grid; line-height: var(--leading-card); }
+.account-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-ui); font-weight: var(--weight-bold); }
+.account-role { font-size: var(--text-caption); color: var(--muted-foreground); }
+.account .ic { width: var(--icon-md); height: var(--icon-md); color: var(--muted-foreground); }
+main { max-width: var(--page-max); margin: 0 auto; padding: var(--space-28) var(--page-x) var(--space-40); }
+main:focus { outline: none; }
+
+/* Barra de abas e botão flutuante (só abaixo de 1100 px) */
+.tabbar, .fab { display: none; }
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-tabbar); height: calc(var(--tabbar) + env(safe-area-inset-bottom));
+  padding: 6px 8px env(safe-area-inset-bottom); background: var(--card); border-top: var(--line) solid var(--border); grid-template-columns: repeat(4, 1fr); }
+.tabbar a { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); min-height: 56px; border-radius: var(--radius-md);
+  color: var(--muted-foreground); font-size: var(--text-micro); font-weight: var(--weight-bold); text-decoration: none; }
+.tabbar .pill { display: grid; place-items: center; width: 58px; height: 32px; border-radius: var(--radius-full); }
+.tabbar .pill .ic { width: var(--icon-lg); height: var(--icon-lg); }
+.tabbar a[aria-current="page"] { color: var(--primary); }
+.tabbar a[aria-current="page"] .pill { background: var(--primary-soft); }
+.fab { position: fixed; right: var(--space-18); bottom: calc(var(--tabbar) + var(--space-18) + env(safe-area-inset-bottom)); z-index: var(--z-fab);
+  height: var(--fab); padding: 0 var(--space-24) 0 var(--space-18); border-radius: var(--radius-lg); box-shadow: var(--shadow-fab); font-size: var(--text-lead); }
+
+@media (max-width: 1279px) {
+  .tab { padding: 0 11px; }
+  .topbar { gap: var(--space-18); }
+  .account-text, .account > .ic { display: none; }
+}
+@media (max-width: 1099px) {
+  html { scroll-padding-top: calc(var(--topbar-mobile) + var(--space-16)); scroll-padding-bottom: calc(var(--tabbar) + var(--fab) + var(--space-32)); }
+  .topbar { height: var(--topbar-mobile); background: color-mix(in srgb, var(--background) 94%, transparent); backdrop-filter: blur(10px); gap: 0; justify-content: space-between; }
+  .brand { font-size: var(--text-section); }
+  .tabs { display: none; }
+  .account { margin-left: 0; padding: 0; min-width: var(--target); justify-content: center; }
+  main { padding: var(--space-18) var(--page-x) calc(var(--tabbar) + var(--space-32) + env(safe-area-inset-bottom)); }
+  .tabbar { display: grid; }
+  .fab { display: inline-flex; }
+  .page-action-desktop { display: none; }
+}
+
+/* Cabeçalho de tela (5.4) */
+.page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-16) var(--space-24); margin-bottom: var(--space-20); }
+.page-head h1 { font-size: var(--text-display); font-weight: var(--weight-extrabold); line-height: var(--leading-tight); letter-spacing: var(--tracking-display); overflow-wrap: anywhere; }
+.page-head h1:focus { outline: none; }
+.page-head .sub { margin-top: var(--space-4); font-size: var(--text-body); color: var(--muted-foreground); }
+.page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }
+@media (max-width: 767px) { .page-head { margin-bottom: var(--space-16); } .page-head h1 { font-size: var(--text-display-sm); } }
+
+/* Faixa de dias (6.15) */
+.days { display: flex; gap: var(--space-8); overflow-x: auto; scrollbar-width: none; padding: var(--space-6); margin: calc(-1 * var(--space-6)) calc(-1 * var(--space-6)) calc(var(--space-14) - var(--space-6)); }
+.day { flex: 1 0 58px; max-width: 72px; height: 66px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: var(--radius-box); background: var(--card); border: var(--line) solid var(--border); color: var(--foreground); text-decoration: none; }
+.day:hover { border-color: var(--border-strong); }
+.day small { font-size: var(--text-caption); font-weight: var(--weight-semibold); color: var(--muted-foreground); line-height: var(--leading-body); }
+.day b { font-size: var(--text-heading); font-weight: var(--weight-bold); line-height: var(--leading-tight); }
+.day[aria-current="date"] { background: var(--primary); border-color: var(--primary); }
+.day[aria-current="date"] small { color: var(--on-primary-muted); }
+.day[aria-current="date"] b { color: var(--primary-foreground); }
+
+/* Chips e segmentado (6.4) */
+.chips { display: flex; gap: var(--space-8); overflow-x: auto; scrollbar-width: none; padding: var(--space-6); margin: calc(-1 * var(--space-6)); }
+.chip { display: inline-flex; align-items: center; flex: none; gap: var(--space-8); height: var(--chip); padding: 0 var(--space-14); border-radius: var(--radius-full);
+  background: var(--card); border: var(--line) solid var(--border); color: var(--foreground); font-size: var(--text-ui); font-weight: var(--weight-semibold); white-space: nowrap; }
+.chip .avatar { margin-left: -6px; }
+.chip .count { color: var(--muted-foreground); }
+.chip:hover { border-color: var(--border-strong); }
+.chip:active { background: var(--muted); }
+.chip[aria-pressed="true"] { background: var(--foreground); border-color: var(--foreground); color: var(--on-dark); }
+.chip[aria-pressed="true"] .count { color: var(--on-dark-muted); }
+.segmented { display: inline-flex; gap: var(--space-2); padding: var(--space-4); background: var(--muted); border-radius: var(--radius-md); }
+.segmented button { height: var(--control-sm); padding: 0 var(--space-16); border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--muted-foreground); font-size: var(--text-ui); font-weight: var(--weight-bold); }
+.segmented button:hover { color: var(--foreground); }
+.segmented button:active { background: var(--card-soft); }
+.segmented button[aria-pressed="true"] { background: var(--card); color: var(--foreground); box-shadow: var(--shadow-sm); }
+.filters { margin-bottom: var(--space-14); }
+
+/* Linha "agora" na lista (6.7) */
+.now-line { display: flex; align-items: center; gap: var(--space-8); margin: var(--space-4) var(--space-14); font-size: var(--text-caption); font-weight: var(--weight-bold); color: var(--accent-text); }
+.now-line::before { content: ''; flex: none; width: 10px; height: 10px; border-radius: var(--radius-full); background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.now-line::after { content: ''; flex: 1; height: 2px; background: var(--accent); }
+
+/* Lembrete de confirmação (7.1) */
+.reminder { display: flex; align-items: center; gap: var(--space-10); padding: var(--space-12) var(--space-16); margin-bottom: var(--space-14);
+  border-radius: var(--radius-box); background: var(--status-agendado-bg); color: var(--status-agendado-fg); font-size: var(--text-ui); font-weight: var(--weight-semibold); }
+
+/* Cartão "Próximo" (6.6) */
+.next { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-16); margin-bottom: var(--space-14);
+  padding: var(--space-10) var(--space-12) var(--space-10) var(--space-18); border-radius: var(--radius-lg); background: var(--foreground); color: var(--on-dark); }
+.next-label { flex: 0 0 100%; display: flex; align-items: center; gap: var(--space-12); margin: 0; color: var(--on-dark-accent);
+  font-size: var(--text-micro); font-weight: var(--weight-extrabold); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
+.next-label::before { content: ''; flex: none; width: 8px; height: 8px; margin-left: var(--space-4); border-radius: var(--radius-full); background: var(--on-dark-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--on-dark-accent) 22%, transparent); }
+.next-body { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--space-14); padding: var(--space-6) var(--space-12) var(--space-6) var(--space-8); margin-left: calc(-1 * var(--space-8));
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--on-dark); text-align: left; }
+.next-body:hover { background: color-mix(in srgb, var(--on-dark) 6%, transparent); }
+.next-time { font-size: var(--text-display-sm); font-weight: var(--weight-extrabold); line-height: var(--leading-tight); letter-spacing: var(--tracking-display); font-variant-numeric: tabular-nums; }
+.next-info { display: grid; min-width: 0; }
+.next-name { font-size: var(--text-lead); font-weight: var(--weight-bold); line-height: var(--leading-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.next-meta { font-size: var(--text-small); color: var(--on-dark-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.next-actions { display: flex; flex: none; gap: var(--space-8); }
+.next-actions .button { height: var(--control-md); }
+.next-actions .start { background: var(--on-dark-accent); color: var(--foreground); }
+.next-actions .chat { background: var(--on-dark-fill); color: var(--on-dark); }
+
+/* Hoje: a grade e a coluna de detalhe vêm do PRD (receitas no fim da folha). */
+@media (max-width: 1099px) { .agenda-list { margin-bottom: 72px; } }
+@media (min-width: 1100px) { .next.hide-desktop { display: none; } }
+
+/* Detalhe da consulta (6.8) */
+.who-head { display: flex; align-items: center; gap: var(--space-16); }
+.who-name { font-size: var(--text-title); font-weight: var(--weight-extrabold); line-height: var(--leading-tight); letter-spacing: var(--tracking-title); }
+.who-meta { margin-top: var(--space-4); font-size: var(--text-ui); color: var(--muted-foreground); }
+.shortcuts { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: var(--space-8); }
+.facts { display: flex; flex-direction: column; gap: var(--space-14); padding: var(--space-18); border-radius: var(--radius-box); background: var(--card-soft); }
+.fact { display: grid; grid-template-columns: 24px 1fr; gap: var(--space-12); }
+.fact > .ic { color: var(--muted-foreground); margin-top: 2px; }
+.fact dt { font-size: var(--text-caption); font-weight: var(--weight-semibold); color: var(--muted-foreground); }
+.fact dd { margin: 0; font-size: var(--text-body); font-weight: var(--weight-medium); }
+.fact dd.vazio { color: var(--muted-foreground); font-weight: var(--weight-regular); }
+.steps-legend { margin-bottom: var(--space-12); font-size: var(--text-small); color: var(--muted-foreground); }
+.steps-legend b { color: var(--foreground); font-weight: var(--weight-bold); }
+.steps { list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); }
+.step { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--space-8); text-align: center;
+  font-size: var(--text-caption); font-weight: var(--weight-semibold); line-height: var(--leading-body); color: var(--muted-foreground); }
+.step::before { content: ''; position: absolute; top: 12px; right: 50%; width: 100%; height: 2px; background: var(--border); }
+.step:first-child::before { display: none; }
+.step-dot { position: relative; z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--radius-full);
+  background: var(--background); border: 2px solid var(--border); color: var(--primary-foreground); }
+.step-dot .ic { width: var(--icon-xs); height: var(--icon-xs); stroke-width: 3; }
+.step[data-state="done"] { color: var(--foreground); }
+.step[data-state="done"]::before { background: var(--primary); }
+.step[data-state="done"] .step-dot { background: var(--primary); border-color: var(--primary); }
+.step[data-state="next"] { color: var(--primary); font-weight: var(--weight-extrabold); }
+.step[data-state="next"] .step-dot { background: var(--card); border: 2px dashed var(--primary); box-shadow: 0 0 0 4px var(--primary-soft); }
+.actions-secondary { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-8); }
+
+/* Aviso com "Desfazer" (6.10) */
+.toasts { position: fixed; left: 50%; bottom: var(--space-24); transform: translateX(-50%); z-index: var(--z-toast);
+  display: flex; flex-direction: column; gap: var(--space-10); width: min(var(--overlay-width), calc(100vw - 32px)); }
+@media (max-width: 1099px) { .toasts { bottom: calc(var(--tabbar) + var(--space-16) + env(safe-area-inset-bottom)); } }
+.toast { display: flex; align-items: center; gap: var(--space-12); padding: var(--space-12) var(--space-10) var(--space-12) var(--space-14);
+  border-radius: var(--radius-box); background: var(--foreground); color: var(--on-dark); box-shadow: var(--shadow-lg); }
+.toast-icon { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: var(--radius-full); background: var(--on-dark-fill); color: var(--on-dark-accent); }
+.toast-icon .ic { width: var(--icon-md); height: var(--icon-md); }
+.toast-text { flex: 1; min-width: 0; font-size: var(--text-ui); font-weight: var(--weight-bold); line-height: var(--leading-body); }
+.toast-undo { flex: none; height: var(--control-sm); padding: 0 var(--space-12); border: 0; border-radius: var(--radius-sm); background: var(--on-dark-fill);
+  color: var(--on-dark-accent); font-size: var(--text-ui); font-weight: var(--weight-bold); }
+.toast-close { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--on-dark-muted); }
+.toast-close .ic { width: var(--icon-md); height: var(--icon-md); }
+
+/* Receitas que o PRD traz prontas (4.2, 6.6, 6.8, 6.9, 6.10, 7.1). */
+.avatar[data-tone="0"] { background: var(--avatar-1-bg); color: var(--avatar-1-fg); }
+.avatar[data-tone="1"] { background: var(--avatar-2-bg); color: var(--avatar-2-fg); }
+.avatar[data-tone="2"] { background: var(--avatar-3-bg); color: var(--avatar-3-fg); }
+.avatar[data-tone="3"] { background: var(--avatar-4-bg); color: var(--avatar-4-fg); }
+.avatar[data-tone="4"] { background: var(--avatar-5-bg); color: var(--avatar-5-fg); }
+.avatar[data-tone="5"] { background: var(--avatar-6-bg); color: var(--avatar-6-fg); }
+
+.detail-column { display: flex; flex-direction: column; overflow: hidden; background: var(--card); border: var(--line) solid var(--border); border-radius: var(--radius-xl); }
+.detail-column .detail-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--space-20); padding: var(--space-24); overflow-y: auto; overscroll-behavior: contain; }
+.detail-column .detail-foot { flex: none; padding: var(--space-14) var(--space-24) var(--space-20); border-top: var(--line) solid var(--border); }
+
+.today { display: grid; grid-template-columns: minmax(0, 1fr) var(--side); gap: var(--space-24); align-items: start; }
+.today-main { min-width: 0; }
+.today-detail { position: sticky; top: calc(var(--topbar) + var(--space-20)); max-height: calc(100dvh - var(--topbar) - var(--space-40)); }
+@media (max-width: 1279px) { .today { grid-template-columns: minmax(0, 1fr) var(--side-narrow); } }
+@media (max-width: 1099px) { .today { display: block; } .today-detail { display: none; } }
+
+.fab { transition: bottom var(--duration-slow) ease-out; }
+html[data-toast] .fab { bottom: calc(var(--tabbar) + var(--space-16) + var(--toast-stack) + var(--space-10) + env(safe-area-inset-bottom)); }
+
+@media (max-width: 599px) {
+  .next-body, .next-actions { flex: 1 1 100%; }
+  .next-actions { min-width: 0; }
+  .next-actions .button { flex: 1 1 auto; min-width: 0; padding: 0 var(--space-12); }
+}
+
+@media (max-width: 599px) {
+  .toast { flex-wrap: wrap; row-gap: var(--space-8); }
+  .toast-text { flex: 1 1 calc(100% - 34px - var(--space-12)); }
+  .toast-undo, .toast-text + .toast-close { margin-left: auto; }
+}
+
+/* Tela Hoje */
+.agenda-list { margin: 0; }
+
+/* Altura até 480px (zoom alto): tudo o que é fixo rola junto (PRD 5.3). Diálogo, painel e folha continuam fixos. */
+@media (max-height: 480px) {
+  .topbar, .tabbar, .fab, .toasts { position: static; }
+  .toasts { transform: none; }
+  .today-detail { position: static; max-height: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#conteudo">Ir para o conteúdo</a>
+<header class="topbar">
+  <a class="brand" href="hoje.html" aria-label="Vila Serena, ir para Hoje"><span>Vila <span class="nome-2">Serena</span></span></a>
+  <nav class="tabs" aria-label="Principal">
+      <a class="tab" href="hoje.html" aria-current="page"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>Hoje</a>
+      <a class="tab" href="agenda-semana.html"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/></svg>Agenda</a>
+      <a class="tab" href="#pacientes"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Pacientes</a>
+      <a class="tab" href="#painel"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>Painel</a>
+      <a class="tab" href="#clinica"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>Clínica</a>
+  </nav>
+  <button class="account" type="button" aria-label="Conta de Carla Mendes, Responsável" aria-haspopup="menu" aria-expanded="false">
+    <span class="avatar sm" data-tone="1" aria-hidden="true">CM</span>
+    <span class="account-text"><span class="account-name">Carla Mendes</span><span class="account-role">Responsável</span></span>
+    <svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+  </button>
+</header>
+
+<main id="conteudo" tabindex="-1">
+  <div class="today">
+    <div class="today-main">
+      <div class="page-head">
+        <div>
+          <h1 tabindex="-1" data-autofocus>Bom dia, Carla</h1>
+          <p class="sub">Quarta, 28 de outubro · 14 consultas</p>
+        </div>
+        <div class="page-actions page-action-desktop">
+          <button class="button primary" type="button"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Agendar consulta</button>
+        </div>
+      </div>
+      <nav class="days" aria-label="Dias da semana">
+      <a class="day" href="agenda-semana.html"><small>Seg</small><b>26</b></a>
+      <a class="day" href="agenda-semana.html"><small>Ter</small><b>27</b></a>
+      <a class="day" href="agenda-semana.html" aria-current="date"><small>Qua</small><b>28</b></a>
+      <a class="day" href="agenda-semana.html"><small>Qui</small><b>29</b></a>
+      <a class="day" href="agenda-semana.html"><small>Sex</small><b>30</b></a>
+      <a class="day" href="agenda-semana.html"><small>Sáb</small><b>31</b></a>
+      <a class="day" href="agenda-semana.html"><small>Dom</small><b>1</b></a>
+    </nav>
+      <div class="filters">
+        <div class="chips" role="group" aria-label="Filtrar por profissional">
+      <button class="chip" type="button" aria-pressed="true">Todos <span class="count">14</span></button>
+      <button class="chip" type="button" aria-pressed="false"><span class="avatar xs" data-tone="3" aria-hidden="true">LM</span>Dra. Lia <span class="count">6</span></button>
+      <button class="chip" type="button" aria-pressed="false"><span class="avatar xs" data-tone="4" aria-hidden="true">CF</span>Dr. Caio <span class="count">5</span></button>
+      <button class="chip" type="button" aria-pressed="false"><span class="avatar xs" data-tone="0" aria-hidden="true">BR</span>Dra. Bianca <span class="count">3</span></button>
+    </div>
+      </div>
+      <section class="next hide-desktop" aria-label="Próximo paciente" data-surface="dark">
+      <p class="next-label">Próximo · em 20 min</p>
+      <button class="next-body" type="button" aria-label="Abrir a consulta de Helena Prado">
+        <span class="next-time">10:00</span>
+        <span class="next-info"><span class="next-name">Helena Prado</span><span class="next-meta">Limpeza · Dra. Lia Moura · 30 min</span></span>
+      </button>
+      <div class="next-actions">
+        <button class="button start" type="button"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg>Iniciar atendimento</button>
+        <a class="button chat" href="https://wa.me/5511987654321?text=Ol%C3%A1%2C%20Helena!%20Lembrando%20da%20sua%20consulta%20de%20limpeza%20no%20dia%2028%2F10%2F2026%20%C3%A0s%2010%3A00.%20Podemos%20confirmar%3F" target="_blank" rel="noreferrer"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>WhatsApp</a>
+      </div>
+    </section>
+      <div class="reminder" role="status"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>3 pacientes ainda não confirmaram</span></div>
+      <section class="agenda-list" aria-label="Consultas de hoje">
+<h2 class="agenda-group">Manhã · 6</h2>
+<button class="agenda-row" type="button" data-status="concluido" aria-pressed="false">
+  <span class="when"><span class="time">08:30</span><span class="duration">30 min</span></span>
+  <span class="avatar md" data-tone="1" aria-hidden="true">TN</span>
+  <span><span class="name">Tiago Neves</span><span class="meta">Manutenção do aparelho · Dra. Lia Moura</span></span>
+  <span><span class="status" data-status="concluido"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg>Concluído</span><span class="status compact" data-status="concluido" title="Concluído"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg><span class="sr-only">Concluído</span></span></span>
+</button>
+<button class="agenda-row" type="button" data-status="atendimento" aria-pressed="false">
+  <span class="when"><span class="time">09:00</span><span class="duration">60 min</span></span>
+  <span class="avatar md" data-tone="5" aria-hidden="true">ED</span>
+  <span><span class="name">Elaine Duarte</span><span class="meta">Restauração · Dr. Caio Ferraz</span></span>
+  <span><span class="status" data-status="atendimento"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg>Em atendimento</span><span class="status compact" data-status="atendimento" title="Em atendimento"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg><span class="sr-only">Em atendimento</span></span></span>
+</button>
+<button class="agenda-row" type="button" data-status="faltou" aria-pressed="false">
+  <span class="when"><span class="time">09:00</span><span class="duration">30 min</span></span>
+  <span class="avatar md" data-tone="3" aria-hidden="true">OB</span>
+  <span><span class="name">Otávio Brandão</span><span class="meta">Manutenção do aparelho · Dra. Lia Moura</span></span>
+  <span><span class="status" data-status="faltou"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21a8 8 0 0 1 11.873-7"/><circle cx="10" cy="8" r="5"/><path d="m17 17 5 5"/><path d="m22 17-5 5"/></svg>Faltou</span><span class="status compact" data-status="faltou" title="Faltou"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21a8 8 0 0 1 11.873-7"/><circle cx="10" cy="8" r="5"/><path d="m17 17 5 5"/><path d="m22 17-5 5"/></svg><span class="sr-only">Faltou</span></span></span>
+</button>
+<div class="now-line" aria-hidden="true">Agora</div>
+<button class="agenda-row" type="button" data-status="confirmado" aria-pressed="false">
+  <span class="when"><span class="time">10:00</span><span class="duration">30 min</span></span>
+  <span class="avatar md" data-tone="3" aria-hidden="true">HP</span>
+  <span><span class="name">Helena Prado</span><span class="meta">Limpeza · Dra. Lia Moura</span></span>
+  <span><span class="status" data-status="confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Confirmado</span><span class="status compact" data-status="confirmado" title="Confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span class="sr-only">Confirmado</span></span></span>
+</button>
+<button class="agenda-row" type="button" data-status="agendado" aria-pressed="false">
+  <span class="when"><span class="time">10:00</span><span class="duration">90 min</span></span>
+  <span class="avatar md" data-tone="5" aria-hidden="true">PL</span>
+  <span><span class="name">Paulo Sérgio Lima</span><span class="meta">Tratamento de canal · Dra. Bianca Rocha</span></span>
+  <span><span class="status" data-status="agendado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>Agendado</span><span class="status compact" data-status="agendado" title="Agendado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span class="sr-only">Agendado</span></span></span>
+</button>
+<button class="agenda-row" type="button" data-status="confirmado" aria-pressed="false">
+  <span class="when"><span class="time">10:00</span><span class="duration">60 min</span></span>
+  <span class="avatar md" data-tone="5" aria-hidden="true">CB</span>
+  <span><span class="name">Carlos Eduardo Braga</span><span class="meta">Clareamento · Dr. Caio Ferraz</span></span>
+  <span><span class="status" data-status="confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Confirmado</span><span class="status compact" data-status="confirmado" title="Confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span class="sr-only">Confirmado</span></span></span>
+</button>
+<h2 class="agenda-group">Tarde · 7</h2>
+<button class="agenda-row" type="button" data-status="confirmado" aria-pressed="false">
+  <span class="when"><span class="time">14:00</span><span class="duration">90 min</span></span>
+  <span class="avatar md" data-tone="5" aria-hidden="true">WT</span>
+  <span><span class="name">Wagner Teixeira</span><span class="meta">Tratamento de canal · Dra. Bianca Rocha</span></span>
+  <span><span class="status" data-status="confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Confirmado</span><span class="status compact" data-status="confirmado" title="Confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span class="sr-only">Confirmado</span></span></span>
+</button>
+<button class="agenda-row" type="button" data-status="agendado" aria-pressed="false">
+  <span class="when"><span class="time">14:00</span><span class="duration">30 min</span></span>
+  <span class="avatar md" data-tone="2" aria-hidden="true">LM</span>
+  <span><span class="name">Luciana Moraes</span><span class="meta">Manutenção do aparelho · Dra. Lia Moura</span></span>
+  <span><span class="status" data-status="agendado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>Agendado</span><span class="status compact" data-status="agendado" title="Agendado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span class="sr-only">Agendado</span></span></span>
+</button>
+<button class="agenda-row" type="button" data-status="cancelado" aria-pressed="false">
+  <span class="when"><span class="time">14:30</span><span class="duration">30 min</span></span>
+  <span class="avatar md" data-tone="2" aria-hidden="true">DS</span>
+  <span><span class="name">Débora Siqueira</span><span class="meta">Limpeza · Dr. Caio Ferraz</span></span>
+  <span><span class="status" data-status="cancelado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>Cancelado</span><span class="status compact" data-status="cancelado" title="Cancelado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg><span class="sr-only">Cancelado</span></span></span>
+</button>
+<button class="agenda-row" type="button" data-status="confirmado" aria-pressed="false">
+  <span class="when"><span class="time">15:00</span><span class="duration">30 min</span></span>
+  <span class="avatar md" data-tone="3" aria-hidden="true">FN</span>
+  <span><span class="name">Fábio Nogueira</span><span class="meta">Avaliação · Dra. Lia Moura</span></span>
+  <span><span class="status" data-status="confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Confirmado</span><span class="status compact" data-status="confirmado" title="Confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span class="sr-only">Confirmado</span></span></span>
+</button>
+<button class="agenda-row" type="button" data-status="confirmado" aria-pressed="false">
+  <span class="when"><span class="time">15:30</span><span class="duration">60 min</span></span>
+  <span class="avatar md" data-tone="5" aria-hidden="true">SP</span>
+  <span><span class="name">Sônia Maria Pereira</span><span class="meta">Restauração · Dr. Caio Ferraz</span></span>
+  <span><span class="status" data-status="confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Confirmado</span><span class="status compact" data-status="confirmado" title="Confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span class="sr-only">Confirmado</span></span></span>
+</button>
+<button class="agenda-row" type="button" data-status="agendado" aria-pressed="false">
+  <span class="when"><span class="time">16:30</span><span class="duration">30 min</span></span>
+  <span class="avatar md" data-tone="5" aria-hidden="true">IC</span>
+  <span><span class="name">Ivan Coutinho</span><span class="meta">Manutenção do aparelho · Dra. Lia Moura</span></span>
+  <span><span class="status" data-status="agendado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>Agendado</span><span class="status compact" data-status="agendado" title="Agendado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span class="sr-only">Agendado</span></span></span>
+</button>
+<button class="agenda-row" type="button" data-status="confirmado" aria-pressed="false">
+  <span class="when"><span class="time">17:00</span><span class="duration">60 min</span></span>
+  <span class="avatar md" data-tone="1" aria-hidden="true">RL</span>
+  <span><span class="name">Rita Lopes</span><span class="meta">Clareamento · Dr. Caio Ferraz</span></span>
+  <span><span class="status" data-status="confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Confirmado</span><span class="status compact" data-status="confirmado" title="Confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span class="sr-only">Confirmado</span></span></span>
+</button>
+<h2 class="agenda-group">Noite · 1</h2>
+<button class="agenda-row" type="button" data-status="confirmado" aria-pressed="false">
+  <span class="when"><span class="time">18:30</span><span class="duration">30 min</span></span>
+  <span class="avatar md" data-tone="2" aria-hidden="true">BF</span>
+  <span><span class="name">Beatriz Fontes</span><span class="meta">Avaliação · Dra. Bianca Rocha</span></span>
+  <span><span class="status" data-status="confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Confirmado</span><span class="status compact" data-status="confirmado" title="Confirmado"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span class="sr-only">Confirmado</span></span></span>
+</button>
+      </section>
+    </div>
+  </div>
+</main>
+<nav class="tabbar" aria-label="Principal">
+  <a href="hoje.html" aria-current="page"><span class="pill"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg></span>Hoje</a>
+  <a href="agenda-semana.html"><span class="pill"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/></svg></span>Agenda</a>
+  <a href="#pacientes"><span class="pill"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Pacientes</a>
+  <a href="#mais"><span class="pill"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></span>Mais</a>
+</nav>
+
+<button class="button primary fab" type="button"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Agendar</button>
+
+<div class="toasts" role="region" aria-label="Avisos">
+  <div class="toast" data-surface="dark" role="status">
+    <span class="toast-icon"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span>
+    <div class="toast-text">Consulta de Helena confirmada</div>
+    <button class="toast-undo" type="button">Desfazer</button>
+    <button class="toast-close" type="button" aria-label="Fechar aviso" title="Fechar aviso"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+  </div>
+</div>
+<script>
+/* Altura da pilha de avisos, para o botão flutuante subir acima dela (PRD 6.9). */
+(function () {
+  var area = document.querySelector('.toasts');
+  new ResizeObserver(function () {
+    var altura = area.getBoundingClientRect().height;
+    document.documentElement.style.setProperty('--toast-stack', altura + 'px');
+    document.documentElement.toggleAttribute('data-toast', altura > 0);
+  }).observe(area);
+})();
+/* Só neste exemplo: a captura abre a página já rolada, para a lista aparecer entre a barra superior e o aviso. */
+window.addEventListener('load', function () { window.scrollTo(0, 466); });
+</script>
+</body>
+</html>

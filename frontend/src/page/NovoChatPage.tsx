@@ -51,6 +51,8 @@ export function NovoChatPage({
   const [accessMode, setAccessMode] = useState('read-only');
   const [error, setError] = useState<string | null>(null);
   const [folder, setFolder] = useState('');
+  const [pickingFolder, setPickingFolder] = useState(false);
+  const desktop = Boolean(document.querySelector('meta[name="hydra-desktop"]'));
   const inFlight = useRef(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
@@ -114,25 +116,36 @@ export function NovoChatPage({
     },
     onError: (err) =>
       setError(
-        err instanceof ControlPlaneApiError
-          ? err.payload.message
-          : err instanceof Error
-            ? err.message
-            : 'Não foi possível enviar. Tente novamente.',
+        err instanceof ControlPlaneApiError && err.status === 404
+          ? 'O backend aberto ainda não tem o fluxo de conversa. Reinicie o backend e tente novamente. Sua mensagem foi preservada.'
+          : err instanceof ControlPlaneApiError
+            ? err.payload.message
+            : err instanceof Error
+              ? err.message
+              : 'Não foi possível enviar. Tente novamente.',
       ),
     onSettled: () => {
       inFlight.current = false;
     },
   });
   const register = useMutation({
-    mutationFn: () =>
-      client.request<{ id: string }>('/v1/control-plane/projects', {
+    mutationFn: async (selectedFolder: string | undefined) => {
+      const chosen = (selectedFolder ?? folder).trim().replace(/^"(.*)"$/, '$1');
+      const normalize = (value: string) =>
+        /^[a-z]:[\\/]/i.test(value)
+          ? value.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase()
+          : value.replace(/\/$/, '');
+      const existing = projects.find((p) => normalize(p.canonical_root) === normalize(chosen));
+      if (existing) return existing;
+      return client.request<{ id: string }>('/v1/control-plane/projects', {
         method: 'POST',
         body: {
-          canonical_root: folder.trim(),
-          name: folder.trim().split(/[\\/]/).filter(Boolean).pop() || 'Meu projeto',
+          canonical_root: chosen,
+          allow_plain_folder: true,
+          name: chosen.split(/[\\/]/).filter(Boolean).pop() || 'Meu projeto',
         },
-      }),
+      });
+    },
     onSuccess: (project) => {
       selectHierarchy({ projectId: project.id, runId: null, sessionId: null });
       void queryClient.invalidateQueries({ queryKey: ['control-plane', 'projects'] });
@@ -142,6 +155,27 @@ export function NovoChatPage({
     onError: (err) =>
       setError(err instanceof Error ? err.message : 'Não foi possível cadastrar a pasta.'),
   });
+  const chooseFolder = async () => {
+    setPickingFolder(true);
+    setError(null);
+    try {
+      const selected = await client.request<{ path: string | null }>('/v1/launcher/pick-folder', {
+        method: 'POST',
+      });
+      if (selected.path) {
+        setFolder(selected.path);
+        register.mutate(selected.path);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível abrir o seletor. Informe o caminho da pasta.',
+      );
+    } finally {
+      setPickingFolder(false);
+    }
+  };
   const submit = () => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -153,10 +187,13 @@ export function NovoChatPage({
       <h1 ref={headingRef} tabIndex={-1} className="mb-6 text-2xl font-semibold text-[#E8E8E8]">
         O que vamos fazer?
       </h1>
+      <p className="mb-5 text-sm text-[#D1D1D1]">
+        Escolha uma pasta e envie seu pedido. Cada conversa mantém seu próprio histórico.
+      </p>
       <div className="mb-4 flex flex-wrap gap-3">
         <div className="min-w-0 flex-[2_1_12rem]">
           <label htmlFor="novo-chat-project-select" className="mb-1 block text-sm text-[#D1D1D1]">
-            Projeto
+            Pasta
           </label>
           <select
             id="novo-chat-project-select"
@@ -168,12 +205,10 @@ export function NovoChatPage({
           >
             {!projects.length && (
               <option value="">
-                {isLoading ? 'Carregando projetos…' : 'Cadastre uma pasta abaixo'}
+                {isLoading ? 'Carregando pastas…' : 'Adicione uma pasta abaixo'}
               </option>
             )}
-            {projects.length > 0 && !activeProject && (
-              <option value="">Selecione um projeto</option>
-            )}
+            {projects.length > 0 && !activeProject && <option value="">Selecione uma pasta</option>}
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -225,14 +260,24 @@ export function NovoChatPage({
           </p>
         )}
       <details className="mb-4 text-sm text-[#D1D1D1]" open={!projects.length && !isLoading}>
-        <summary className="w-fit cursor-pointer py-2">Cadastrar outra pasta</summary>
+        <summary className="w-fit cursor-pointer py-2">Adicionar pasta</summary>
         <form
           className="mt-2 flex flex-wrap items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            register.mutate();
+            register.mutate(undefined);
           }}
         >
+          {desktop && (
+            <button
+              type="button"
+              disabled={pickingFolder || register.isPending}
+              className="min-h-11 rounded-lg border border-[#666] px-3"
+              onClick={() => void chooseFolder()}
+            >
+              {pickingFolder ? 'Escolhendo pasta…' : 'Selecionar pasta'}
+            </button>
+          )}
           <div className="min-w-0 flex-[1_1_15rem]">
             <label htmlFor="chat-folder" className="mb-1 block">
               Caminho da pasta neste computador
@@ -250,7 +295,7 @@ export function NovoChatPage({
             className="min-h-11 rounded-lg border border-[#666] px-3"
             disabled={!folder.trim() || register.isPending}
           >
-            Cadastrar pasta
+            Usar esta pasta
           </button>
         </form>
       </details>

@@ -49,3 +49,9 @@ O usuário autorizou que o agente responsável pela tarefa atualize o repositór
 `AGENTS.md` é a fonte única desta política. `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.cursor/rules/project.mdc` e `.windsurf/rules/project.md` encaminham para ela. Ao atualizar a política, mantenha os encaminhamentos consistentes.
 
 Ferramentas que não carregam esses arquivos automaticamente devem receber este arquivo como contexto explícito. Estes arquivos são instruções para agentes com acesso ao checkout, não hooks que executam Git em qualquer chat. Restrições do cliente, sessões sem filesystem/Git e permissões do GitHub continuam valendo.
+
+<!-- kit-frontend:inicio -->
+## Frontend
+
+Para qualquer trabalho de interface (tela, página, componente, visual, UI, UX), siga `.agents/skills/kit-frontend/SKILL.md` antes de escrever código. Ele define o processo, os portões de aprovação, o gosto do dono e a verificação obrigatória. `design/correcoes.md` e `DESIGN.md` deste projeto prevalecem sobre ele, menos no piso de acessibilidade.
+<!-- kit-frontend:fim -->

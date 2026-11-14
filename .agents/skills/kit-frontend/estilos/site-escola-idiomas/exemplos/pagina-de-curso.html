@@ -1,0 +1,742 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curso de Inglês — Voga Idiomas</title>
+<meta name="description" content="Curso de inglês da Voga, escola fictícia: turmas para crianças, adolescentes e adultos, presenciais ou on-line, e teste de nível gratuito.">
+<link rel="canonical" href="https://www.exemplo.com.br/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400..700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Course",
+  "name": "Curso de Inglês",
+  "description": "Turmas de inglês para crianças, adolescentes e adultos, presenciais ou on-line.",
+  "provider": {
+    "@type": "Organization",
+    "name": "Voga Idiomas (escola fictícia)",
+    "sameAs": "https://www.exemplo.com.br"
+  }
+}
+</script>
+<!--
+  EXEMPLO — PÁGINA DE CURSO (/cursos/ingles, §5.3). Escola fictícia "Voga": marca, nomes e textos são inventados.
+  Segue o prd.md versão 3.0.0: os blocos de tokens e as receitas estão colados sem alteração.
+  Blocos 1 a 6 do §5.3, nessa ordem, com o fundo e o CTA de fechamento da tabela. Sem eyebrow: ele só existe na home (§5.2).
+  Abaixo de 1200px aparecem o header de 64px e a barra fixa das duas conversões; a captura é de 1440px.
+-->
+<style>
+
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  color-scheme: light;   /* sem tema escuro */
+
+  /* ---------- MARCA (defina só --brand; o resto é derivado) ---------- */
+  --brand:            #d71920;                                      /* botões, faixa de CTA, destaques */
+  --brand-dark:       color-mix(in srgb, var(--brand) 79%, black);  /* #aa1419: footer, hover de botão, badge */
+  --brand-deep:       color-mix(in srgb, var(--brand) 42%, black);  /* #5a0b0d: "vinho", títulos de seção, botão pressionado */
+  --brand-light:      color-mix(in srgb, var(--brand) 88%, white);  /* #dc353b: só decorativa (gradientes, ilustrações) */
+  --brand-tint:       color-mix(in srgb, var(--brand) 6%, white);   /* #fdf1f2: fundo de seção suave */
+
+  /* texto ligado à marca: confira pelo §1.1 ao trocar --brand */
+  --on-brand:         #ffffff;            /* texto e ícone sobre --brand */
+  --on-brand-dark:    #ffffff;            /* texto e ícone sobre --brand-dark */
+  --brand-text:       var(--brand);       /* a marca como texto sobre fundo claro: tag, rótulo ativo, asterisco, números */
+  --brand-text-dark:  var(--brand-dark);  /* links, botão outline, ícones */
+
+  /* ---------- NEUTROS ---------- */
+  --heading:          #04000b;  /* títulos: quase-preto, NÃO #000 */
+  --paragraph:        #666666;  /* corpo de texto e placeholder */
+  --input-text:       #212529;  /* texto digitado em campo */
+  --dark:             #0e0f11;  /* cookie bar */
+  --white:            #ffffff;
+  --bg-gray:          #f2f3ef;  /* fundo de seção alternado (quente, não frio) */
+  --border:           #dee2e6;  /* divisórias e bordas decorativas; NÃO serve de limite de campo */
+  --border-input:     #6c757d;  /* limite de input e select; passos futuros do stepper */
+
+  /* ---------- ESTADO (sempre com ícone e texto, nunca só a cor) ---------- */
+  --danger:           #b3261e;
+  --success:          #1b6e3a;
+
+  /* ---------- TIPOGRAFIA ---------- */
+  --font: "Montserrat", system-ui, -apple-system, sans-serif;
+
+  --fs-hero:      clamp(2.25rem, 1.4rem + 3.2vw, 3.75rem);     /* h1 do hero: 36 a 60px */
+  --fs-section:   clamp(1.75rem, 1.2rem + 2.3vw, 3.125rem);    /* título de seção: 28 a 50px */
+  --fs-cta:       clamp(1.5rem, 1rem + 2vw, 2.5rem);           /* título da faixa de CTA: 24 a 40px */
+  --fs-hero-sub:  clamp(1.125rem, 1rem + .6vw, 1.5625rem);     /* subtítulo do hero: 18 a 25px */
+  --fs-card:      clamp(1.375rem, 1.2rem + .6vw, 1.6875rem);   /* h3 de tile e de bloco: 22 a 27px */
+  --fs-body-lg:   clamp(1.0625rem, .98rem + .35vw, 1.25rem);   /* corpo do hero: 17 a 20px */
+  --fs-item:      1.25rem;         /* 20px: h4 de item, título de card */
+  --fs-body:      1.0625rem;       /* 17px: corpo padrão (NÃO 16px) */
+  --fs-ui:        max(1rem, 16px); /* 16px: campos, labels, links de navegação */
+  --fs-caption:   .875rem;         /* 14px: eyebrow, badge, botão, data */
+
+  --lh-tight:     1.15;  /* h1 */
+  --lh-heading:   1.2;   /* h2..h6 e botões */
+  --lh-snug:      1.3;   /* subtítulo do hero, título de card */
+  --lh-caption:   1.4;   /* textos de 14px */
+  --lh-lead:      1.6;   /* corpo do hero */
+  --lh-body:      1.7;   /* parágrafos e leitura longa */
+
+  /* ---------- ESPAÇAMENTO (escala de 6 passos) ---------- */
+  --space-1: .25rem;  --space-2: .5rem;   --space-3: 1rem;
+  --space-4: 1.5rem;  --space-5: 2.5rem;  --space-6: 3.5rem;
+  --grid-gap:        2rem;    /* 32px: gap das grades de cards */
+
+  --section-pt:      60px;    /* padding de seção, em cima */
+  --section-pb:      60px;    /* padding de seção, embaixo */
+  --section-tight:   48px;    /* .section--tight, em cima e embaixo */
+  --heading-mb:      40px;    /* espaço entre título de seção e conteúdo */
+
+  /* ---------- LAYOUT ---------- */
+  --container:       1320px;  /* largura máxima do .container (1250px úteis com o respiro de 35px) */
+  --container-pad:   20px;    /* respiro lateral */
+  --header-h:        64px;    /* header de uma faixa */
+  --cta-bar-h:       56px;    /* barra fixa das duas conversões, abaixo de 1200px */
+  --cookie-h:        0px;     /* altura da cookie bar: o JS grava ao exibir e zera ao fechar */
+
+  /* ---------- FORMA ---------- */
+  --r-sm:   6px;    /* inputs e botões */
+  --r-md:   8px;    /* badges */
+  --r-lg:   20px;   /* cards, imagens, acordeão */
+  --r-xl:   32px;   /* faixa de CTA */
+  --r-full: 999px;  /* pílulas, eyebrow, campo da faixa de CTA */
+
+  /* ---------- ELEVAÇÃO ---------- */
+  --shadow-card:  0 2px 12px 0 rgb(0 0 0 / .09);
+  --shadow-hover: 0 20px 40px -12px rgb(0 0 0 / .12), 0 8px 20px -8px color-mix(in srgb, var(--brand) 14%, transparent);
+  --shadow-brand: 0 10px 30px 0 color-mix(in srgb, var(--brand) 40%, transparent); /* glow da bolha de chat */
+
+  /* ---------- MOVIMENTO ---------- */
+  --t-fast: .2s ease;          /* troca de cor em hover, dropdowns */
+  --t-base: .25s ease;         /* cards */
+  --t-slow: .35s ease-in-out;  /* imagem e overlay do tile */
+}
+
+@media (min-width: 768px) {
+  :root { --section-pt: 100px; --section-pb: 120px; --heading-mb: 60px; --container-pad: 35px; }
+}
+@media (min-width: 1200px) {
+  :root { --header-h: 143px; --cta-bar-h: 0px; }   /* header de duas faixas: 64 + 79 */
+}
+
+/* ---------- BASE ---------- */
+html { scroll-padding-top: var(--header-h); scroll-padding-bottom: calc(var(--cta-bar-h) + var(--cookie-h) + var(--space-4)); }
+body {
+  margin: 0; padding-bottom: calc(var(--cta-bar-h) + var(--cookie-h));
+  font-family: var(--font); font-size: var(--fs-body); line-height: var(--lh-body);
+  color: var(--paragraph); background: var(--white);
+}
+h1, h2, h3, h4 { margin: 0; color: var(--heading); line-height: var(--lh-heading); letter-spacing: 0; }
+h1 { line-height: var(--lh-tight); }
+a { color: var(--brand-text-dark); }               /* link em texto corrido: cor + sublinhado do navegador */
+button, input, select, textarea { font: inherit; } /* sem isso os controles saem em Arial */
+::placeholder { color: var(--paragraph); opacity: 1; }
+
+/* Foco: anel duplo, branco por dentro e escuro por fora. Um dos dois contrasta com qualquer fundo (§7). */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--white); outline-offset: 0;
+  box-shadow: 0 0 0 4px var(--heading);
+}
+
+/* ---------- Receitas do PRD, coladas como estão ---------- */
+/* §3.1 botões */
+/* comum às três formas */
+.btn-primary, .btn-outline, .btn-pill {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  min-height: 44px;                       /* alvo de toque */
+  font: inherit; font-size: var(--fs-caption); font-weight: 700; line-height: var(--lh-heading);
+  text-align: center; text-decoration: none; cursor: pointer;
+  transition: background-color var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+
+/* PRIMARIO — a acao da pagina */
+.btn-primary, .btn-outline { padding: 10px 20px; border: 1px solid; border-radius: var(--r-sm); }
+.btn-primary       { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+.btn-primary:hover { background: var(--brand-dark); color: var(--on-brand-dark); border-color: var(--brand-dark); }
+
+/* SECUNDARIO / OUTLINE — acao alternativa, mesmo peso visual, menos urgencia */
+.btn-outline       { background: var(--white); color: var(--brand-text-dark); border-color: var(--brand-text-dark); }
+.btn-outline:hover { background: var(--brand-dark); color: var(--on-brand-dark); border-color: var(--brand-dark); }
+
+/* PILULA — CTA de hero e de faixa colorida. Sempre em caixa alta. */
+.btn-pill {
+  width: 100%; padding: 15px var(--space-4);          /* celular: largura total, o rotulo pode quebrar */
+  border: 2px solid; border-radius: var(--r-full);
+  text-transform: uppercase;
+}
+@media (min-width: 576px) {
+  .btn-pill { width: auto; padding-inline: var(--space-5); white-space: nowrap; }
+}
+/* solida da marca: a conversao, sobre foto */
+.btn-pill--brand            { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+.btn-pill--brand:hover      { background: var(--brand-dark); color: var(--on-brand-dark); border-color: var(--brand-dark); }
+/* branca solida: a conversao, sobre fundo da marca -> vaza para transparente no hover */
+.btn-pill--on-brand         { background: var(--white); color: var(--brand-text); border-color: var(--white); }
+.btn-pill--on-brand:hover   { background: transparent; color: inherit; border-color: currentColor; }
+/* fantasma: a acao de baixo compromisso. Herda a cor do texto do bloco (hero ou faixa) */
+.btn-pill--ghost            { background: transparent; color: inherit; border-color: currentColor; }
+.btn-pill--ghost:hover      { background: var(--white); color: var(--heading); border-color: var(--white); }
+
+/* pressionado e desabilitado, nas tres formas (por ultimo, para valer sobre o hover) */
+.btn-primary:active, .btn-outline:active, .btn-pill:active {
+  background: var(--brand-deep); color: var(--white); border-color: var(--brand-deep);
+}
+.btn-primary:disabled, .btn-outline:disabled, .btn-pill:disabled,
+.btn-primary[aria-disabled="true"], .btn-outline[aria-disabled="true"], .btn-pill[aria-disabled="true"] {
+  background: var(--bg-gray); color: var(--paragraph); border-color: var(--border); cursor: not-allowed;
+}
+
+/* §3.3 card */
+.card {
+  background: var(--white); border-radius: var(--r-lg); overflow: hidden;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--t-base), transform var(--t-base);
+}
+.card:hover { box-shadow: var(--shadow-hover); transform: translateY(-4px); }
+.card--static:hover { box-shadow: var(--shadow-card); transform: none; }   /* card que nao e clicavel inteiro */
+.card__img   { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; }
+.card__body  { display: grid; gap: var(--space-2); padding: var(--space-4); }
+.card__meta  { font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--paragraph); }   /* "28 de agosto de 2026" */
+.card__tag   { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 700; color: var(--brand-text); text-transform: uppercase; }   /* "Dicas" */
+.card__title { margin: 0; font-size: var(--fs-item); font-weight: 600; line-height: var(--lh-snug); color: var(--heading); }
+.card__link  { justify-self: start; padding-block: var(--space-2); font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 700; color: var(--brand-text-dark); }   /* "Continuar lendo" */
+
+/* §3.4 faixa de CTA */
+.cta-band {
+  /* mesma largura util do .container: nunca encosta na borda da tela */
+  width: min(100% - 2 * var(--container-pad), var(--container) - 2 * var(--container-pad));
+  margin-inline: auto;
+  display: flex; flex-direction: column; gap: var(--space-4);
+  padding: var(--space-4) var(--container-pad);
+  background: var(--brand); color: var(--on-brand);
+  border-radius: var(--r-xl);
+}
+.cta-band h2 { margin: 0; font-size: var(--fs-cta); font-weight: 700; line-height: var(--lh-heading); text-transform: uppercase; color: inherit; }
+.cta-band p a { color: inherit; }  /* link do consentimento: o link da marca (§1) some sobre a propria marca */
+.cta-band--overlap { position: relative; z-index: 2; margin-top: -40px; }   /* so na home: invade o hero */
+@media (min-width: 768px) {
+  .cta-band { flex-direction: row; align-items: center; justify-content: space-between; }
+}
+
+/* §3.6 inputs */
+.input, .select {
+  display: block; width: 100%; min-height: 44px;
+  padding: var(--space-2) 12px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--r-sm);
+  font: inherit; font-size: var(--fs-ui); line-height: 1.5;   /* 16px+ evita zoom automatico no iOS */
+  background: var(--white); color: var(--input-text);
+}
+.cta-band .input { border-color: var(--white); border-radius: var(--r-full); padding-inline: var(--space-4); }   /* campo da faixa de CTA */
+.input:hover, .select:hover { border-color: var(--heading); }
+.input:disabled, .select:disabled { background: var(--bg-gray); color: var(--paragraph); cursor: not-allowed; }
+.input[aria-invalid="true"], .select[aria-invalid="true"] { border-width: 2px; border-color: var(--danger); }   /* a altura continua 44px */
+
+.label       { display: block; margin-bottom: var(--space-2); font-size: var(--fs-ui); font-weight: 600; line-height: 1.5; color: var(--heading); }
+.label .req  { color: var(--brand-text); }   /* asterisco na cor da marca ANTES do texto: "* E-mail" */
+.cta-band .label, .cta-band .label .req { color: inherit; }   /* sobre a marca, tudo na cor do texto da faixa */
+
+.field__error { display: flex; gap: var(--space-2); margin: var(--space-2) 0 0; font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 600; color: var(--danger); }
+.cta-band .field__error { color: inherit; }
+
+/* §3.8 badge de idade */
+.badge {
+  display: inline-block; padding: var(--space-1) var(--space-3);
+  background: var(--brand-dark); color: var(--on-brand-dark);   /* 7,44:1 com a marca padrao */
+  border-radius: var(--r-md);
+  font-size: var(--fs-caption); font-weight: 700; line-height: var(--lh-caption);
+}
+
+/* §3.9 acordeão */
+.accordion { background: var(--white); border: 1px solid var(--border); border-radius: var(--r-lg); }
+.accordion + .accordion { margin-top: var(--space-3); }
+.accordion summary {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  min-height: 64px; padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-lg); cursor: pointer; list-style: none;
+  font-size: var(--fs-item); font-weight: 600; line-height: var(--lh-heading); color: var(--heading); text-transform: uppercase;
+}
+.accordion summary::-webkit-details-marker { display: none; }
+.accordion summary::after {              /* chevron */
+  content: ""; flex: none; width: 10px; height: 10px; margin-right: var(--space-1);
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: translateY(-3px) rotate(45deg); transition: transform var(--t-fast);
+}
+.accordion[open] summary::after { transform: translateY(2px) rotate(-135deg); }
+.accordion summary:focus-visible { outline-offset: -2px; box-shadow: inset 0 0 0 4px var(--heading); }   /* foco por dentro */
+.accordion__panel { padding: 0 var(--space-4) var(--space-4); }
+
+/* §4 layout */
+.container { max-width: var(--container); margin-inline: auto; padding-inline: var(--container-pad); }
+.section   { padding-block: var(--section-pt) var(--section-pb); }   /* 60/60; 100/120 a partir de 768px, pelos tokens */
+.section--tint  { background: var(--brand-tint); }   /* secao destacada */
+.section--gray  { background: var(--bg-gray); }      /* alternancia */
+.section--tight { padding-block: var(--section-tight); }
+.section__title { margin: 0 0 var(--heading-mb); font-size: var(--fs-section); font-weight: 700; color: var(--brand-deep); text-align: left; }
+
+.grid-cards { display: grid; grid-template-columns: 1fr; gap: var(--grid-gap); }
+.split      { display: grid; grid-template-columns: 1fr; gap: var(--grid-gap); align-items: center; }   /* imagem | texto */
+@media (min-width: 768px) {
+  .grid-cards { grid-template-columns: repeat(2, 1fr); }
+  .split      { grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+}
+@media (min-width: 1200px) {
+  .grid-cards    { grid-template-columns: repeat(3, 1fr); }
+  .grid-cards--4 { grid-template-columns: repeat(4, 1fr); }   /* modalidades */
+}
+
+/* §6 movimento reduzido */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important; scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================================
+   COMPLEMENTOS DO EXEMPLO — medidas e papéis que o PRD dá em texto (§2, §5.1, §5.6, §8)
+   Cada valor aqui vem de um token ou de uma medida escrita no PRD.
+   ============================================================ */
+:root { --cookie-h: 148px; }                         /* o JS do projeto grava este valor; no exemplo ele é fixo */
+@media (min-width: 768px) { :root { --cookie-h: 76px; } }
+
+ul, ol { margin: 0; padding: 0; list-style: none; }
+p, dl, dd, figure, blockquote { margin: 0; }          /* o reset de margens de p, listas e citações é do exemplo */
+svg { display: block; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.skip-link { position: absolute; left: var(--space-3); top: calc(-1 * var(--space-6)); z-index: 30; padding: var(--space-2) var(--space-3); border-radius: var(--r-sm); background: var(--white); color: var(--heading); font-weight: 600; }
+.skip-link:focus { top: var(--space-3); }
+
+/* ilustrações em SVG: a cor da marca passa pelos tokens */
+.f-brand { fill: var(--brand); } .f-brand-dark { fill: var(--brand-dark); } .f-brand-light { fill: var(--brand-light); }
+.f-deep { fill: var(--brand-deep); } .f-white { fill: var(--white); } .f-heading { fill: var(--heading); }
+.f-on-brand { fill: var(--on-brand); } .f-on-brand-dark { fill: var(--on-brand-dark); }
+
+/* §2 tipografia */
+.eyebrow { display: inline-block; margin-bottom: var(--space-3); padding: var(--space-2) var(--space-4); border: 1px solid var(--border); border-radius: var(--r-full); font-size: var(--fs-caption); font-weight: 700; line-height: var(--lh-caption); text-transform: uppercase; color: var(--heading); }
+.h3 { margin-bottom: var(--space-3); font-size: var(--fs-card); font-weight: 600; }
+h4 { margin-bottom: var(--space-3); font-size: var(--fs-item); font-weight: 600; }
+.section__title--column { margin-bottom: var(--space-4); }   /* H2 dentro de coluna do .split (§4) */
+.section-cta { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-5); }
+.media { overflow: hidden; border-radius: var(--r-lg); }
+.media svg { width: 100%; height: auto; }
+
+/* logo (marca fictícia) */
+.logo { display: flex; align-items: center; gap: 10px; flex: none; color: inherit; text-decoration: none; }
+.logo__text { display: flex; flex-direction: column; line-height: 1; }
+.logo__text b { font-size: 30px; font-weight: 700; color: var(--brand-text); }
+.logo__text small { margin-top: 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--heading); }
+.logo--branco .logo__text b, .logo--branco .logo__text small { color: inherit; }
+
+/* botões redondos: setas, pausa */
+.round-btn { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--r-full); background: var(--white); color: var(--heading); box-shadow: var(--shadow-card); cursor: pointer; }
+.round-btn:disabled { background: var(--bg-gray); color: var(--paragraph); cursor: not-allowed; }
+.icon-btn { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--heading); cursor: pointer; }
+.bullet { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
+.bullet::before { content: ""; width: 10px; height: 10px; border: 2px solid currentColor; border-radius: var(--r-full); }
+.bullet[aria-current="true"]::before { background: currentColor; }
+
+/* §5.1 header: abaixo de 1200px, uma faixa de 64px + barra das conversões */
+.site-header { position: sticky; top: 0; z-index: 10; background: var(--white); }
+.header-mobile { display: flex; align-items: center; justify-content: space-between; height: var(--header-h); padding-inline: calc(var(--container-pad) - 10px); border-bottom: 1px solid var(--border); }
+.header-top, .header-nav { display: none; }
+.cta-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); align-items: center; height: calc(var(--cta-bar-h) + env(safe-area-inset-bottom, 0px)); padding: 0 var(--container-pad) env(safe-area-inset-bottom, 0px); border-top: 1px solid var(--border); background: var(--white); }
+.cta-bar .btn-outline, .cta-bar .btn-primary { padding: 4px var(--space-2); white-space: normal; line-height: 1.2; }   /* 2 colunas de 124px em 320px: o rótulo quebra em vez de sair da barra */
+.main-nav { display: flex; align-items: center; gap: 28px; }
+.nav-link { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0; border: 0; background: none; font: inherit; font-size: var(--fs-ui); font-weight: 500; line-height: var(--lh-heading); color: var(--heading); text-decoration: none; cursor: pointer; }
+.nav-link[aria-current="page"] { color: var(--brand-text); font-weight: 700; }
+.unit-link { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-ui); font-weight: 600; color: var(--brand-text-dark); text-decoration: underline; }
+.site-search { position: relative; flex: 1; max-width: 560px; }
+.site-search svg { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--paragraph); pointer-events: none; }
+.site-search .input { padding-left: 48px; background: var(--brand-tint); }
+.header-cta { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-left: auto; }
+.header-cta__test { padding-block: 4px; font-size: var(--fs-caption); font-weight: 600; line-height: var(--lh-heading); color: var(--brand-text-dark); text-decoration: underline; }
+.dropdown { position: relative; }
+.dropdown__panel { position: absolute; right: 0; top: calc(100% + var(--space-2)); z-index: 5; min-width: 260px; padding: var(--space-2) 0; border-radius: var(--r-md); background: var(--white); box-shadow: var(--shadow-card); visibility: hidden; opacity: 0; transform: translateY(-6px); transition: opacity var(--t-fast), transform var(--t-fast), visibility var(--t-fast); }
+.dropdown [aria-expanded="true"] + .dropdown__panel { visibility: visible; opacity: 1; transform: none; }
+.dropdown__group { padding: var(--space-2) var(--space-3) 0; font-size: var(--fs-caption); font-weight: 700; line-height: var(--lh-caption); text-transform: uppercase; color: var(--paragraph); }
+.dropdown__panel a { display: flex; align-items: center; min-height: 44px; padding: 0 var(--space-3); font-size: var(--fs-ui); color: var(--heading); text-decoration: none; }
+@media (min-width: 1200px) {
+  .header-mobile, .cta-bar { display: none; }
+  .header-top { display: block; height: 64px; }
+  .header-nav { display: block; height: 79px; border-bottom: 1px solid var(--border); }
+  .header-top__inner, .header-nav__inner { display: flex; align-items: center; height: 100%; }
+  .header-top__inner { gap: var(--space-5); }
+  .header-top__inner .unit-link { margin-left: auto; }
+}
+
+/* §5.6 footer */
+.site-footer { padding: var(--space-6) 0 var(--space-4); background: var(--brand-dark); color: var(--on-brand-dark); }
+.site-footer a { color: inherit; text-decoration: none; }
+.site-footer a:hover, .site-footer a:focus-visible { text-decoration: underline; }
+.site-footer h4 { color: inherit; margin-bottom: var(--space-3); }
+.footer__top { display: grid; gap: var(--space-5); padding-bottom: var(--space-5); }
+.footer__brand p { max-width: 300px; margin-top: var(--space-3); }
+.footer__top ul { display: grid; gap: var(--space-2); }
+.footer__bottom { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); padding-top: var(--space-4); border-top: 1px solid color-mix(in srgb, var(--on-brand-dark) 25%, transparent); font-size: var(--fs-caption); line-height: var(--lh-caption); }
+.footer__bottom a { display: inline-flex; align-items: center; min-height: 44px; text-decoration: underline; }
+@media (min-width: 768px) {
+  .footer__top { grid-template-columns: repeat(4, 1fr); }
+  .footer__brand { grid-column: 1 / -1; }
+}
+@media (min-width: 1200px) {
+  .footer__top { grid-template-columns: 1.4fr repeat(4, 1fr); }
+  .footer__brand { grid-column: auto; }
+}
+
+/* §8 cookie bar, chat, Libras */
+.cookie-bar { position: fixed; left: 0; right: 0; bottom: var(--cta-bar-h); z-index: 20; height: var(--cookie-h); background: var(--dark); color: var(--white); }
+.cookie-bar__inner { display: flex; flex-direction: column; justify-content: center; gap: var(--space-2); height: 100%; font-size: var(--fs-caption); line-height: var(--lh-caption); }
+.cookie-bar a { color: inherit; text-decoration: underline; }
+.cookie-bar__actions { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.link-btn { min-height: 44px; padding: 0 var(--space-2); border: 0; background: none; font: inherit; font-size: var(--fs-caption); color: inherit; text-decoration: underline; cursor: pointer; }
+.btn-cookie, .btn-cookie:hover { background: var(--white); color: var(--heading); border-color: var(--white); }   /* Recusar e Aceitar: mesma receita, mesmo peso */
+.btn-cookie:hover { text-decoration: underline; }
+@media (min-width: 768px) {
+  .cookie-bar__inner { flex-direction: row; align-items: center; gap: var(--space-4); }
+  .cookie-bar__inner p { flex: 1; }
+}
+.chat-bubble { position: fixed; right: 24px; bottom: calc(var(--cta-bar-h) + var(--cookie-h) + 24px); z-index: 21; display: grid; place-items: center; width: 56px; height: 56px; padding: 0; border: 0; border-radius: var(--r-full); background: var(--brand); color: var(--on-brand); box-shadow: var(--shadow-brand); cursor: pointer; }
+.libras { position: fixed; right: 0; top: 50%; z-index: 21; display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; border-radius: var(--r-md) 0 0 var(--r-md); background: var(--dark); color: var(--white); transform: translateY(-50%); cursor: pointer; }   /* substituto do widget VLibras: o plugin real traz o visual dele */
+
+/* ============================================================
+   ESPECÍFICO DA PÁGINA DE CURSO
+   ============================================================ */
+/* §5.3 bloco 1: hero interno. Ilustração em tons de --brand-deep e --brand-dark, sem bandeiras, com o scrim do hero (§5.2) */
+.course-hero { position: relative; overflow: hidden; background: var(--brand-deep); color: var(--white); }
+.course-hero__art { position: absolute; inset: 0; width: 100%; height: 100%; }
+.course-hero::before { content: ""; position: absolute; inset: 0; z-index: 1; background: rgb(0 0 0 / .6); }   /* abaixo de 768px: uniforme */
+.course-hero .container { position: relative; z-index: 2; padding-block: var(--section-pt) var(--section-pb); }
+.hero__title { margin-bottom: var(--space-3); font-size: var(--fs-hero); font-weight: 700; line-height: var(--lh-tight); color: inherit; }
+.hero__sub { margin-bottom: var(--space-3); font-size: var(--fs-hero-sub); font-weight: 600; line-height: var(--lh-snug); }
+.hero__lead { max-width: 600px; margin-bottom: var(--space-5); font-size: var(--fs-body-lg); font-weight: 500; line-height: var(--lh-lead); }
+.cta-pair { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+@media (min-width: 768px) {
+  .course-hero::before { background: linear-gradient(90deg, rgb(0 0 0 / .7) 0%, rgb(0 0 0 / .55) 55%, transparent 100%); }
+  .course-hero__content { max-width: min(690px, calc(55vw - var(--container-pad))); }   /* o texto fica nos 55% da esquerda */
+}
+
+/* §5.3 bloco 2: três faixas etárias */
+.age-card { display: flex; flex-direction: column; }
+.age-card .card__body { flex: 1; grid-template-rows: auto auto 1fr auto; justify-items: start; }
+.age-card .h3 { margin-bottom: 0; }
+
+/* §3.11 card de modalidade e item com ícone */
+.icon-circle { display: grid; flex: none; place-items: center; width: 56px; height: 56px; border-radius: var(--r-full); background: var(--brand-tint); color: var(--brand-text-dark); }
+.mode-card .card__body { justify-items: start; }
+.mode-card .icon-circle { margin-bottom: var(--space-2); }
+.icon-item { display: grid; grid-template-columns: 56px 1fr; gap: var(--space-3); align-items: start; }
+.icon-item h4 { margin-bottom: var(--space-1); }
+.method p + p { margin-top: var(--space-3); }
+.method-blocks { display: grid; gap: var(--grid-gap); }
+
+/* §3.9: níveis dentro do painel */
+.levels > div { display: grid; gap: var(--space-1) var(--space-4); padding: var(--space-3) 0; border-top: 1px solid var(--border); }
+.levels dt { font-weight: 600; color: var(--heading); }
+@media (min-width: 768px) { .levels > div { grid-template-columns: 1.2fr 1fr 1fr; } }
+
+/* Altura até 480px (zoom alto): tudo o que é fixo rola junto (PRD §4). A bolha de chat e o botão de Libras viram itens do fim da página. */
+@media (max-height: 480px) {
+  html { scroll-padding-top: 0; scroll-padding-bottom: 0; }
+  body { padding-bottom: 0; }
+  .site-header, .cta-bar, .cookie-bar, .chat-bubble, .libras { position: static; }
+  .cookie-bar { height: auto; padding-block: var(--space-3); }
+  .cookie-bar__inner { height: auto; }
+  .chat-bubble { margin: var(--space-3) 24px 24px auto; }
+  .libras { margin-left: auto; transform: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="site-header">
+  <!-- Abaixo de 1200px: uma faixa de 64px (hambúrguer, logo, atalho de unidades) + barra das conversões no pé da tela (§5.1) -->
+  <div class="header-mobile">
+    <button class="icon-btn" type="button" aria-label="Abrir menu" aria-haspopup="dialog"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <a class="logo" href="#" aria-label="Voga Idiomas — página inicial"><svg width="42" height="42" viewBox="0 0 40 40" aria-hidden="true"><path class="f-brand" d="M6 3h28a6 6 0 0 1 6 6v17a6 6 0 0 1-6 6H19l-9 7v-7H6a6 6 0 0 1-6-6V9a6 6 0 0 1 6-6z"/><path class="f-on-brand" d="M10.5 11l7.3 14h4.4l7.3-14h-4.8L20 20.4 15.3 11z"/></svg><span class="logo__text"><b>voga</b><small>idiomas</small></span></a>
+    <a class="icon-btn" href="#" aria-label="Encontre uma unidade"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.1-7-11a7 7 0 0 1 14 0c0 4.9-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></a>
+  </div>
+  <!-- A partir de 1200px: faixa 1 (64px) + faixa 2 (79px) = 143px -->
+  <div class="header-top">
+    <div class="container header-top__inner">
+      <a class="logo" href="#" aria-label="Voga Idiomas — página inicial"><svg width="42" height="42" viewBox="0 0 40 40" aria-hidden="true"><path class="f-brand" d="M6 3h28a6 6 0 0 1 6 6v17a6 6 0 0 1-6 6H19l-9 7v-7H6a6 6 0 0 1-6-6V9a6 6 0 0 1 6-6z"/><path class="f-on-brand" d="M10.5 11l7.3 14h4.4l7.3-14h-4.8L20 20.4 15.3 11z"/></svg><span class="logo__text"><b>voga</b><small>idiomas</small></span></a>
+      <form class="site-search" role="search" action="#">
+        <label class="sr-only" for="q">Pesquisar no site</label>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input class="input" id="q" name="q" type="search" placeholder="Pesquisar no site" autocomplete="off">
+      </form>
+      <a class="unit-link" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.1-7-11a7 7 0 0 1 14 0c0 4.9-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg> Encontre uma unidade</a>
+      <div class="dropdown">
+        <button class="btn-outline" type="button" aria-expanded="false" aria-controls="menu-acesso">Acesso <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+        <div class="dropdown__panel" id="menu-acesso">
+          <p class="dropdown__group">Para o aluno</p>
+          <ul><li><a href="#">Portal do Aluno</a></li><li><a href="#">Plataforma on-line</a></li></ul>
+          <p class="dropdown__group">Para o franqueado</p>
+          <ul><li><a href="#">Painel</a></li><li><a href="#">Sistema de gestão</a></li><li><a href="#">Webmail</a></li></ul>
+          <p class="dropdown__group">Para o professor</p>
+          <ul><li><a href="#">Portal do Professor</a></li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="header-nav">
+    <div class="container header-nav__inner">
+      <nav aria-label="Principal">
+        <ul class="main-nav">
+          <li><a class="nav-link" href="#">Home</a></li>
+          <li><button class="nav-link" type="button" aria-expanded="false" aria-haspopup="true">Sobre nós <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></li>
+          <li><button class="nav-link" type="button" aria-expanded="false" aria-haspopup="true" aria-current="page">Cursos <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></li>
+          <li><a class="nav-link" href="#">Blog</a></li>
+          <li><a class="nav-link" href="#">E-book</a></li>
+          <li><button class="nav-link" type="button" aria-expanded="false" aria-haspopup="true">Faça parte <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></li>
+          <li><a class="nav-link" href="#">Seja um franqueado</a></li>
+          <li><a class="nav-link" href="#">Fale conosco</a></li>
+        </ul>
+      </nav>
+      <div class="header-cta">
+        <a class="btn-primary" href="#">Pré-matrícula</a>
+        <a class="header-cta__test" href="#">Teste de nível</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="conteudo">
+
+<!-- 1. HERO INTERNO — ilustração + scrim; par: fantasma + branca sólida (fundo de ilustração em tons da marca) -->
+<section class="course-hero" aria-labelledby="course-title">
+  <svg class="course-hero__art" viewBox="0 0 1200 600" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+    <defs>
+      <linearGradient id="ch-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color: var(--brand-deep)"/><stop offset="1" style="stop-color: var(--brand-dark)"/></linearGradient>
+    </defs>
+    <rect width="1200" height="600" fill="url(#ch-bg)"/>
+    <circle class="f-white" cx="1010" cy="110" r="300" opacity=".06"/>
+    <circle class="f-white" cx="1140" cy="540" r="230" opacity=".05"/>
+    <path class="f-white" opacity=".16" d="M690 110h250a34 34 0 0 1 34 34v62a34 34 0 0 1-34 34H790l-44 38v-38h-56a34 34 0 0 1-34-34v-62a34 34 0 0 1 34-34z"/>
+    <text class="f-white" x="832" y="196" text-anchor="middle" font-family="Montserrat, sans-serif" font-size="46" font-weight="700" opacity=".9">Hello!</text>
+    <path class="f-white" opacity=".12" d="M850 290h260a34 34 0 0 1 34 34v62a34 34 0 0 1-34 34h-60v38l-44-38H850a34 34 0 0 1-34-34v-62a34 34 0 0 1 34-34z"/>
+    <text class="f-white" x="980" y="372" text-anchor="middle" font-family="Montserrat, sans-serif" font-size="30" font-weight="600" opacity=".85">Nice to meet you</text>
+    <path class="f-white" opacity=".1" d="M620 410h230a30 30 0 0 1 30 30v52a30 30 0 0 1-30 30H730l-40 34v-34h-70a30 30 0 0 1-30-30v-52a30 30 0 0 1 30-30z"/>
+    <text class="f-white" x="740" y="478" text-anchor="middle" font-family="Montserrat, sans-serif" font-size="28" font-weight="600" opacity=".8">See you soon</text>
+  </svg>
+  <div class="container">
+    <div class="course-hero__content">
+      <h1 class="hero__title" id="course-title">Curso de Inglês</h1>
+      <p class="hero__sub">Do primeiro <span lang="en">hello</span> à fluência, no seu ritmo.</p>
+      <p class="hero__lead">Turmas para crianças, adolescentes e adultos, presenciais ou on-line, com um método que coloca você para falar desde a primeira aula.</p>
+      <div class="cta-pair">
+        <a class="btn-pill btn-pill--ghost" href="#">Fazer teste de nível <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+        <a class="btn-pill btn-pill--on-brand" href="#">Fazer pré-matrícula</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2. FASES DA VIDA — fundo --white; .btn-outline com aria-label em cada bloco -->
+<section class="section" aria-labelledby="fases-title">
+  <div class="container">
+    <h2 class="section__title" id="fases-title">Inglês para todas as fases da vida</h2>
+    <div class="grid-cards">
+      <article class="card card--static age-card">
+        <svg class="card__img" preserveAspectRatio="xMidYMid slice" viewBox="0 0 400 240" aria-hidden="true">
+<defs><linearGradient id="a1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c9954f"/><stop offset="1" stop-color="#ecc98c"/></linearGradient></defs>
+<rect width="400" height="240" fill="url(#a1)"/><circle cx="330" cy="50" r="120" fill="#fff" opacity=".18"/>
+<g transform="translate(130 150) scale(.66)"><path d="M-90 190c0-60 36-100 90-100s90 40 90 100z" fill="#f4f1ec"/><rect x="-14" y="52" width="28" height="44" rx="12" fill="#cf9872"/><circle cx="0" cy="-6" r="68" fill="#3a2a1f"/><circle cx="0" cy="10" r="58" fill="#e3b08d"/></g>
+<g transform="translate(262 156) scale(.62)"><path d="M-90 190c0-60 36-100 90-100s90 40 90 100z" class="f-brand"/><rect x="-14" y="52" width="28" height="44" rx="12" fill="#9c6242"/><circle cx="0" cy="-6" r="66" fill="#1c1412"/><circle cx="-58" cy="-30" r="20" fill="#1c1412"/><circle cx="58" cy="-30" r="20" fill="#1c1412"/><circle cx="0" cy="10" r="58" fill="#b97a57"/></g>
+<path d="M40 30h70a12 12 0 0 1 12 12v22a12 12 0 0 1-12 12H80L66 90V76H40a12 12 0 0 1-12-12V42a12 12 0 0 1 12-12z" fill="#fff"/>
+<text x="75" y="61" text-anchor="middle" font-family="Montserrat, sans-serif" font-size="19" font-weight="700" class="f-heading">A B C</text>
+</svg>
+        <div class="card__body">
+          <span class="badge">4 a 10 anos</span>
+          <h3 class="h3" lang="en">Voga Kids</h3>
+          <p>Músicas, histórias e jogos para a criança ouvir e falar inglês com naturalidade, em turmas de até dez alunos.</p>
+          <a class="btn-outline" href="#" aria-label="Saiba mais: Voga Kids">Saiba mais</a>
+        </div>
+      </article>
+      <article class="card card--static age-card">
+        <svg class="card__img" preserveAspectRatio="xMidYMid slice" viewBox="0 0 400 240" aria-hidden="true">
+<defs><linearGradient id="a2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34404d"/><stop offset="1" stop-color="#7b8c9a"/></linearGradient></defs>
+<rect width="400" height="240" fill="url(#a2)"/><circle cx="70" cy="50" r="120" fill="#fff" opacity=".08"/>
+<g transform="translate(150 140) scale(.68)"><path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#f0c66a"/><rect x="-16" y="46" width="32" height="44" rx="12" fill="#cf9872"/><circle cx="0" cy="-10" r="64" fill="#8a5a35"/><circle cx="0" cy="8" r="52" fill="#ecc3a3"/></g>
+<g transform="translate(290 148) scale(.68)"><path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#f4f1ec"/><rect x="-16" y="46" width="32" height="44" rx="12" fill="#9c6242"/><circle cx="0" cy="-8" r="60" fill="#1c1412"/><circle cx="0" cy="8" r="52" fill="#b97a57"/></g>
+</svg>
+        <div class="card__body">
+          <span class="badge">11 a 14 anos</span>
+          <h3 class="h3" lang="en">Voga Teens</h3>
+          <p>Projetos, séries e debates sobre o que o adolescente vive, já com preparação para os exames internacionais.</p>
+          <a class="btn-outline" href="#" aria-label="Saiba mais: Voga Teens">Saiba mais</a>
+        </div>
+      </article>
+      <article class="card card--static age-card">
+        <svg class="card__img" preserveAspectRatio="xMidYMid slice" viewBox="0 0 400 240" aria-hidden="true">
+<defs><linearGradient id="a3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5a3f33"/><stop offset="1" stop-color="#b48a6a"/></linearGradient></defs>
+<rect width="400" height="240" fill="url(#a3)"/><circle cx="330" cy="60" r="120" fill="#fff" opacity=".08"/>
+<g transform="translate(200 138) scale(.7)"><path d="M-100 190c0-66 40-112 100-112s100 46 100 112z" fill="#1f2937"/><rect x="-16" y="46" width="32" height="44" rx="12" fill="#cf9872"/><circle cx="0" cy="-8" r="62" fill="#2b1e1a"/><circle cx="0" cy="8" r="52" fill="#e3b08d"/></g>
+<rect x="262" y="150" width="96" height="62" rx="6" fill="#11141a"/><rect x="268" y="156" width="84" height="46" rx="2" fill="#5d6778"/><rect x="246" y="212" width="128" height="8" rx="4" fill="#11141a"/>
+</svg>
+        <div class="card__body">
+          <span class="badge">15 anos ou mais</span>
+          <h3 class="h3" lang="en">Voga Adults</h3>
+          <p>Conversação desde a primeira aula e trilhas específicas para trabalho, viagem ou estudo no exterior.</p>
+          <a class="btn-outline" href="#" aria-label="Saiba mais: Voga Adults">Saiba mais</a>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- 3. MODALIDADES — fundo --brand-tint; formato (em grupo, individual) e meio (presencial, on-line); o CTA fica no fim da seção -->
+<section class="section section--tint" aria-labelledby="mod-title">
+  <div class="container">
+    <h2 class="section__title" id="mod-title">Escolha como você quer estudar</h2>
+    <div class="grid-cards grid-cards--4">
+      <article class="card card--static mode-card">
+        <div class="card__body">
+          <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16.5 14.2c2.9.3 5 2.3 5 5.3"/></svg></span>
+          <h3 class="card__title">Em grupo</h3>
+          <p>Turmas de 6 a 12 alunos do mesmo nível, duas vezes por semana.</p>
+        </div>
+      </article>
+      <article class="card card--static mode-card">
+        <div class="card__body">
+          <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg></span>
+          <h3 class="card__title">Individual</h3>
+          <p>Aulas só para você ou em dupla, com horário e conteúdo sob medida.</p>
+        </div>
+      </article>
+      <article class="card card--static mode-card">
+        <div class="card__body">
+          <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V9l7-5 7 5v12M10 21v-6h4v6"/></svg></span>
+          <h3 class="card__title">Presencial</h3>
+          <p>Na unidade mais próxima, com salas equipadas, em grupo ou individual.</p>
+        </div>
+      </article>
+      <article class="card card--static mode-card">
+        <div class="card__body">
+          <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
+          <h3 class="card__title">On-line</h3>
+          <p>Ao vivo, com professor e turma, no mesmo método e material, em grupo ou individual.</p>
+        </div>
+      </article>
+    </div>
+    <div class="section-cta"><a class="btn-primary" href="#">Fazer pré-matrícula</a></div>
+  </div>
+</section>
+
+<!-- 4. METODOLOGIA — fundo --white; .split: texto + 2 blocos -->
+<section class="section" aria-labelledby="met-title">
+  <div class="container">
+    <h2 class="section__title" id="met-title">Você fala desde a primeira aula</h2>
+    <div class="split">
+      <div class="method">
+        <p>No método Voga, cada aula começa por uma situação real: pedir um café, apresentar um projeto, combinar uma viagem. Você ouve, repete, improvisa e só depois sistematiza a gramática que acabou de usar.</p>
+        <p>Entre uma aula e outra, o aplicativo propõe dez minutos diários de prática com correção de pronúncia, e o professor acompanha sua evolução por um painel individual.</p>
+        <div class="section-cta"><a class="btn-outline" href="#">Conheça!</a></div>
+      </div>
+      <div class="method-blocks">
+        <article class="card card--static">
+          <div class="card__body icon-item">
+            <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6c-2-1.5-4.5-2-8-2v14c3.5 0 6 .5 8 2 2-1.5 4.5-2 8-2V4c-3.5 0-6 .5-8 2zM12 6v14"/></svg></span>
+            <div><h4>Método próprio</h4><p>Material autoral revisado a cada dois anos e alinhado ao Quadro Europeu Comum de Referência.</p></div>
+          </div>
+        </article>
+        <article class="card card--static">
+          <div class="card__body icon-item">
+            <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></span>
+            <div><h4>Recursos tecnológicos</h4><p>Aplicativo com reconhecimento de fala, plataforma de aulas ao vivo e biblioteca digital.</p></div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. SÉRIES E NÍVEIS — fundo --bg-gray; <details> nativo (§3.9) -->
+<section class="section section--gray" aria-labelledby="niveis-title">
+  <div class="container">
+    <h2 class="section__title" id="niveis-title">Do primeiro contato à fluência</h2>
+    <details class="accordion" open>
+        <summary><span lang="en">Kids</span></summary>
+        <div class="accordion__panel"><dl class="levels"><div><dt lang="en">Kids Starter</dt><dd>4 e 5 anos</dd><dd>2 semestres</dd></div><div><dt lang="en">Kids 1 e 2</dt><dd>6 a 8 anos</dd><dd>4 semestres</dd></div><div><dt lang="en">Kids 3 e 4</dt><dd>9 e 10 anos</dd><dd>4 semestres</dd></div></dl></div>
+      </details>
+    <details class="accordion">
+        <summary><span lang="en">Teens</span></summary>
+        <div class="accordion__panel"><dl class="levels"><div><dt lang="en">Teens 1 e 2</dt><dd>11 e 12 anos</dd><dd>4 semestres</dd></div><div><dt lang="en">Teens 3 e 4</dt><dd>13 e 14 anos</dd><dd>4 semestres</dd></div></dl></div>
+      </details>
+    <details class="accordion">
+        <summary><span lang="en">Young Adults &amp; Adults</span></summary>
+        <div class="accordion__panel"><dl class="levels"><div><dt lang="en">Young Adults</dt><dd>15 a 17 anos</dd><dd>6 semestres</dd></div><div><dt lang="en">Adults</dt><dd>18 anos ou mais</dd><dd>8 semestres</dd></div></dl></div>
+      </details>
+    <div class="section-cta"><a class="btn-primary" href="#">Fazer pré-matrícula</a></div>
+  </div>
+</section>
+
+<!-- 6. FAIXA FINAL — fundo --white; .cta-band sem --overlap, dentro de .section--tight -->
+<section class="section--tight" aria-labelledby="final-title">
+  <div class="cta-band">
+    <h2 id="final-title">Teste seu nível de inglês</h2>
+    <a class="btn-pill btn-pill--on-brand" href="#">Fazer teste</a>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer__top">
+      <div class="footer__brand">
+        <a class="logo logo--branco" href="#" aria-label="Voga Idiomas — página inicial"><svg width="42" height="42" viewBox="0 0 40 40" aria-hidden="true"><path class="f-on-brand-dark" d="M6 3h28a6 6 0 0 1 6 6v17a6 6 0 0 1-6 6H19l-9 7v-7H6a6 6 0 0 1-6-6V9a6 6 0 0 1 6-6z"/><path class="f-brand-dark" d="M10.5 11l7.3 14h4.4l7.3-14h-4.8L20 20.4 15.3 11z"/></svg><span class="logo__text"><b>voga</b><small>idiomas</small></span></a>
+        <p>Inglês, espanhol, francês, alemão, italiano e português para estrangeiros desde 1994.</p>
+      </div>
+      <nav aria-label="Sobre nós">
+        <h4>Sobre nós</h4>
+        <ul><li><a href="#">Nossa história</a></li><li><a href="#">Método Voga</a></li><li><a href="#">Unidades</a></li><li><a href="#">Blog</a></li></ul>
+      </nav>
+      <nav aria-label="Cursos">
+        <h4>Cursos</h4>
+        <ul><li><a href="#">Inglês</a></li><li><a href="#">Espanhol</a></li><li><a href="#">Francês</a></li><li><a href="#">Alemão</a></li></ul>
+      </nav>
+      <nav aria-label="Faça parte">
+        <h4>Faça parte</h4>
+        <ul><li><a href="#">Pré-matrícula</a></li><li><a href="#">Teste de nível</a></li><li><a href="#">Trabalhe conosco</a></li><li><a href="#">Seja um franqueado</a></li></ul>
+      </nav>
+      <nav aria-label="Acesso">
+        <h4>Acesso</h4>
+        <ul><li><a href="#">Portal do Aluno</a></li><li><a href="#">Plataforma on-line</a></li><li><a href="#">Portal do Professor</a></li><li><a href="#">Painel do franqueado</a></li></ul>
+      </nav>
+    </div>
+    <div class="footer__bottom">
+      <span>© 2026 Voga Idiomas (escola fictícia). Todos os direitos reservados.</span>
+      <a href="#">Política de Privacidade</a>
+    </div>
+  </div>
+</footer>
+
+<div class="cta-bar">
+  <a class="btn-outline" href="#">Teste de nível</a>
+  <a class="btn-primary" href="#">Pré-matrícula</a>
+</div>
+
+<!-- Widgets fixos (§8, itens 8 e 9; §7): barra das conversões, cookie bar, chat e Libras, nessa ordem de baixo para cima -->
+<div class="cookie-bar" role="region" aria-label="Aviso de cookies">
+  <div class="container cookie-bar__inner">
+    <p>Usamos cookies para melhorar a navegação e medir o desempenho do site. Nenhum cookie de desempenho ou de marketing é ativado antes da sua escolha. Saiba mais na <a href="#">Política de Privacidade</a>.</p>
+    <div class="cookie-bar__actions">
+      <button class="link-btn" type="button">Preferências</button>
+      <button class="btn-outline btn-cookie" type="button">Recusar</button>
+      <button class="btn-outline btn-cookie" type="button">Aceitar</button>
+    </div>
+  </div>
+</div>
+<button class="chat-bubble" type="button" aria-label="Abrir chat"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button>
+<button class="libras" type="button" aria-label="Acessibilidade em Libras"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12m0-1V4.5a1.5 1.5 0 0 1 3 0V12m0-.5V6.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7L3.5 14a1.5 1.5 0 0 1 2.5-1.6L8 15"/></svg></button>
+
+</body>
+</html>

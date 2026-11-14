@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hoje — Catraca</title>
+<!-- Exemplo de ferramenta, construído seguindo o prd.md (versão 3.0.0). Produto e dados fictícios. -->
+<!-- Fonte: exatamente o <link> da seção 3.5 -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,600&display=swap" rel="stylesheet">
+<style>
+/* ===== Tokens: cópia da seção 12 do prd.md ===== */
+/* Base */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-padding-top: 48px; }   /* altura da barra fixa (seção 7); sem barra fixa, remova */
+body { margin: 0; background: var(--paper); color: var(--ink);
+       font-family: Inter, system-ui, sans-serif; font-size: var(--t-17); font-weight: 400; }
+button, input, select, textarea { font: inherit; letter-spacing: inherit; }
+
+:root {
+  color-scheme: light;
+
+  /* Superfícies — uma temperatura só, não misture */
+  --paper:    #FAF9F7;
+  --surface:  #FFFFFF;
+  --sunken:   #F4F2EC;
+  --fill:     rgba(118, 114, 106, 0.12);
+  --fill-2:   rgba(118, 114, 106, 0.18);
+  --line:     #E8E4DC;
+
+  /* Texto — razão sobre --surface · --paper */
+  --ink:      #1C1B19;   /* 17,21 · 16,36 */
+  --ink-2:    #6B6862;   /*  5,55 ·  5,28 */
+  --ink-3:    #827E76;   /*  4,04 ·  3,84 — só não-texto e texto de 28px ou mais */
+
+  /* Acento — troque estes quatro e o produto muda de marca */
+  --accent:        #1F4E8C;   /* 8,31 com branco: serve de fundo E de texto */
+  --accent-hover:  #2A5B9C;   /* mais claro; 6,83 */
+  --accent-active: #183F73;   /* mais escuro; 10,51 */
+  --on-accent:     #FFFFFF;
+
+  /* Perigo — só erro de campo, estado crítico e ação destrutiva */
+  --danger:        #8E2C26;   /* 8,27 com branco */
+  --danger-hover:  #9C332C;   /* 7,18 */
+  --danger-active: #7A2520;   /* 9,94 */
+
+  /* Tipografia: a rampa 12·14·17·21·28·40·48·56 */
+  --t-12: 0.75rem;
+  --t-14: 0.875rem;
+  --t-17: 1.0625rem;
+  --t-21: 1.3125rem;
+  --t-28: 1.75rem;
+  --t-display: 3.5rem;      /* 56; vira 48 em 735–1068 e 40 em ≤734 */
+  --tr-display: -0.005em;   /* acompanha o tamanho: −0,003em em 48, 0 em 40 */
+  --tr-17: -0.011em;
+  --tr-14: -0.008em;
+  --tr-12: -0.005em;        /* 21 e 28 têm tracking 0 */
+  --lh-titulo: calc(1em + 4px);
+  --lh-corpo:  calc(1em + 8px);
+  --lh-denso:  calc(1em + 6px);
+  --lh-botao:  calc(1em + 3px);
+
+  /* Geometria: 50% (avatar, botão do interruptor) é escrito direto */
+  --r-6:    6px;
+  --r-8:    8px;
+  --r-12:  12px;
+  --r-18:  18px;
+  --r-28:  28px;
+  --r-pill: 980px;
+  --shadow-card:    2px 4px 12px 0 rgba(0, 0, 0, 0.08);
+  --shadow-control: 0 1px 2px 0 rgba(0, 0, 0, 0.18);
+  --shadow-modal:   0 16px 48px 0 rgba(0, 0, 0, 0.18);
+
+  /* Espaçamento (5.8) */
+  --s-4: 4px;  --s-8: 8px;  --s-12: 12px;  --s-16: 16px;
+  --s-20: 20px;  --s-24: 24px;  --s-32: 32px;  --s-40: 40px;
+
+  /* Alturas e alvos (6.3 e seção 7) */
+  --h-grande:   44px;   /* botão primário e campo de vitrine e de fluxo */
+  --h-medio:    36px;   /* botão secundário de vitrine e de fluxo */
+  --h-botao:    32px;   /* botão de ferramenta: no toque o alvo cresce pelo ::after, a caixa não */
+  --h-controle: 32px;   /* campo, segmented e item de navegação da ferramenta; 44px no toque */
+  --h-linha:    36px;   /* linha de tabela; 44px no toque */
+  --alvo:       28px;
+
+  /* Layout (seção 5) */
+  --shell:   1024px;    /* 1024 − 44 = 980 de conteúdo */
+  --prosa:    692px;
+  --fluxo:    560px;
+  --gutter:    22px;
+  --secao-pt:  96px;
+  --secao-pb: 104px;
+  --bloco:     40px;
+  --pad-cartao: 24px;
+  --grade-col: 40px;
+  --grade-lin: 82px;
+
+  /* Movimento (seção 8) */
+  --dur-fast:   150ms;
+  --dur-base:   280ms;
+  --dur-screen: 320ms;
+  --ease: cubic-bezier(0.28, 0.11, 0.32, 1);
+}
+
+@media (max-width: 1068px) {
+  :root { --t-display: 3rem; --tr-display: -0.003em;
+          --secao-pt: 80px; --secao-pb: 88px; --bloco: 32px; --pad-cartao: 20px; --grade-col: 24px; }
+}
+@media (max-width: 734px) {
+  :root { --t-display: 2.5rem; --tr-display: 0em;
+          --secao-pt: 72px; --secao-pb: 78px; --pad-cartao: 16px; }
+}
+@media (pointer: coarse) {
+  :root { --alvo: 44px; --h-controle: 44px; --h-linha: 44px; }
+}
+
+/* Texto — cada classe declara tamanho, line-height e tracking (3.3); o peso é .w-600 ou 400 */
+.t-display { font-size: var(--t-display); line-height: var(--lh-titulo); letter-spacing: var(--tr-display); font-weight: 600; }
+.t-28 { font-size: var(--t-28); line-height: var(--lh-titulo); letter-spacing: 0; }
+.t-21 { font-size: var(--t-21); line-height: var(--lh-titulo); letter-spacing: 0; }
+.t-17 { font-size: var(--t-17); line-height: var(--lh-corpo);  letter-spacing: var(--tr-17); }
+.t-14 { font-size: var(--t-14); line-height: var(--lh-denso);  letter-spacing: var(--tr-14); }
+.t-12 { font-size: var(--t-12); line-height: var(--lh-denso);  letter-spacing: var(--tr-12); }
+.lh-titulo { line-height: var(--lh-titulo); }   /* título em 17, 14 ou 12 */
+.lh-corpo  { line-height: var(--lh-corpo); }    /* parágrafo em 14 */
+.w-600 { font-weight: 600; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Layout */
+.shell { max-width: var(--shell); margin-inline: auto; padding-inline: var(--gutter); }
+.shell-fluxo { max-width: calc(var(--fluxo) + 2 * var(--gutter)); }   /* junto de .shell: 560 de conteúdo */
+.grid  { display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
+         column-gap: var(--grade-col); row-gap: var(--grade-lin); }
+@media (max-width: 734px) {
+  .shell { width: 87.5%; max-width: none; padding-inline: 0; }
+  .grid  { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Foco e alvo (6.3 e 6.4) */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card:focus-visible { outline-offset: 3px; }
+.toast :focus-visible { outline-color: var(--surface); }
+.btn, .chave, .terciario { position: relative; }
+.btn::after, .chave::after, .terciario::after {
+  content: ''; position: absolute; top: 50%; left: 50%;
+  width: max(100%, var(--alvo)); height: max(100%, var(--alvo));
+  transform: translate(-50%, -50%);
+}
+@media (forced-colors: active) { input, select, textarea { outline: 1px solid CanvasText; } }
+
+/* Movimento reduzido (seção 8) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+                           transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+/* ===== Esta página: só o que a seção 12 não traz. Ferramenta: corpo 14px; tamanhos 28 · 17 · 14 · 12 (3.2) ===== */
+html, body { height: 100%; }
+body { font-size: var(--t-14); line-height: var(--lh-denso); letter-spacing: var(--tr-14); }   /* o .t-14 do <body> */
+h1, h2, p, ul { margin: 0; padding: 0; }
+ul { list-style: none; }
+a { color: inherit; text-decoration: none; }
+.sec { color: var(--ink-2); }
+
+/* Link para pular: primeiro elemento focável (9.2) */
+.pular { position: absolute; left: var(--s-16); top: var(--s-8); z-index: 20; display: inline-flex; align-items: center; min-height: var(--alvo); padding-inline: var(--s-12);
+  border-radius: var(--r-8); background: var(--surface); color: var(--ink); transform: translateY(-200%); }
+.pular:focus { transform: none; }
+
+/* ===== Estrutura ===== */
+.app { display: grid; grid-template-columns: 264px minmax(0, 1fr); min-height: 100%; }
+.barra-mobile { display: none; }
+
+/* Navegação lateral (7): 264px, --sunken, padding 8, item de --h-controle com raio 6 e padding lateral 10 */
+.lateral { background: var(--sunken); padding: var(--s-8); display: flex; flex-direction: column; }
+.marca { display: flex; align-items: center; min-height: var(--h-controle); padding-inline: 10px; margin-block: var(--s-8) var(--s-16); }
+.lateral ul { display: flex; flex-direction: column; gap: 2px; }
+.item { display: flex; align-items: center; min-height: var(--h-controle); padding-inline: 10px; border-radius: var(--r-6); }
+.item[aria-current="page"] { background: var(--fill); font-weight: 600; }               /* estado = pílula + peso 600 */
+.lateral-fim { margin-top: auto; }
+.usuario { display: flex; align-items: center; gap: var(--s-8); min-height: 44px; padding-inline: 10px; margin-top: 2px; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--fill-2); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.lateral .fechar-menu { display: none; }
+
+/* Conteúdo: fluido, gutter de 22px */
+.conteudo { padding: var(--gutter); min-width: 0; }
+.topo { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: var(--gutter); }
+.heroi h1 { margin-top: var(--s-4); }
+.heroi .aux { margin-top: var(--s-8); }
+.heroi .btn { margin-top: var(--s-32); }
+.acoes-topo { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); max-width: 100%; }
+
+/* Botão de ferramenta (7): min-height 32, padding lateral 12, 14px, raio 8, sem padding vertical */
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: var(--h-botao);
+  padding-inline: var(--s-12); border: 0; border-radius: var(--r-8); cursor: pointer; white-space: nowrap;
+  font-size: var(--t-14); letter-spacing: var(--tr-14); line-height: var(--lh-botao); font-weight: 400;
+  transition: background-color var(--dur-fast) var(--ease); }
+.btn-primario { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.btn-primario:active { background: var(--accent-active); }
+.btn-secundario { background: var(--fill); color: var(--ink); }
+.btn-secundario:active { background: var(--fill-2); }
+.btn-secundario.tinta { background: var(--ink); color: var(--surface); }                 /* bloco sem primário */
+.btn-secundario.tinta:active { background: var(--ink); }
+
+/* Campo (7): --h-controle, raio 8, padding 12, borda inset 1px --ink-3, foco 2px no acento */
+.campo { width: 288px; max-width: 100%; min-height: var(--h-controle); padding-inline: var(--s-12); border: 0; border-radius: var(--r-8);
+  -webkit-appearance: none; appearance: none; background: var(--surface); color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink-3);
+  font-size: var(--t-14); letter-spacing: var(--tr-14); line-height: var(--lh-denso); }
+.campo::placeholder { color: var(--ink-2); opacity: 1; }
+.campo:focus-visible { outline: 2px solid transparent; box-shadow: inset 0 0 0 2px var(--accent); }
+@media (pointer: coarse) { .campo { font-size: var(--t-17); letter-spacing: var(--tr-17); } }
+
+/* Cartão de ferramenta (6.1): --surface, raio 18, --shadow-card, sem borda */
+.colunas { margin-top: var(--gutter); display: grid; grid-template-columns: minmax(0, 1fr) 288px; gap: var(--gutter); align-items: start; }
+.pilha { display: grid; gap: var(--gutter); }
+.card { background: var(--surface); border-radius: var(--r-18); box-shadow: var(--shadow-card); padding: var(--pad-cartao); }
+.card-topo { display: flex; align-items: center; justify-content: space-between; gap: var(--s-16); min-height: var(--h-controle); }
+.controles { display: flex; align-items: center; gap: var(--s-20); }
+
+/* Segmented (7): --h-controle, trilho --fill raio 8, inset 2, pílula --surface raio 6 + --shadow-control */
+.seg { display: inline-flex; min-height: var(--h-controle); padding: 2px; background: var(--fill); border-radius: var(--r-8); }
+.seg button { min-height: calc(var(--h-controle) - 4px); padding-inline: var(--s-12); border: 0; border-radius: var(--r-6);
+  background: transparent; color: var(--ink); cursor: pointer;
+  font-size: var(--t-14); letter-spacing: var(--tr-14); line-height: var(--lh-botao); }
+.seg button[aria-checked="true"] { background: var(--surface); font-weight: 600; box-shadow: var(--shadow-control); }
+
+/* Interruptor (7): 38×22, botão 18, curso 16; desligado --ink-3, ligado --ink; rótulo à esquerda */
+.rotulo-chave { display: inline-flex; align-items: center; gap: var(--s-8); cursor: pointer; }
+.chave { width: 38px; height: 22px; padding: 0; border: 0; border-radius: var(--r-pill); background: var(--ink-3); cursor: pointer; flex: none; }
+.chave::before { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--surface); box-shadow: var(--shadow-control); transition: transform var(--dur-fast) var(--ease); }
+.chave[aria-checked="true"] { background: var(--ink); }
+.chave[aria-checked="true"]::before { transform: translateX(16px); }
+
+/* Tabela (7): cabeçalho 28 em --sunken, linha --h-linha, padding 12, dentro do cartão com margem lateral −12 */
+table { width: calc(100% + 24px); margin: var(--s-16) -12px -8px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+th { height: 28px; padding-inline: var(--s-12); text-align: left; font-weight: 400; color: var(--ink-2); background: var(--sunken);
+  font-size: var(--t-12); line-height: var(--lh-denso); letter-spacing: var(--tr-12); }
+th:first-child { border-radius: var(--r-6) 0 0 var(--r-6); }
+th:last-child  { border-radius: 0 var(--r-6) var(--r-6) 0; }
+td { height: var(--h-linha); padding-inline: var(--s-12); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--line); }
+tbody tr:last-child td { border-bottom: 0; }
+.dir { text-align: right; }
+.st-critico { color: var(--danger); font-weight: 600; }                                   /* crítico = --danger + 600 + rótulo por extenso */
+tr.resolvido td { color: var(--ink-2); }                                                  /* resolvido = --ink-2, 400, rótulo "Entregue" */
+
+/* Lista agrupada (7): o cartão é o contêiner; linha de 44, separador recuado, segunda linha em 12px --ink-2 */
+.card.lista { padding: var(--pad-cartao) 0 var(--s-8); }
+.card.lista h2 { padding-inline: var(--pad-cartao); }
+.card.lista ul { margin-top: var(--s-16); }
+.card.lista li { position: relative; }
+.card.lista li + li::before { content: ''; position: absolute; top: 0; left: var(--pad-cartao); right: 0; height: 1px; background: var(--line); }
+.linha { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--s-8); align-content: center; min-height: 44px; padding-inline: var(--pad-cartao); }
+.linha .l2 { grid-column: 1 / -1; }
+.card.lista .rodape { padding: var(--s-12) var(--pad-cartao) var(--s-16); }
+
+/* Hover só com mouse (6.3) */
+@media (hover: hover) and (pointer: fine) {
+  .item:hover { background: var(--fill); }
+  .btn-primario:hover { background: var(--accent-hover); }
+  .btn-secundario:hover { background: var(--fill-2); }
+  .btn-secundario.tinta:hover { background: var(--ink-2); }
+  .campo:hover:not(:focus-visible) { box-shadow: inset 0 0 0 1px var(--ink-2); }
+  .seg button[aria-checked="false"]:hover { background: var(--fill); }
+  tbody tr:hover td { background: var(--sunken); }
+  td a:hover { text-decoration: underline; }
+  a.linha:hover { background: var(--sunken); }
+}
+
+/* Tablet (735–1068px): o cartão de ordens ocupa a largura toda e a tabela corta as colunas que não mudam decisão (Bicicleta e Serviço) */
+@media (min-width: 735px) and (max-width: 1068px) {
+  .colunas { grid-template-columns: minmax(0, 1fr); }
+  col:nth-child(3), col:nth-child(4), th:nth-child(3), th:nth-child(4), td:nth-child(3), td:nth-child(4) { display: none; }
+}
+
+/* Telefone (≤734px): a lateral vira gaveta (:target), a tabela vira cartões empilhados */
+@media (max-width: 734px) {
+  .app { display: block; }
+  .barra-mobile { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding-inline: var(--gutter);
+    background: var(--paper); position: sticky; top: 0; z-index: 10; }
+  .lateral { position: fixed; inset: 0 auto 0 0; z-index: 30; width: 264px; max-width: calc(100% - var(--gutter)); box-shadow: var(--shadow-modal);
+    transform: translateX(-110%); transition: transform var(--dur-base) var(--ease); }
+  .lateral:target { transform: none; }
+  .lateral .fechar-menu { display: inline-flex; align-self: flex-end; }
+  .topo { flex-direction: column; }
+  .acoes-topo { width: 100%; }
+  .campo { flex: 1; width: auto; min-width: 0; }
+  .colunas { grid-template-columns: minmax(0, 1fr); }
+  .card-topo, .controles { flex-wrap: wrap; }
+  table, thead, tbody, tr, td { display: block; width: auto; }
+  table { margin: var(--s-16) 0 0; }
+  thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  tr { padding: var(--s-8) 0; border-bottom: 1px solid var(--line); }
+  td { display: flex; justify-content: space-between; gap: var(--s-16); height: auto; min-height: 28px; border-bottom: 0; white-space: normal; }
+  td::before { content: attr(data-th); color: var(--ink-2); flex: none; }
+  .dir { text-align: left; }
+}
+/* Altura até 480px (zoom alto): a barra rola junto; a gaveta, que é um modal, continua fixa */
+@media (max-width: 734px) and (max-height: 480px) { .barra-mobile { position: static; } }
+</style>
+</head>
+<body class="t-14">
+<a class="pular t-14" href="#conteudo">Pular para o conteúdo</a>
+<div class="app">
+
+  <div class="barra-mobile">
+    <span class="t-17 w-600">Catraca</span>
+    <a class="btn btn-secundario" href="#menu">Menu</a>
+  </div>
+
+  <aside class="lateral" id="menu">
+    <a class="btn btn-secundario fechar-menu" href="#conteudo">Fechar</a>
+    <a class="marca t-17 w-600" href="#" aria-label="Catraca, início">Catraca</a>
+    <nav aria-label="Principal">
+      <ul>
+        <li><a class="item" href="#" aria-current="page">Hoje</a></li>
+        <li><a class="item" href="#">Ordens de serviço</a></li>
+        <li><a class="item" href="#">Agenda</a></li>
+        <li><a class="item" href="#">Clientes</a></li>
+        <li><a class="item" href="#">Peças</a></li>
+        <li><a class="item" href="#">Caixa</a></li>
+      </ul>
+    </nav>
+    <div class="lateral-fim">
+      <a class="item" href="#">Ajustes</a>
+      <div class="usuario"><span class="avatar t-12 w-600" aria-hidden="true">L</span><span>Luana Meireles</span></div>
+    </div>
+  </aside>
+
+  <main class="conteudo" id="conteudo">
+    <div class="topo">
+      <!-- Informação herói: quem é o próximo e quando (seção 2). Direto sobre a página, sem cartão. -->
+      <section class="heroi" aria-labelledby="proxima">
+        <p class="t-12 sec">Próxima retirada</p>
+        <h1 id="proxima" class="t-28 w-600">Rafael Monteiro retira a Caloi Elite às 15h30</h1>
+        <p class="aux t-17">Revisão completa pronta desde <span class="num">11h20</span>. Falta receber <span class="num">R$ 380,00</span>.</p>
+        <button class="btn btn-secundario" type="button">Registrar retirada</button>
+      </section>
+      <div class="acoes-topo">
+        <input class="campo" type="search" name="busca" placeholder="Buscar ordem, cliente ou bicicleta" aria-label="Buscar ordem, cliente ou bicicleta">
+        <!-- Ação primária: a mais frequente. Único preenchimento em --accent do viewport. -->
+        <button class="btn btn-primario" type="button">Nova ordem</button>
+      </div>
+    </div>
+
+    <div class="colunas">
+      <section class="card" aria-labelledby="t-ordens">
+        <div class="card-topo">
+          <h2 id="t-ordens" class="t-17 w-600 lh-titulo">Demais ordens de hoje</h2>
+          <div class="controles">
+            <label class="rotulo-chave"><span id="l-entregues">Mostrar entregues</span>
+              <button class="chave" type="button" role="switch" aria-checked="true" aria-labelledby="l-entregues"></button>
+            </label>
+            <div class="seg" role="radiogroup" aria-label="Filtrar por situação">
+              <button type="button" role="radio" aria-checked="true">Todas</button>
+              <button type="button" role="radio" aria-checked="false" tabindex="-1">Na bancada</button>
+              <button type="button" role="radio" aria-checked="false" tabindex="-1">Prontas</button>
+            </div>
+          </div>
+        </div>
+
+        <table>
+          <colgroup><col style="width:64px"><col style="width:156px"><col style="width:156px"><col><col style="width:148px"><col style="width:88px"></colgroup>
+          <thead>
+            <tr>
+              <th scope="col">Ordem</th><th scope="col">Cliente</th><th scope="col">Bicicleta</th><th scope="col">Serviço</th>
+              <th scope="col">Situação</th><th scope="col" class="dir">Entrega</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="num" data-th="Ordem"><a href="#">2471</a></td><td data-th="Cliente" title="Sérgio Nakamura">Sérgio Nakamura</td><td data-th="Bicicleta" title="Scott Aspect 950">Scott Aspect 950</td><td data-th="Serviço" title="Revisão geral">Revisão geral</td><td class="st-critico" data-th="Situação">Atrasada 2 dias</td><td class="num dir" data-th="Entrega">qua. 7</td></tr>
+            <tr><td class="num" data-th="Ordem"><a href="#">2483</a></td><td data-th="Cliente" title="Bianca Tavares">Bianca Tavares</td><td data-th="Bicicleta" title="Trek Marlin 5">Trek Marlin 5</td><td data-th="Serviço" title="Troca de relação">Troca de relação</td><td data-th="Situação">Na bancada</td><td class="num dir" data-th="Entrega">16h00</td></tr>
+            <tr><td class="num" data-th="Ordem"><a href="#">2485</a></td><td data-th="Cliente" title="Otávio Reis">Otávio Reis</td><td data-th="Bicicleta" title="Caloi Explorer">Caloi Explorer</td><td data-th="Serviço" title="Centragem de rodas">Centragem de rodas</td><td data-th="Situação">Na bancada</td><td class="num dir" data-th="Entrega">16h30</td></tr>
+            <tr><td class="num" data-th="Ordem"><a href="#">2486</a></td><td data-th="Cliente" title="Lívia Carvalho">Lívia Carvalho</td><td data-th="Bicicleta" title="Groove Hype 50">Groove Hype 50</td><td data-th="Serviço" title="Montagem">Montagem</td><td data-th="Situação">Na bancada</td><td class="num dir" data-th="Entrega">17h00</td></tr>
+            <tr><td class="num" data-th="Ordem"><a href="#">2480</a></td><td data-th="Cliente" title="Vinícius Prado">Vinícius Prado</td><td data-th="Bicicleta" title="Cannondale Trail 7">Cannondale Trail 7</td><td data-th="Serviço" title="Revisão completa">Revisão completa</td><td data-th="Situação">Pronta</td><td class="num dir" data-th="Entrega">17h30</td></tr>
+            <tr><td class="num" data-th="Ordem"><a href="#">2482</a></td><td data-th="Cliente" title="Fernanda Lopes">Fernanda Lopes</td><td data-th="Bicicleta" title="Sense Fun Comp">Sense Fun Comp</td><td data-th="Serviço" title="Troca de pneus">Troca de pneus</td><td data-th="Situação">Pronta</td><td class="num dir" data-th="Entrega">18h00</td></tr>
+            <tr><td class="num" data-th="Ordem"><a href="#">2487</a></td><td data-th="Cliente" title="Paulo Henrique Sá">Paulo Henrique Sá</td><td data-th="Bicicleta" title="Soul SL 129">Soul SL 129</td><td data-th="Serviço" title="Sangria de freios">Sangria de freios</td><td data-th="Situação">Na fila</td><td class="num dir" data-th="Entrega">18h00</td></tr>
+            <tr><td class="num" data-th="Ordem"><a href="#">2488</a></td><td data-th="Cliente" title="Renata Guimarães">Renata Guimarães</td><td data-th="Bicicleta" title="Audax Auge 40">Audax Auge 40</td><td data-th="Serviço" title="Troca de câmbio">Troca de câmbio</td><td data-th="Situação">Na fila</td><td class="num dir" data-th="Entrega">18h30</td></tr>
+            <tr><td class="num" data-th="Ordem"><a href="#">2489</a></td><td data-th="Cliente" title="Daniel Furtado">Daniel Furtado</td><td data-th="Bicicleta" title="TSW Hunch">TSW Hunch</td><td data-th="Serviço" title="Revisão básica">Revisão básica</td><td data-th="Situação">Na fila</td><td class="num dir" data-th="Entrega">sáb. 10</td></tr>
+            <tr><td class="num" data-th="Ordem"><a href="#">2490</a></td><td data-th="Cliente" title="Isabela Nunes">Isabela Nunes</td><td data-th="Bicicleta" title="Caloi Vulcan">Caloi Vulcan</td><td data-th="Serviço" title="Troca de corrente">Troca de corrente</td><td data-th="Situação">Na fila</td><td class="num dir" data-th="Entrega">sáb. 10</td></tr>
+            <tr><td class="num" data-th="Ordem"><a href="#">2478</a></td><td data-th="Cliente" title="Camila Rocha">Camila Rocha</td><td data-th="Bicicleta" title="Oggi 7.2">Oggi 7.2</td><td data-th="Serviço" title="Suspensão dianteira">Suspensão dianteira</td><td data-th="Situação">Aguardando peça</td><td class="num dir" data-th="Entrega">seg. 12</td></tr>
+            <tr class="resolvido"><td class="num" data-th="Ordem"><a href="#">2472</a></td><td data-th="Cliente" title="Eduardo Brandão">Eduardo Brandão</td><td data-th="Bicicleta" title="Monark Barra">Monark Barra</td><td data-th="Serviço" title="Lavagem e lubrificação">Lavagem e lubrificação</td><td data-th="Situação">Entregue</td><td class="num dir" data-th="Entrega">9h40</td></tr>
+            <tr class="resolvido"><td class="num" data-th="Ordem"><a href="#">2474</a></td><td data-th="Cliente" title="Aline Moraes">Aline Moraes</td><td data-th="Bicicleta" title="Houston Atlantis">Houston Atlantis</td><td data-th="Serviço" title="Regulagem de marchas">Regulagem de marchas</td><td data-th="Situação">Entregue</td><td class="num dir" data-th="Entrega">11h05</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <div class="pilha">
+        <section class="card lista" aria-labelledby="t-voce">
+          <h2 id="t-voce" class="t-17 w-600 lh-titulo">Aguardando você</h2>
+          <ul>
+            <li><a class="linha" href="#"><span class="w-600">Aprovar orçamento</span><span class="num w-600">R$ 640,00</span><span class="l2 t-12 sec"><span class="num">2479</span> · Jonas Albuquerque · Sense Impact</span></a></li>
+            <li><a class="linha" href="#"><span class="w-600">Ligar para Helena Prado</span><span class="l2 t-12 sec"><span class="num">2476</span> · quadro com trinca, sem conserto</span></a></li>
+            <li><a class="linha" href="#"><span class="w-600">Definir prazo de entrega</span><span class="l2 t-12 sec"><span class="num">2484</span> · Marcos Vidal · Oggi Big Wheel</span></a></li>
+          </ul>
+        </section>
+
+        <section class="card lista" aria-labelledby="t-pecas">
+          <h2 id="t-pecas" class="t-17 w-600 lh-titulo">Peças em falta</h2>
+          <ul>
+            <li><div class="linha"><span class="w-600">Pastilha Shimano B01S</span><span class="num w-600">0 livres</span><span class="l2 t-12 sec">Reservada em 2 ordens de hoje</span></div></li>
+            <li><div class="linha"><span>Câmara 29 × 2.10 presta</span><span class="num">1 livre</span><span class="l2 t-12 sec">Reservada em 3 ordens até segunda</span></div></li>
+          </ul>
+          <div class="rodape"><button class="btn btn-secundario tinta" type="button">Pedir ao fornecedor</button></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+</div>
+</body>
+</html>

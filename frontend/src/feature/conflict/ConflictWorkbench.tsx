@@ -237,9 +237,7 @@ export function ConflictWorkbench({
     if (activeFileDetails.length === 0) {
       return null;
     }
-    return (
-      activeFileDetails.find((item) => item.path === selectedFilePath) ?? activeFileDetails[0]
-    );
+    return activeFileDetails.find((item) => item.path === selectedFilePath) ?? activeFileDetails[0];
   }, [activeFileDetails, selectedFilePath]);
 
   useEffect(() => {
@@ -251,6 +249,12 @@ export function ConflictWorkbench({
   const handleSubmitReview = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedTask) {
+      return;
+    }
+    if (!selectedTask.current_attempt?.result) {
+      setReviewError(
+        'Ainda não há resultado para revisar. Execute a tarefa antes de registrar uma revisão.',
+      );
       return;
     }
     const trimmedReason = reason.trim();
@@ -302,9 +306,7 @@ export function ConflictWorkbench({
     } catch (error) {
       const conflictedFiles = extractConflictedFilesFromError(error);
       setIntegrateConflictedFiles(conflictedFiles);
-      setIntegrateError(
-        getErrorMessage(error, 'Falha ao executar integração serializada do run.'),
-      );
+      setIntegrateError(getErrorMessage(error, 'Falha ao executar integração serializada do run.'));
       if (
         (error instanceof ControlPlaneApiError &&
           (error.status === 422 || error.payload.code === 'merge_conflict')) ||
@@ -348,8 +350,7 @@ export function ConflictWorkbench({
     try {
       const result = await manualResolveConflict(client, runId, selectedConflict.conflict_id, {
         finalize: manualFinalize,
-        worktree_path:
-          manualWorktreePath.trim().length > 0 ? manualWorktreePath.trim() : undefined,
+        worktree_path: manualWorktreePath.trim().length > 0 ? manualWorktreePath.trim() : undefined,
         commit_message:
           manualCommitMessage.trim().length > 0 ? manualCommitMessage.trim() : undefined,
       });
@@ -461,7 +462,12 @@ export function ConflictWorkbench({
                           : 'border-[#303030] bg-[#1C1C1C] text-[#969696] hover:text-[#E8E8E8]'
                       }`}
                     >
-                      <span className="font-mono">{task.task_id}</span>
+                      <span>
+                        {task.spec.title ??
+                          (typeof task.spec.objective === 'string'
+                            ? task.spec.objective
+                            : task.task_id)}
+                      </span>
                       <StatusBadge {...getTaskStatusBadgeProps(task.status)} compact />
                     </button>
                   );
@@ -473,7 +479,10 @@ export function ConflictWorkbench({
                   <div className="rounded border border-[#303030] bg-[#1C1C1C] p-2.5 text-xs">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium text-[#E8E8E8]">
-                        {selectedTask.spec.title ?? selectedTask.task_id}
+                        {selectedTask.spec.title ??
+                          (typeof selectedTask.spec.objective === 'string'
+                            ? selectedTask.spec.objective
+                            : selectedTask.task_id)}
                       </span>
                       <span className="font-mono text-[11px] text-[#969696]">
                         rev {selectedTask.revision}
@@ -490,7 +499,8 @@ export function ConflictWorkbench({
                       </div>
                     ) : (
                       <p className="mt-1 text-[11px] text-[#969696]">
-                        Nenhum resultado de tentativa anexado ainda.
+                        Esta tarefa ainda não tem um resultado para revisar. Inicie o trabalho pelo
+                        Novo chat ou aguarde a execução terminar.
                       </p>
                     )}
                   </div>
@@ -564,7 +574,7 @@ export function ConflictWorkbench({
                   <div className="flex justify-end">
                     <button
                       type="submit"
-                      disabled={submittingReview}
+                      disabled={submittingReview || !selectedTask.current_attempt?.result}
                       className="rounded border border-[#3B82F6]/60 bg-[#2563EB]/20 px-3 py-1.5 text-xs font-medium text-[#93C5FD] transition-colors hover:bg-[#2563EB]/30 disabled:opacity-50"
                     >
                       {submittingReview ? 'Enviando revisão...' : 'Enviar revisão'}

@@ -3,6 +3,7 @@ import * as Tabs from '@radix-ui/react-tabs';
 import { useQuery } from '@tanstack/react-query';
 import { FileCode2, FolderGit2, GitMerge, Package, RefreshCw } from 'lucide-react';
 import { StatusBadge } from '@/component/StatusBadge';
+import { statusLabel } from '@/component/statusMeta';
 import { ArtifactViewer } from '@/feature/artifact';
 import { ConflictWorkbench, PrPackagePanel } from '@/feature/conflict';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
@@ -61,19 +62,17 @@ export function WorkspaceWorkbenchPage({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <FolderGit2 aria-hidden="true" className="h-4 w-4 text-[#E8E8E8]" />
-            <h1 className="text-lg font-semibold text-[#E8E8E8]">
-              Workspaces, artefatos e conflitos
-            </h1>
+            <h1 className="text-lg font-semibold text-[#E8E8E8]">Alterações e revisão</h1>
             {activeRun ? <StatusBadge status={activeRun.status} compact /> : null}
           </div>
           <p className="text-xs text-[#969696]">
-            Inspecione diffs, previews seguros, revisões de tarefa, resolução de conflitos 3-way e empacotamento de PR.
+            Revise o resultado de uma execução e seus arquivos.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           <label htmlFor="workbench-run-select" className="text-xs text-[#969696]">
-            Run selecionada
+            Execução
           </label>
           <select
             id="workbench-run-select"
@@ -85,14 +84,14 @@ export function WorkspaceWorkbenchPage({
                 selectHierarchy({ runId: next });
               }
             }}
-            className="min-w-[220px] rounded-lg border border-[#303030] bg-[#141414] px-2.5 py-1.5 font-mono text-xs text-[#E8E8E8]"
+            className="min-h-11 min-w-0 max-w-full rounded-lg border border-[#666] bg-[#141414] px-2.5 py-1.5 text-sm text-[#E8E8E8]"
           >
             {runs.length === 0 ? (
-              <option value="">Nenhuma run disponível</option>
+              <option value="">Nenhuma execução disponível</option>
             ) : (
               runs.map((run) => (
                 <option key={run.id} value={run.id}>
-                  {run.id} · {run.status}
+                  {run.objective || run.id} · {statusLabel(run.status)}
                 </option>
               ))
             )}
@@ -103,7 +102,7 @@ export function WorkspaceWorkbenchPage({
             onClick={() => {
               void runsQuery.refetch();
             }}
-            aria-label="Atualizar lista de runs"
+            aria-label="Atualizar execuções"
             className="inline-flex items-center gap-1.5 rounded-lg border border-[#303030] bg-[#181818] px-3 py-1.5 text-xs text-[#E8E8E8] hover:bg-[#282828]"
           >
             <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
@@ -118,7 +117,8 @@ export function WorkspaceWorkbenchPage({
             Nenhuma run selecionada para revisão ou inspeção de artefatos
           </p>
           <p className="max-w-md text-xs text-[#969696]">
-            Inicie uma nova execução ou selecione uma conversa existente na barra lateral para revisar diffs, conflitos e gerar pacote de PR.
+            Inicie uma nova execução ou selecione uma conversa existente na barra lateral para
+            revisar diffs, conflitos e gerar pacote de PR.
           </p>
           <button
             type="button"

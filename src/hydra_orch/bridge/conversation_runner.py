@@ -70,10 +70,15 @@ class ConversationRunner:
             if await asyncio.to_thread(_bundled_codex_needs_no_daemon, executable):
                 args += ["--no-daemon"]
             args += ["--cd", str(cwd), "--ask-for-approval", "never", "exec"]
+            if conversation.get("workspace_kind") == "folder" and not session:
+                args += ["--skip-git-repo-check"]
             # exec resume has a distinct CLI contract; sandbox is a global option.
             if session:
                 args[1:1] = ["--sandbox", conversation["access_mode"]]
-                args += ["resume", "--json", session, "-"]
+                args += ["resume"]
+                if conversation.get("workspace_kind") == "folder":
+                    args += ["--skip-git-repo-check"]
+                args += ["--json", session, "-"]
             else:
                 args += ["--sandbox", conversation["access_mode"], "--json", "-"]
         elif driver == "claude":
@@ -88,7 +93,8 @@ class ConversationRunner:
                 args += ["--resume", session]
         else:
             raise ContractViolation("agent_unavailable", "Este agente ainda não suporta conversa. Escolha Codex ou Claude Code.")
-        kwargs = {"cwd": str(cwd), "env": filter_worker_env(), "stdin": asyncio.subprocess.PIPE,
+        folder_env = {"GIT_CEILING_DIRECTORIES": str(cwd.parent)} if conversation.get("workspace_kind") == "folder" else None
+        kwargs = {"cwd": str(cwd), "env": filter_worker_env(allowed_env=folder_env), "stdin": asyncio.subprocess.PIPE,
                   "stdout": asyncio.subprocess.PIPE, "stderr": asyncio.subprocess.PIPE, "limit": 2**20}
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP

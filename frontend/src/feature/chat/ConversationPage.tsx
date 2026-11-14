@@ -9,6 +9,7 @@ import { DictationControl } from '@/feature/dictation';
 import { clearComposerDraft } from '@/feature/composer/composerTypes';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useAuthStore } from '@/store/authStore';
+import { useLayoutStore } from '@/store/layoutStore';
 import { ControlPlaneApiError } from '@/type/controlPlane';
 import { clearPendingSend, ConversationSnapshot, pendingMessage } from './conversationTypes';
 
@@ -51,14 +52,32 @@ export function ConversationPage({ conversationId }: { conversationId: string })
   const followOutputRef = useRef(true);
   const renderedSeqRef = useRef<number | null>(null);
   const data = snapshot.data;
-  cursorRef.current = data?.last_seq ?? 0;
+  const dataId = data?.id;
+  const dataTitle = data?.title;
+  const lastSeq = data?.last_seq;
+  cursorRef.current = lastSeq ?? 0;
 
   useEffect(() => {
-    if (data) {
-      document.title = `${data.title} · Hydra`;
-      headingRef.current?.focus();
+    if (dataId && dataTitle !== undefined) {
+      document.title = `${dataTitle} · Hydra`;
+      const layout = useLayoutStore.getState();
+      const matching = Object.values(layout.tabs).filter(
+        (t) => t.runId === dataId && t.title !== dataTitle,
+      );
+      if (matching.length)
+        useLayoutStore.setState({
+          tabs: Object.fromEntries(
+            Object.entries(layout.tabs).map(([id, tab]) => [
+              id,
+              tab.runId === dataId ? { ...tab, title: dataTitle } : tab,
+            ]),
+          ),
+        });
     }
-  }, [data?.id]);
+  }, [dataId, dataTitle]);
+  useEffect(() => {
+    if (dataId) headingRef.current?.focus();
+  }, [dataId]);
   useEffect(() => {
     if (error) errorRef.current?.focus();
   }, [error]);
@@ -74,17 +93,17 @@ export function ConversationPage({ conversationId }: { conversationId: string })
     };
     container.addEventListener('scroll', onScroll, { passive: true });
     return () => container.removeEventListener('scroll', onScroll);
-  }, [data?.id]);
+  }, [dataId]);
   useEffect(() => {
     if (
-      data &&
+      lastSeq !== undefined &&
       renderedSeqRef.current !== null &&
-      renderedSeqRef.current !== data.last_seq &&
+      renderedSeqRef.current !== lastSeq &&
       followOutputRef.current
     )
       endRef.current?.scrollIntoView({ block: 'end' });
-    if (data) renderedSeqRef.current = data.last_seq;
-  }, [data?.last_seq]);
+    if (lastSeq !== undefined) renderedSeqRef.current = lastSeq;
+  }, [lastSeq]);
   useEffect(() => {
     const controller = new AbortController();
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;

@@ -329,7 +329,7 @@ describe('Onda 14 App shell wiring', () => {
     await user.click(screen.getByRole('button', { name: 'Contas e consumo' }));
     expect(await screen.findByRole('heading', { name: 'Contas e consumo' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Workspaces' }));
+    await user.click(screen.getByRole('button', { name: 'Alterações' }));
     expect(await screen.findByTestId('workspace-workbench-page')).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });

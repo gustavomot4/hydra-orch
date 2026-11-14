@@ -354,6 +354,7 @@ class RunService:
         base_branch: str = "main",
         base_sha: Optional[str] = None,
         project_id: Optional[str] = None,
+        allow_plain_folder: bool = False,
     ) -> Dict[str, Any]:
         """Validate a Git repository root and register it as a project in ExecutionStore."""
         await self.store.initialize()
@@ -364,26 +365,37 @@ class RunService:
                 f"Invalid or path-traversal canonical_root: '{canonical_root}'",
             )
         candidate = Path(os.path.realpath(raw_str))
-        if not candidate.exists() or not candidate.is_dir() or not (candidate / ".git").exists():
+        if not candidate.exists() or not candidate.is_dir():
             raise ContractViolation(
                 "workspace_invalid",
-                f"Path '{canonical_root}' is not a valid Git repository root containing .git",
+                f"A pasta '{canonical_root}' não existe neste computador ou não é uma pasta.",
             )
-        resolved_root = GitWorkspaceService.resolve_repo_root(candidate)
+        is_git = (candidate / ".git").exists()
+        if not is_git and not allow_plain_folder:
+            raise ContractViolation("workspace_invalid", "Esta operação exige um repositório Git. Para conversar em uma pasta comum, cadastre-a pelo Novo chat.")
+        resolved_root = GitWorkspaceService.resolve_repo_root(candidate) if is_git else candidate
         if os.path.normcase(str(resolved_root)) != os.path.normcase(str(candidate)):
             raise ContractViolation(
                 "workspace_invalid",
                 f"Path '{canonical_root}' is not the top-level Git root ('{resolved_root}')",
             )
 
-        ws = self._get_git_workspace(resolved_root)
-        if base_sha:
-            resolved_sha = ws.resolve_commit_sha(base_sha)
-        else:
-            try:
-                resolved_sha = ws.resolve_commit_sha(base_branch)
-            except (ContractViolation, GitWorkspaceError):
-                resolved_sha = ws.resolve_commit_sha("HEAD")
+        resolved_sha = None
+        if is_git:
+            ws = self._get_git_workspace(resolved_root)
+            if base_sha:
+                resolved_sha = ws.resolve_commit_sha(base_sha)
+            else:
+                try:
+                    resolved_sha = ws.resolve_commit_sha(base_branch)
+                except (ContractViolation, GitWorkspaceError):
+                    try:
+                        resolved_sha = ws.resolve_commit_sha("HEAD")
+                    except (ContractViolation, GitWorkspaceError):
+                        if not allow_plain_folder:
+                            raise
+                        is_git = False  # An empty repository can still be used as a folder.
+        kind = "git" if is_git else "folder"
 
         pid = project_id or f"proj-{uuid.uuid4().hex[:12]}"
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -401,22 +413,24 @@ class RunService:
                     )
                 await db.execute(
                     """
-                    INSERT INTO projects (id, canonical_root, name, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO projects (id, canonical_root, name, created_at, updated_at,metadata_json,base_branch,base_sha)
+                    VALUES (?, ?, ?, ?, ?,?,?,?)
                     """,
-                    (pid, str(resolved_root), name.strip(), now_iso, now_iso),
+                    (pid, str(resolved_root), name.strip(), now_iso, now_iso,json.dumps({"workspace_kind":kind}),base_branch if is_git else None,resolved_sha),
                 )
 
         self._project_meta[pid] = {
-            "base_branch": base_branch,
+            "base_branch": base_branch if is_git else None,
             "base_sha": resolved_sha,
+            "workspace_kind": kind,
         }
         return {
             "id": pid,
             "canonical_root": str(resolved_root),
             "name": name.strip(),
-            "base_branch": base_branch,
+            "base_branch": base_branch if is_git else None,
             "base_sha": resolved_sha,
+            "workspace_kind": kind,
             "created_at": now_iso,
             "updated_at": now_iso,
         }
@@ -426,16 +440,17 @@ class RunService:
         await self.store.initialize()
         async with self.store._connect() as db:
             cur = await db.execute(
-                "SELECT id, canonical_root, name, created_at, updated_at FROM projects WHERE id = ?",
+                "SELECT id, canonical_root, name, created_at, updated_at,metadata_json,base_branch,base_sha FROM projects WHERE id = ?",
                 (project_id,),
             )
             row = await cur.fetchone()
             if row is None:
                 return None
             meta = self._project_meta.get(project_id, {})
-            base_branch = meta.get("base_branch", "main")
-            base_sha = meta.get("base_sha")
-            if not base_sha:
+            kind = json.loads(row["metadata_json"]).get("workspace_kind", "git")
+            base_branch = meta.get("base_branch", row["base_branch"] or "main") if kind == "git" else None
+            base_sha = meta.get("base_sha") or row["base_sha"]
+            if not base_sha and kind == "git":
                 try:
                     ws = self._get_git_workspace(row["canonical_root"])
                     base_sha = ws.resolve_commit_sha("HEAD")
@@ -447,6 +462,7 @@ class RunService:
                 "name": row["name"],
                 "base_branch": base_branch,
                 "base_sha": base_sha,
+                "workspace_kind": kind,
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }

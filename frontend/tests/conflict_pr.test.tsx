@@ -68,7 +68,8 @@ function makeConflict(overrides: Partial<ConflictReport> = {}): ConflictReport {
         base_content: 'const mode = "base";',
         ours_content: 'const mode = "ours";',
         theirs_content: 'const mode = "theirs";',
-        merged_preview: '<<<<<<< OURS\nconst mode = "ours";\n=======\nconst mode = "theirs";\n>>>>>>>',
+        merged_preview:
+          '<<<<<<< OURS\nconst mode = "ours";\n=======\nconst mode = "theirs";\n>>>>>>>',
         hunks: ['@@ -1 +1 @@'],
       },
       {
@@ -94,6 +95,23 @@ function makeConflict(overrides: Partial<ConflictReport> = {}): ConflictReport {
 }
 
 describe('ConflictWorkbench', () => {
+  it('blocks review when the task has never produced a result', async () => {
+    const request = vi.fn(async (path: string) => {
+      if (path.endsWith('/tasks'))
+        return [makeTask({ status: 'pending', current_attempt: null, attempts: [] })];
+      if (path.endsWith('/conflicts')) return [];
+      return {};
+    });
+    render(
+      <ConflictWorkbench runId="run-99" client={{ request } as unknown as ControlPlaneClient} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Enviar revisão' })).toBeDisabled(),
+    );
+    expect(screen.getByText(/Esta tarefa ainda não tem um resultado/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar revisão' }));
+    expect(request.mock.calls.some(([path]) => path.endsWith('/review'))).toBe(false);
+  });
   it('validates required reason, submits review decisions (accepted/needs_repair/rejected), handles integrate 422 conflict & success, and executes 3-way conflict actions', async () => {
     const calls: Array<{ path: string; method?: string; body?: Record<string, unknown> }> = [];
     let conflictsState: ConflictReport[] = [];
@@ -146,7 +164,13 @@ describe('ConflictWorkbench', () => {
             };
           }
           if (path.endsWith('/conflicts/cnf-01/auto-repair')) {
-            conflictsState = [makeConflict({ status: 'auto_repair', repair_attempts_used: 1, resolved_sha: 'aaaa1111' })];
+            conflictsState = [
+              makeConflict({
+                status: 'auto_repair',
+                repair_attempts_used: 1,
+                resolved_sha: 'aaaa1111',
+              }),
+            ];
             return {
               conflict_id: 'cnf-01',
               integration_id: 'int-01',
@@ -207,7 +231,7 @@ describe('ConflictWorkbench', () => {
     render(<ConflictWorkbench runId="run-99" client={mockClient} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Implementar parser AST')).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Implementar parser AST/ })).toBeInTheDocument();
     });
 
     // Empty reason must block review POST
@@ -287,8 +311,7 @@ describe('ConflictWorkbench', () => {
     await waitFor(() => {
       expect(
         calls.some(
-          (c) =>
-            c.path.endsWith('/discard') && c.body?.reason === 'Substituído por novo run',
+          (c) => c.path.endsWith('/discard') && c.body?.reason === 'Substituído por novo run',
         ),
       ).toBe(true);
     });

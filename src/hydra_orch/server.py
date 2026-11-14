@@ -16,6 +16,8 @@ from fastapi import APIRouter, FastAPI, Header, Query, Request, WebSocket, WebSo
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse as BaseJSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from hydra_orch.config import ConfigError, HydraConfig, load_config
@@ -110,6 +112,8 @@ DEFAULT_CORS_ALLOW_ORIGINS: List[str] = [
     "http://localhost:3000",
     "http://127.0.0.1:5173",
     "http://localhost:5173",
+    "http://127.0.0.1:5177",
+    "http://localhost:5177",
     "http://127.0.0.1:5197",
     "http://localhost:5197",
 ]
@@ -237,6 +241,13 @@ async def _check_control_plane_security(request: Request) -> Optional[JSONRespon
     origin = request.headers.get("origin")
     if origin is not None and origin not in allowed_origins:
         return _error_response(403, "cors_origin_forbidden", "Origin is not authorized")
+    from hydra_orch.core.local_desktop import allow_bootstrap, public_frontend
+    if request.url.path == "/v1/launcher/session":
+        if allow_bootstrap(request):
+            return None
+        return _error_response(403, "desktop_session_forbidden", "Acesso automático disponível somente pela janela local aberta pelo Hydra.")
+    if public_frontend(request):
+        return None
 
     # Browsers cannot send Authorization on the preflight itself. CORS middleware
     # validates method/headers and returns no application data on this path.
@@ -305,8 +316,8 @@ async def create_conversation(payload: ConversationCreatePayload):
 
 
 @app.get("/v1/control-plane/conversations")
-async def list_conversations(project_id: Optional[str] = None, offset: int = Query(default=0, ge=0), limit: int = Query(default=30, ge=1, le=100)):
-    return await get_conversation_service().list(project_id, offset, limit)
+async def list_conversations(project_id: Optional[str] = None, offset: int = Query(default=0, ge=0), limit: int = Query(default=30, ge=1, le=100), q: Optional[str] = Query(default=None, max_length=100)):
+    return await get_conversation_service().list(project_id, offset, limit, q)
 
 
 @app.get("/v1/control-plane/conversations/{conversation_id}")
@@ -360,6 +371,7 @@ class ProjectCreatePayload(BaseModel):
     project_id: Optional[str] = Field(default=None)
     workspace_id: Optional[str] = Field(default=None)
     metadata: Optional[Dict[str, Any]] = Field(default=None)
+    allow_plain_folder: bool = False
 
 
 class TaskSpecPayload(BaseModel):
@@ -655,6 +667,7 @@ async def create_project_endpoint(payload: ProjectCreatePayload) -> Dict[str, An
         base_branch=payload.base_branch,
         base_sha=payload.base_sha,
         project_id=payload.project_id,
+        allow_plain_folder=payload.allow_plain_folder,
     )
 
 
@@ -1355,7 +1368,7 @@ async def review_task_endpoint(
             return _error_response(
                 404,
                 "result_not_found",
-                f"Task '{task_id}' has no attempts to review",
+                "Esta tarefa ainda não foi executada e não tem resultado para revisar.",
                 run_id=run_id,
             )
         latest_res = await svc.store.get_result_by_attempt(attempts[-1].attempt_id)
@@ -1363,7 +1376,7 @@ async def review_task_endpoint(
             return _error_response(
                 404,
                 "result_not_found",
-                f"Task '{task_id}' attempt '{attempts[-1].attempt_id}' has no result",
+                "A execução desta tarefa ainda não produziu um resultado para revisar. Aguarde sua conclusão.",
                 run_id=run_id,
             )
         result_id = latest_res.result_id
@@ -3280,6 +3293,78 @@ async def pydantic_validation_handler(request: Request, exc: ValidationError) ->
         str(exc),
         retryable=False,
     )
+
+
+@app.post("/v1/launcher/session", include_in_schema=False)
+async def desktop_session(request: Request):
+    from hydra_orch.core.local_desktop import allow_bootstrap
+    if not allow_bootstrap(request):
+        raise HTTPException(403)
+    # Credential transport for the same-origin launcher UI; never log or embed in HTML/URL.
+    return BaseJSONResponse({"token": os.environ["HYDRA_API_TOKEN"]}, headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
+
+
+@app.post("/v1/launcher/stop", include_in_schema=False)
+async def desktop_stop():
+    from hydra_orch.core.local_desktop import enabled
+    stop = getattr(app.state, "desktop_shutdown", None)
+    if not enabled() or stop is None:
+        raise HTTPException(404)
+    stop()
+    return {"stopping": True}
+
+
+@app.get("/v1/launcher/ping", include_in_schema=False)
+async def desktop_ping():
+    from hydra_orch.core.local_desktop import enabled
+    if not enabled():
+        raise HTTPException(404)
+    return {"status": "ready"}
+
+
+@app.post("/v1/launcher/pick-folder", include_in_schema=False)
+async def desktop_pick_folder(request: Request):
+    from hydra_orch.core.local_desktop import loopback_request
+    if not loopback_request(request):
+        raise HTTPException(404)
+    picker = getattr(app.state, "desktop_folder_picker", None)
+    if picker is not None:
+        return {"path": await picker()}
+    executable = os.environ.get("HYDRA_LAUNCHER_EXE")
+    if not executable or not Path(executable).is_file():
+        raise HTTPException(503, "Abra o Hydra pelo executável para selecionar uma pasta.")
+    from hydra_orch.bridge.worker_runner import filter_worker_env, cancel_process_tree
+    # This interactive helper is shown only after the user selects 'Selecionar pasta'.
+    process = await asyncio.create_subprocess_exec(executable, "--pick-folder", stdout=asyncio.subprocess.PIPE,
+                                                   stderr=asyncio.subprocess.DEVNULL, env=filter_worker_env())
+    try:
+        output, _ = await asyncio.wait_for(process.communicate(), timeout=300)
+        if process.returncode != 0:
+            raise HTTPException(503, "Não foi possível abrir o seletor. Informe o caminho da pasta abaixo.")
+        return {"path": output.decode("utf-8-sig", errors="replace").strip() or None}
+    finally:
+        if process.returncode is None:
+            await cancel_process_tree(process.pid)
+
+
+@app.get("/{desktop_path:path}", include_in_schema=False)
+async def desktop_frontend(desktop_path: str, request: Request):
+    from hydra_orch.core.local_desktop import public_frontend
+    if not public_frontend(request):
+        raise HTTPException(404)
+    root = Path(getattr(app.state, "desktop_dist_dir", Path(__file__).resolve().parents[2] / "frontend" / "dist"))
+    target = (root / desktop_path).resolve()
+    if not target.is_relative_to(root.resolve()):
+        raise HTTPException(404)
+    if desktop_path.startswith("assets/"):
+        if not target.is_file():
+            raise HTTPException(404)
+        return FileResponse(target)
+    index = root / "index.html"
+    if not index.is_file():
+        raise HTTPException(503, "A interface ainda precisa ser preparada pelo executável Hydra.")
+    html = index.read_text(encoding="utf-8").replace("<head>", '<head><meta name="hydra-desktop" content="local">', 1)
+    return HTMLResponse(html, headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'", "Referrer-Policy": "same-origin"})
 
 
 def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:

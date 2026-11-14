@@ -26,7 +26,7 @@ A posse dura 60 segundos e é renovada durante a execução. Turnos com posse ex
 
 ## Contexto e arquivos
 
-Uma worktree Git por conversa é mantida entre turnos e parte do HEAD do projeto ao iniciar a conversa. Alterações locais não commitadas no checkout original não são copiadas. O caminho e a base ficam persistidos. A conversa em leitura continua isolada do checkout original.
+Uma worktree Git por conversa é mantida entre turnos e parte do HEAD do projeto ao iniciar a conversa. Alterações locais não commitadas no checkout original não são copiadas. Pastas sem Git usam cópias de base/trabalho, sem inicializar repositório, com exclusão de caches, links e `.env*`, até 10 mil arquivos ou 256 MB. O caminho e a base ficam persistidos. A conversa em leitura continua isolada do checkout original.
 
 O primeiro turno utiliza o histórico persistido. `thread.started` do Codex e `system/init` do Claude confirmam a identidade nativa, usada por `exec resume` / `--resume` nos próximos turnos. Histórico reconstruído tem limite explícito de 120 mil caracteres, sem truncamento silencioso. Mensagens pendentes canceladas não entram nesse histórico.
 
@@ -42,5 +42,6 @@ Uma resposta textual pode concluir sem patch. Exibir um diff significa alteraç�
 - Navegador: jornada com FastAPI e subprocesso controlado, duas mensagens, recarga durante execução, retorno pelo histórico, cancelamento e verificações de layout/axe. A prova autenticada do Codex foi feita pelo serviço, separada da prova de navegador.
 - Verificador completo do kit sobre bundle de produção: Novo chat com zero falhas e três avisos; conversa com zero falhas e dois avisos. Os avisos registram áreas de toque da navegação entre 24 e 44 px, a fonte existente e a posição inicial de Tab após foco programático. Leitor de tela real e testes com pessoas não foram executados.
 - Aprovações interativas de ferramentas, integração/revisão decisória de patches e distribuição pelo coordenador com políticas de rota/orçamento continuam como expansão do fluxo. Os motores de orquestração existentes permanecem com seus contratos próprios; escolher um agente no chat não anuncia execução de swarm.
+- O [executável Windows](../j_manual/iniciar_windows.md) serve a interface e a API na mesma origem e gerencia a credencial local. O modo manual continua protegido por Bearer; o bootstrap automático é restrito ao modo desktop e à origem local correspondente.
 
 Implementação: [ConversationService](../../src/hydra_orch/core/conversation_service.py), [ConversationRunner](../../src/hydra_orch/bridge/conversation_runner.py), [ConversationPage](../../frontend/src/feature/chat/ConversationPage.tsx). Testes: [contratos e recuperação](../../tests/test_conversation.py), [jornada no navegador](../../frontend/tests/e2e/m5_acceptance.spec.ts).

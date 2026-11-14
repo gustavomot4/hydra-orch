@@ -1,0 +1,2 @@
+### Aviso de uso
+Os tokens, medidas e padrões acima descrevem *decisões de design* observadas publicamente e são reutilizáveis. **Logo, nome, fotografia, ilustrações e textos da Fisk são propriedade da marca** e não devem ser copiados. Defina `--brand` com a sua cor (§1.1), use suas próprias imagens e escreva seus próprios textos. As afirmações sobre o site analisado são observações do autor, feitas de fora, e os itens de consentimento e de LGPD são recomendação técnica: nenhum dos dois substitui verificação independente nem orientação jurídica.

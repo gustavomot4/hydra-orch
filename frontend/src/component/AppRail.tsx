@@ -29,7 +29,7 @@ const RAIL_NAV_ITEMS: RailNavItem[] = [
   { id: 'tab:search', label: 'Busca global', route: '/busca', kind: 'search', Icon: Search },
   {
     id: 'tab:workspaces',
-    label: 'Workspaces',
+    label: 'Alterações',
     route: '/workspace',
     kind: 'workspace',
     Icon: FolderGit2,
@@ -236,12 +236,12 @@ export function AppRail({ activeRoute, onNavigate, onSearch, children }: AppRail
             <button
               type="button"
               onClick={logout}
-            aria-label="Bloquear sessão e sair"
-            title="Bloquear sessão e sair"
+              aria-label="Bloquear sessão e sair"
+              title="Bloquear sessão e sair"
               className={buttonClass(false)}
             >
               <Lock aria-hidden="true" className="h-4 w-4 shrink-0" />
-            {expanded ? <span>Bloquear sessão</span> : null}
+              {expanded ? <span>Bloquear sessão</span> : null}
             </button>
           </div>
         </div>

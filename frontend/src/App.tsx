@@ -127,7 +127,7 @@ export function HydraShell() {
       openTab({
         id: 'tab:workspaces',
         kind: 'workspace',
-        title: 'Workspaces',
+        title: 'Alterações',
         route: '/workspace',
         closable: true,
       });
@@ -233,7 +233,16 @@ export function HydraShell() {
 
   const handleSelectTreeNode = useCallback(
     (node: WorkspaceTreeNode) => {
-      if (node.kind === 'session') {
+      if (node.kind === 'project') {
+        selectHierarchy({
+          hostId: node.hostId,
+          projectId: node.projectId ?? null,
+          workspaceId: node.workspaceId ?? null,
+          runId: null,
+          sessionId: null,
+        });
+        handleNavigate({ id: 'tab:new-chat', label: 'Novo chat', route: '/', kind: 'new_chat' });
+      } else if (node.kind === 'session') {
         const targetId = node.runId ?? node.sessionId ?? node.id;
         const route = `/chat/${encodeURIComponent(targetId)}`;
         selectHierarchy({
@@ -264,7 +273,7 @@ export function HydraShell() {
         });
         handleNavigate({
           id: 'tab:workspaces',
-          label: 'Workspaces',
+          label: 'Alterações',
           route: '/workspace',
           kind: 'workspace',
         });
@@ -375,7 +384,7 @@ export function HydraShell() {
                   if (item.command === '/review') {
                     handleNavigate({
                       id: 'tab:workspaces',
-                      label: 'Workspaces',
+                      label: 'Alterações',
                       route: '/workspace',
                       kind: 'workspace',
                     });

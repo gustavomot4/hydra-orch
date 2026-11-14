@@ -330,6 +330,9 @@ def main() -> None:
 
         repo_dir = tmpdir / "repo"
         base_sha = _init_e2e_repo(repo_dir)
+        plain_folder = tmpdir / "plain-folder"
+        plain_folder.mkdir()
+        (plain_folder / "README.md").write_text("# Pasta sem Git\nInicie com npm run dev.\n", encoding="utf-8")
         rt_dir = tmpdir / "orchestrator_rt"
 
         from hydra_orch import server

@@ -1,0 +1,14 @@
+### 7.5 Painel do mês
+
+Só para o perfil Responsável. Responde "como a clínica está indo no mês".
+
+1. Cabeçalho "Painel de outubro", subtítulo "Como a clínica está indo no mês, até hoje" (mês passado: "Resultado de setembro de 2026"). Ação: "Mês anterior", o nome do mês (`--text-body` `--weight-bold`, largura mínima 150 px, `aria-live="polite"`) e "Próximo mês", desabilitado no mês corrente.
+2. Chips por profissional.
+3. Sem lançamentos no mês: alerta `info` "Ainda não há lançamentos neste mês" com a ação para lançar. Alertas que o servidor mandar entram aqui, um por linha, no tom que vier.
+4. Quatro indicadores (6.15) numa grade de 4 colunas, espaço `--space-16` (2 colunas abaixo de 1280 px, espaço `--space-10` abaixo de 600 px): Entradas (`arrow-down-left`, tom `success`), Saídas (`arrow-up-right`, perigo), Saldo do mês (`wallet`, em destaque), Pacientes atendidos (`users`, `info`). Cada um com uma dica: "Ticket médio de R$ 210,00", "31% das entradas", "Sobrou 69% do que entrou", "Em 18 dias de atendimento".
+5. Grade `minmax(0, 1fr) var(--side)` (1 coluna abaixo de 1280 px), espaço `--space-16`:
+   - "Entradas e saídas por dia": duas barras por dia lançado, entrada em `--chart-in` à esquerda e saída em `--chart-out` à direita, largura máxima 16 px cada, raio 3 px, 3 px entre elas; altura do gráfico 270 px; eixo em reais à esquerda (`--text-micro` `--muted-foreground`) com linhas de grade `--chart-grid` e linha de base `--border-strong`; embaixo de cada par, o dia (`--text-caption` `--weight-bold`) e o dia da semana. Legenda no cabeçalho do cartão com o total de cada série. Cada dia recebe foco (`tabindex="0"`) e, com foco, hover ou toque, mostra um balão `data-surface="dark"` (fundo `--foreground`, raio `--radius-md`, `padding: var(--space-10) var(--space-12)`, largura mínima 210 px, `--text-caption`) com a data, entradas, saídas e o saldo do dia. Uma tabela `.sr-only` repete os números. Abaixo de 600 px, o gráfico rola na horizontal dentro do cartão. Legenda do gráfico: "Cada par de barras é um dia com lançamento. Passe o mouse ou toque num dia para ver os valores."
+   - "Consultas do mês": anel de 170 px com traço de 24 px, uma fatia por situação na cor da barra dela (4.3) e o total no centro (`--text-display-sm` e "consultas"); ao lado, a lista com amostra de cor, rótulo e número; embaixo, "Concluídas 78% · Faltas 6% · Cancelamentos 9%".
+6. Segunda grade igual: "Por profissional" (iniciais `md`, nome, barra de 8 px `--primary` sobre trilho `--muted` proporcional às entradas, valor à direita e "saldo R$ 4.180,00" embaixo) e "Produção do mês" (blocos `--card-soft`, raio `--radius`, número em `--text-title` `--weight-extrabold` e rótulo em `--text-caption`).
+
+Carregando: esqueleto de 3 blocos de 150 px. Ao trocar de mês ou de profissional, o conteúdo anterior fica com opacidade 0,7 até chegar o novo. Erro: erro ao carregar no lugar do conteúdo.

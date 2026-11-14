@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 import { expect, Page, test } from '@playwright/test';
 
@@ -108,9 +109,38 @@ async function runAxeWcagAA(page: Page, contextLabel: string): Promise<void> {
 }
 
 test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Responsividade)', () => {
+  test('registers an ordinary folder and starts its conversation without Git', async ({
+    page,
+    request,
+  }) => {
+    await loginControlPlane(page);
+    const projects = await (
+      await request.get('/v1/control-plane/projects', {
+        headers: { Authorization: `Bearer ${E2E_TOKEN}` },
+      })
+    ).json();
+    const folder = path.resolve(projects[0].canonical_root, '..', 'plain-folder');
+    await page.getByText('Adicionar pasta', { exact: true }).click();
+    await page.getByLabel('Caminho da pasta neste computador').fill(folder);
+    const registration = page.waitForResponse(
+      (r) => r.url().endsWith('/v1/control-plane/projects') && r.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: 'Usar esta pasta', exact: true }).click();
+    const registered = await registration;
+    expect(registered.ok()).toBe(true);
+    expect(registered.request().postDataJSON().allow_plain_folder).toBe(true);
+    expect((await registered.json()).workspace_kind).toBe('folder');
+    await expect(page.getByLabel('Pasta', { exact: true })).toContainText('plain-folder');
+    await page.getByLabel('Sua mensagem').fill('Leia o README desta pasta sem Git');
+    await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+    await expect(
+      page.getByTestId('conversation-turn-1').getByTestId('agent-response'),
+    ).toContainText('Segundo, inicie');
+    await expect(page.getByText('Resposta concluída', { exact: true })).toBeVisible();
+  });
   test('keeps a responsive WebSocket terminal while resizing its viewport', async ({ page }) => {
     await loginControlPlane(page);
-    await expect(page.getByLabel('Projeto', { exact: true })).toContainText('hydra-e2e-repo');
+    await expect(page.getByLabel('Pasta', { exact: true })).toContainText('hydra-e2e-repo');
     await page
       .getByRole('navigation', { name: 'Navegação principal' })
       .getByRole('button', { name: 'Terminal', exact: true })
@@ -136,6 +166,17 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await page.keyboard.type('teste-pty');
     await page.keyboard.press('Enter');
     await expect(terminal.getByText('ECHO:codex:teste-pty', { exact: true })).toBeVisible();
+    const sessionId = await terminal.getAttribute('data-session-id');
+    await page
+      .getByRole('navigation', { name: 'Navegação principal' })
+      .getByRole('button', { name: 'Novo chat', exact: true })
+      .click();
+    await page
+      .getByRole('navigation', { name: 'Navegação principal' })
+      .getByRole('button', { name: 'Terminal', exact: true })
+      .click();
+    await expect(terminal).toHaveAttribute('data-session-id', sessionId!);
+    await expect(terminal.getByText('ECHO:codex:teste-pty', { exact: true })).toBeVisible();
     console.log(`Entrada e eco visíveis em ${Date.now() - typed} ms`);
     const initialXterm = await terminal.locator('.xterm').elementHandle();
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -156,7 +197,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await runAxeWcagAA(page, 'Novo chat');
     const taskObjective = 'Leia o README e explique como iniciar o projeto';
     const composer = page.getByLabel('Sua mensagem');
-    await expect(page.getByLabel('Projeto', { exact: true })).toContainText('hydra-e2e-repo');
+    await expect(page.getByLabel('Pasta', { exact: true })).toContainText('hydra-e2e-repo');
     await composer.fill(taskObjective);
     const creation = page.waitForResponse(
       (response) =>
@@ -321,7 +362,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await expect(page.getByTestId('novo-chat-page')).toBeVisible();
 
     // Step 4: Inspect Markdown (no XSS), PNG image, PDF & Diff safe previews in Workbench
-    await rail.getByRole('button', { name: 'Workspaces' }).click();
+    await rail.getByRole('button', { name: 'Alterações' }).click();
     await expect(page.getByTestId('workspace-workbench-page')).toBeVisible();
     await page.locator('#workbench-run-select').selectOption('run-e2e-swarm');
     await page.getByRole('tab', { name: /Artefatos e diffs seguros/i }).click();
@@ -445,8 +486,8 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     const drawerToggle = rail.getByRole('button', { name: /barra lateral/i });
     await drawerToggle.click();
     const drawer = page.getByTestId('mobile-sidebar-drawer');
-    await expect(drawer.getByRole('button', { name: 'Workspaces', exact: true })).toHaveText(
-      'Workspaces',
+    await expect(drawer.getByRole('button', { name: 'Alterações', exact: true })).toHaveText(
+      'Alterações',
     );
     await page.keyboard.press('Escape');
     await expect(drawer).toBeHidden();

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Columns2, Play, Square, Terminal } from 'lucide-react';
 import { ControlPlaneClient, useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { ControlPlaneApiError } from '@/type/controlPlane';
@@ -55,6 +55,64 @@ export function SplitTerminalView({
   const [secondarySession, setSecondarySession] = useState<PtySessionInfo | null>(secondaryProp);
   const [launchingSlot, setLaunchingSlot] = useState<'primary' | 'secondary' | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(!primaryProp && !secondaryProp);
+  const sessionKey = `hydra:terminals:${JSON.stringify([hostId, workspaceId ?? null, defaultCwd])}`;
+
+  useEffect(() => {
+    if (primaryProp || secondaryProp) {
+      setRestoring(false);
+      return;
+    }
+    let mounted = true;
+    setRestoring(true);
+    const normalize = (value: string) => {
+      const normalized = value.replace(/\\/g, '/').replace(/\/$/, '');
+      return /^[a-z]:\//i.test(normalized) ? normalized.toLocaleLowerCase() : normalized;
+    };
+    void client
+      .request<PtySessionInfo[]>('/v1/control-plane/pty/sessions')
+      .then((rows) => {
+        if (!mounted || !Array.isArray(rows)) return;
+        let pinned: { primary?: string; secondary?: string } = {};
+        try {
+          pinned = JSON.parse(sessionStorage.getItem(sessionKey) || '{}');
+        } catch {
+          /* Optional local recovery. */
+        }
+        const matching = rows
+          .filter(
+            (s) =>
+              s.status === 'running' &&
+              s.host_id === hostId &&
+              (defaultCwd === '.'
+                ? [pinned.primary, pinned.secondary].includes(s.session_id)
+                : normalize(s.cwd) === normalize(defaultCwd)) &&
+              (s.workspace_id ?? null) === (workspaceId ?? null),
+          )
+          .sort((a, b) => a.created_at.localeCompare(b.created_at));
+        const driver = (s: PtySessionInfo) =>
+          s.command[0]
+            ?.replace(/\\/g, '/')
+            .split('/')
+            .pop()
+            ?.replace(/\.(exe|cmd|bat)$/i, '')
+            .toLowerCase();
+        const primary = matching.filter((s) => driver(s) === 'codex').pop();
+        const secondary = matching.filter((s) => driver(s) === 'claude').pop();
+        setPrimarySession(primary ?? null);
+        setSecondarySession(secondary ?? null);
+        if (primary || secondary) setMode(primary ? 'single-primary' : 'single-secondary');
+      })
+      .catch(() => {
+        /* An unavailable inventory must not discard an existing session. */
+      })
+      .finally(() => {
+        if (mounted) setRestoring(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [client, defaultCwd, hostId, workspaceId, primaryProp, secondaryProp, sessionKey]);
 
   const activePrimary =
     primaryProp !== undefined && primaryProp !== null ? primaryProp : primarySession;
@@ -62,6 +120,7 @@ export function SplitTerminalView({
     secondaryProp !== undefined && secondaryProp !== null ? secondaryProp : secondarySession;
 
   const handleLaunchSlot = async (slot: 'primary' | 'secondary') => {
+    if (launchingSlot || restoring) return;
     setLaunchingSlot(slot);
     setLaunchError(null);
     const command = slot === 'primary' ? ['codex'] : ['claude'];
@@ -74,6 +133,17 @@ export function SplitTerminalView({
         cols: 100,
         rows: 28,
       });
+      try {
+        sessionStorage.setItem(
+          sessionKey,
+          JSON.stringify({
+            primary: slot === 'primary' ? created.session_id : activePrimary?.session_id,
+            secondary: slot === 'secondary' ? created.session_id : activeSecondary?.session_id,
+          }),
+        );
+      } catch {
+        /* Optional local recovery. */
+      }
       if (slot === 'primary') {
         setPrimarySession(created);
       } else {
@@ -167,6 +237,11 @@ export function SplitTerminalView({
           {launchError}
         </div>
       ) : null}
+      {restoring && (
+        <p role="status" className="text-sm text-[#D1D1D1]">
+          Reconectando aos terminais abertos…
+        </p>
+      )}
 
       {/* Keep mounted panes alive across split/single switches so streams & scrollback persist */}
       <div
@@ -211,7 +286,7 @@ export function SplitTerminalView({
               </div>
               <button
                 type="button"
-                disabled={launchingSlot !== null}
+                disabled={launchingSlot !== null || restoring}
                 onClick={() => void handleLaunchSlot('primary')}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-3 py-1.5 text-xs font-medium text-[#181818] hover:bg-white disabled:opacity-60"
               >
@@ -261,7 +336,7 @@ export function SplitTerminalView({
               </div>
               <button
                 type="button"
-                disabled={launchingSlot !== null}
+                disabled={launchingSlot !== null || restoring}
                 onClick={() => void handleLaunchSlot('secondary')}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-3 py-1.5 text-xs font-medium text-[#181818] hover:bg-white disabled:opacity-60"
               >

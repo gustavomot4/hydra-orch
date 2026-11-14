@@ -73,3 +73,6 @@ frontend/.vite/
 frontend/coverage/
 playwright-report/
 test-results/
+
+# capturas do verificador
+design/verificacao/

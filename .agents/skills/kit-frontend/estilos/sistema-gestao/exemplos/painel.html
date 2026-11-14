@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel · Aurora Odontologia</title>
+<!-- Exemplo estático do PRD "Sistema de gestão", versão 3.0.0. Clínica e dados fictícios.
+     A fonte vem do Google Fonts só para renderizar a captura (a seção 4 permite CDN no protótipo);
+     no produto, a IBM Plex Sans é servida localmente em WOFF2 (seção 3). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Tokens da seção 4 do PRD, copiados sem alteração. */
+  :root {
+    /* cor de marca */
+    --primaria: #145453;       /* botão primário, link, aba e item escolhidos, foco em área clara */
+    --destaque: #1ed8cf;       /* só sobre --tinta ou --primaria; nunca em fundo claro */
+    /* base */
+    --tinta: #01101f;          /* texto principal; fundo da barra lateral */
+    --fundo: #f5f8f7;          /* área de trabalho */
+    --superficie: #ffffff;     /* cartão, tabela, campo, diálogo; é também o "branco" do texto sobre --primaria e sobre a barra lateral */
+    --secundario: #35484e;     /* texto secundário, só em área clara */
+    --linhas: #d8e2df;         /* divisória e contorno de cartão; texto da barra lateral */
+    --borda: #6b7c80;          /* borda de campo, de botão secundário e de bloco da agenda */
+    --neutro-fundo: #e9eeed;   /* hover, escolhido, desabilitado, etiqueta neutra */
+    --desabilitado: #5a6b6f;   /* texto de controle desabilitado */
+    --lateral-ativo: #10293a;  /* fundo do item ativo da barra lateral */
+    --lateral-apoio: #a9bcb8;  /* texto de apoio e ícone inativo da barra lateral */
+    /* situações: -texto sobre -fundo na etiqueta; -marca em barra, ponto e ícone */
+    --positivo-texto: #0f4544; --positivo-fundo: #dff1ef; --positivo-marca: #145453;
+    --aviso-texto: #6a4300;    --aviso-fundo: #fbefd9;    --aviso-marca: #a87400;
+    --erro-texto: #8a1c13;     --erro-fundo: #fbe5e2;     --erro-marca: #c0362c;
+    --info-texto: #1d3d70;     --info-fundo: #e3ebf8;     --info-marca: #3565b0;
+    --neutro-texto: var(--secundario);                    --neutro-marca: var(--borda);
+    /* séries de gráfico, nesta ordem */
+    --serie-1: #008f88;
+    --serie-2: #c2620f;
+    /* forma */
+    --raio-p: 10px;            /* campo, botão, bloco, item de menu */
+    --raio-m: 14px;            /* cartão */
+    --raio-g: 18px;            /* diálogo */
+    --largura-lateral: 232px;
+    --alvo: 44px;              /* menor largura e menor altura de um controle */
+    --altura-linha: 48px;      /* linha de lista */
+    /* tipografia */
+    --fonte: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: var(--fonte); font-size: 1rem; line-height: 22px;
+    color: var(--tinta); background: var(--fundo); -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, p, ul { margin: 0; padding: 0; }
+  ul { list-style: none; }
+  a { color: inherit; text-decoration: none; }
+  button, select { font: inherit; color: inherit; }
+  svg { flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .oculto {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+  :focus-visible { outline: 3px solid var(--primaria); outline-offset: 2px; }
+  .lateral :focus-visible { outline-color: var(--destaque); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+  .pular {
+    position: absolute; left: 16px; top: -100px; z-index: 10; min-height: var(--alvo); padding: 0 16px;
+    border: 0; border-radius: var(--raio-p); background: var(--primaria); color: var(--superficie); font-weight: 600;
+  }
+  .pular:focus { top: 16px; }
+
+  .app { display: grid; grid-template-columns: var(--largura-lateral) minmax(0, 1fr); min-height: 100vh; }
+
+  /* ---------- Barra lateral ---------- */
+  .lateral {
+    position: sticky; top: 0; height: 100vh; background: var(--tinta); color: var(--linhas);
+    display: flex; flex-direction: column; padding: 16px 12px;
+  }
+  .lateral-corpo { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .menu-btn {
+    display: none; align-items: center; gap: 8px; min-height: var(--alvo); padding: 0 16px; margin-left: auto;
+    border: 1px solid var(--lateral-apoio); border-radius: var(--raio-p); background: transparent;
+    color: var(--superficie); font-weight: 600; cursor: pointer;
+  }
+  .marca { display: flex; align-items: center; gap: 12px; padding: 0 8px 16px; }
+  .marca strong { display: block; font-size: 1.125rem; line-height: 24px; font-weight: 600; color: var(--superficie); }
+  .marca small { display: block; font-size: .875rem; line-height: 20px; color: var(--lateral-apoio); }
+  .nav ul { display: grid; gap: 4px; }
+  .nav a {
+    position: relative; display: flex; align-items: center; gap: 12px;
+    min-height: var(--alvo); padding: 0 12px; border-radius: var(--raio-p);
+    font-weight: 500; color: var(--linhas);
+  }
+  .nav a svg { color: var(--lateral-apoio); }
+  .nav a[aria-current="page"] { background: var(--lateral-ativo); color: var(--superficie); font-weight: 600; }
+  .nav a[aria-current="page"] svg { color: var(--destaque); }
+  .nav a[aria-current="page"]::before {
+    content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+    border-radius: 0 3px 3px 0; background: var(--destaque);
+  }
+  .usuario {
+    margin-top: auto; display: flex; align-items: center; gap: 12px;
+    padding: 12px 8px 0; border-top: 1px solid var(--lateral-ativo);
+  }
+  .avatar {
+    width: 40px; height: 40px; border-radius: 50%; background: var(--lateral-ativo); color: var(--superficie);
+    display: grid; place-items: center; font-size: .875rem; line-height: 20px; font-weight: 600; flex: none;
+  }
+  .usuario strong { display: block; font-weight: 600; color: var(--superficie); }
+  .usuario small { display: block; font-size: .875rem; line-height: 20px; color: var(--lateral-apoio); }
+
+  /* ---------- Área de trabalho ---------- */
+  .trabalho { display: flex; flex-direction: column; min-width: 0; padding: 24px; }
+  .trabalho:focus { outline: none; }
+  .cabecalho { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
+  .cabecalho h1 { font-size: 1.625rem; line-height: 32px; font-weight: 600; }
+  .cabecalho p { color: var(--secundario); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: var(--alvo); padding: 0 16px; border-radius: var(--raio-p);
+    font-weight: 600; white-space: nowrap; cursor: pointer;
+  }
+  .btn.primario { background: var(--primaria); color: var(--superficie); border: 1px solid var(--primaria); }
+
+  .filtros { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; margin-top: 12px; }
+  .campo { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .filtros label { font-weight: 500; }
+  .seletor { position: relative; display: inline-flex; min-width: 0; }
+  .seletor select {
+    appearance: none; -webkit-appearance: none; height: var(--alvo); padding: 0 44px 0 12px; min-width: 0; max-width: 100%;
+    border: 1px solid var(--borda); border-radius: var(--raio-p); background: var(--superficie);
+  }
+  .seletor svg { position: absolute; right: 12px; top: 12px; color: var(--secundario); pointer-events: none; }
+  .atualizado { margin-left: auto; font-size: .875rem; line-height: 20px; color: var(--secundario); }
+
+  .abas { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; border-bottom: 1px solid var(--linhas); }
+  .abas a {
+    display: inline-flex; align-items: center; min-height: var(--alvo); padding: 0 16px;
+    font-weight: 500; color: var(--secundario); border-bottom: 3px solid transparent; margin-bottom: -1px;
+  }
+  .abas a[aria-current="page"] { color: var(--tinta); font-weight: 600; border-bottom-color: var(--primaria); }
+
+  .indicadores { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+  .cartao {
+    background: var(--superficie); border: 1px solid var(--linhas); border-radius: var(--raio-m);
+    padding: 12px 16px; min-width: 0;
+  }
+  /* Indicador: rótulo e número. A definição fica a um toque, no botão de informação (G03). */
+  .indicador-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .indicador h3 { font-size: 1rem; line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }
+  .indicador .valor { font-size: 1.875rem; line-height: 36px; font-weight: 600; }
+  .info-btn {
+    width: var(--alvo); height: var(--alvo); margin: -11px -13px -11px 0; display: grid; place-items: center; flex: none;
+    border: 0; border-radius: var(--raio-p); background: transparent; color: var(--primaria); cursor: pointer;
+  }
+  .info-btn[aria-expanded="true"] { background: var(--neutro-fundo); }
+  .apoio, .definicao { font-size: .875rem; line-height: 20px; color: var(--secundario); overflow-wrap: anywhere; }
+  .indicador .definicao { margin-top: 4px; }
+
+  .inferior {
+    flex: 1; margin-top: 16px;
+    display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); gap: 16px;
+  }
+  .inferior .cartao { display: flex; flex-direction: column; padding: 16px; }
+  .cartao h2 { font-size: 1.125rem; line-height: 24px; font-weight: 600; }
+  .cartao-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+  /* Alternador Gráfico | Tabela: o item escolhido leva contorno de 2 px em --primaria sobre --neutro-fundo. */
+  .segmentado { display: inline-flex; }
+  .segmentado button {
+    position: relative; min-height: var(--alvo); min-width: var(--alvo); padding: 0 16px;
+    border: 1px solid var(--borda); background: var(--superficie); font-weight: 500; cursor: pointer;
+  }
+  .segmentado button:first-child { border-radius: var(--raio-p) 0 0 var(--raio-p); }
+  .segmentado button:last-child { border-radius: 0 var(--raio-p) var(--raio-p) 0; }
+  .segmentado button + button { margin-left: -1px; }
+  .segmentado button[aria-pressed="true"] { z-index: 1; background: var(--neutro-fundo); box-shadow: inset 0 0 0 2px var(--primaria); font-weight: 600; }
+
+  /* ---------- Gráfico ---------- */
+  .legenda { display: flex; gap: 16px; margin-top: 4px; font-size: .875rem; line-height: 20px; }
+  .legenda li { display: inline-flex; align-items: center; gap: 8px; }
+  .amostra { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .s1 { background: var(--serie-1); }
+  .s2 { background: var(--serie-2); }
+  .plot {
+    flex: 1; min-height: 96px; margin-top: 12px;
+    display: grid; grid-template-columns: 32px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 24px;
+  }
+  .eixo-y { position: relative; }
+  .eixo-y span {
+    position: absolute; right: 8px; transform: translateY(50%);
+    font-size: .875rem; line-height: 20px; color: var(--secundario); font-variant-numeric: tabular-nums;
+  }
+  .area {
+    position: relative; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+    border-bottom: 1px solid var(--borda);
+  }
+  .grade { position: absolute; left: 0; right: 0; height: 1px; background: var(--linhas); }
+  .grupo { position: relative; display: flex; justify-content: center; align-items: flex-end; gap: 2px; height: 100%; }
+  .col { position: relative; width: 24px; border-radius: 4px 4px 0 0; }
+  .col b, .zero { font-size: .875rem; line-height: 20px; font-weight: 600; color: var(--tinta); font-variant-numeric: tabular-nums; }
+  .col b { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); }
+  .zero { width: 24px; text-align: center; color: var(--secundario); }
+  .eixo-x { grid-column: 2; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: end; }
+  .eixo-x span { text-align: center; font-size: .875rem; line-height: 20px; color: var(--secundario); white-space: nowrap; }
+  .eixo-x .hoje { color: var(--tinta); font-weight: 600; }
+
+  /* ---------- Pendências ---------- */
+  .pendencias { flex: 1; margin-top: 8px; display: grid; grid-auto-rows: minmax(var(--altura-linha), 1fr); }
+  .pendencias li {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    border-top: 1px solid var(--linhas);
+  }
+  .pendencias strong { display: block; font-weight: 600; }
+  .pendencias small { display: block; font-size: .875rem; line-height: 20px; color: var(--secundario); }
+  .atalho {
+    display: inline-flex; align-items: center; gap: 4px; min-height: var(--alvo); padding: 0 4px 0 8px;
+    border-radius: var(--raio-p); color: var(--primaria); font-weight: 600; white-space: nowrap;
+  }
+
+  /* Gráfico em barras horizontais: só abaixo de 600 px, onde seis grupos de colunas não cabem. */
+  .barras-h { display: none; margin-top: 12px; gap: 12px; }
+  .barras-h li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 4px 8px; align-items: center; }
+  .barras-h .dia-nome { grid-row: span 2; font-size: .875rem; line-height: 20px; color: var(--secundario); }
+  .barras-h .hoje { color: var(--tinta); font-weight: 600; }
+  .barras-h .linha-barra { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .barras-h .barra { height: 12px; border-radius: 0 4px 4px 0; flex: none; }
+  .barras-h b { font-size: .875rem; line-height: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* ---------- Telas menores ---------- */
+  /* Abaixo de 1024 px o menu fica atrás do botão "Menu" e a barra lateral vira o topo da página, que rola junto. */
+  @media (max-width: 1023px) {
+    .app { grid-template-columns: minmax(0, 1fr); }
+    .lateral { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 8px 16px; }
+    .marca { padding: 0; }
+    .menu-btn { display: inline-flex; }
+    .lateral-corpo { display: none; flex: 1 1 100%; padding-top: 8px; }
+    .lateral.aberto .lateral-corpo { display: flex; }
+    .usuario { margin-top: 12px; }
+    .trabalho { padding: 16px; }
+    .indicadores { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .inferior { grid-template-columns: minmax(0, 1fr); }
+    .plot { min-height: 240px; }
+    .pendencias { grid-auto-rows: auto; }
+    .pendencias li { padding: 8px 0; }
+  }
+  @media (max-width: 599px) {
+    .atualizado { margin-left: 0; width: 100%; }
+    .campo { width: 100%; flex-direction: column; align-items: stretch; gap: 4px; }
+    .seletor select { width: 100%; }
+    .indicadores { grid-template-columns: minmax(0, 1fr); }
+    .btn { white-space: normal; }
+    .plot, .legenda { display: none; }
+    .barras-h { display: grid; }
+    .pendencias li { flex-direction: column; align-items: flex-start; gap: 0; }
+    .atalho { padding-left: 0; }
+  }
+  /* Janela de até 480 px de altura (zoom alto): tudo o que é fixo rola junto com a página. */
+  @media (max-height: 480px) {
+    .lateral { position: static; height: auto; }
+  }
+</style>
+</head>
+<body>
+<button type="button" class="pular" id="pular">Pular para o conteúdo</button>
+<div class="app">
+
+  <div class="lateral">
+    <a class="marca" href="#/painel" aria-label="Aurora Odontologia, início">
+      <svg width="40" height="40" viewBox="0 0 38 38" aria-hidden="true">
+        <rect width="38" height="38" rx="10" style="fill:var(--lateral-ativo);stroke:none"/>
+        <path d="M9 25a10 10 0 0 1 20 0" style="stroke:var(--destaque)" stroke-width="2.6"/>
+        <path d="M14.5 25a4.5 4.5 0 0 1 9 0" style="stroke:var(--superficie)" stroke-width="2.6"/>
+        <path d="M19 9.5v3M10.2 13.2l2.1 2.1M27.8 13.2l-2.1 2.1" style="stroke:var(--destaque)" stroke-width="2.2"/>
+      </svg>
+      <span><strong>Aurora</strong><small>Odontologia</small></span>
+    </a>
+    <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="lateral-corpo">
+      <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      Menu
+    </button>
+
+    <div class="lateral-corpo" id="lateral-corpo">
+    <nav class="nav" aria-label="Módulos">
+      <ul>
+        <li><a href="#/painel" aria-current="page">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.5" height="9" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="1.6"/><rect x="13.5" y="12" width="7.5" height="9" rx="1.6"/><rect x="3" y="15.5" width="7.5" height="5.5" rx="1.6"/></svg>
+          Painel</a></li>
+        <li><a href="#/agenda">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>
+          Agenda</a></li>
+        <li><a href="#/pacientes">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.8a3.5 3.5 0 0 1 0 6.4M18.5 14.9c1.7.8 2.7 2.4 3 5.1"/></svg>
+          Pacientes</a></li>
+        <li><a href="#/orcamentos">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2.5h8L18.5 7v13a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 20V4A1.5 1.5 0 0 1 6 2.5z"/><path d="M14 2.5V7h4.5M8 12h8M8 16h5"/></svg>
+          Orçamentos</a></li>
+        <li><a href="#/estoque">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5v-9z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/></svg>
+          Estoque</a></li>
+        <li><a href="#/caixa">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v5M18 9.5v5"/></svg>
+          Caixa</a></li>
+        <li><a href="#/relatorios">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20.5h18M6.5 20.5V11M12 20.5V4M17.5 20.5V14"/></svg>
+          Relatórios</a></li>
+        <li><a href="#/administracao">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h8M16 6h4M4 12h2M10 12h10M4 18h10M18 18h2"/><circle cx="14" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></svg>
+          Administração</a></li>
+      </ul>
+    </nav>
+
+    <div class="usuario">
+      <span class="avatar" aria-hidden="true">RQ</span>
+      <span><strong>Renata Queiroz</strong><small>Recepção · Centro</small></span>
+    </div>
+    </div>
+  </div>
+
+  <main class="trabalho" id="conteudo" tabindex="-1" aria-labelledby="titulo">
+    <header class="cabecalho">
+      <div>
+        <h1 id="titulo">Painel</h1>
+        <p>Como a clínica está no período escolhido.</p>
+      </div>
+      <a class="btn primario" href="#/agenda/nova">
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Agendar consulta
+      </a>
+    </header>
+
+    <form class="filtros" aria-label="Filtros do painel">
+      <div class="campo">
+        <label for="periodo">Período</label>
+        <span class="seletor">
+          <select id="periodo" name="periodo">
+            <option selected>Esta semana · 5 a 10 de outubro</option>
+            <option>Hoje</option>
+            <option>Este mês</option>
+          </select>
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </span>
+      </div>
+      <div class="campo">
+        <label for="unidade">Unidade</label>
+        <span class="seletor">
+          <select id="unidade" name="unidade">
+            <option selected>Todas as unidades</option>
+            <option>Centro</option>
+            <option>Jardim América</option>
+          </select>
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </span>
+      </div>
+      <p class="atualizado">Dados até hoje, sexta, às 10:20</p>
+    </form>
+
+    <nav class="abas" aria-label="Assuntos do painel">
+      <a href="#/painel?aba=atendimento" aria-current="page">Atendimento</a>
+      <a href="#/painel?aba=financeiro">Financeiro</a>
+      <a href="#/painel?aba=estoque">Estoque</a>
+    </nav>
+
+    <section aria-labelledby="t-indicadores">
+      <h2 id="t-indicadores" class="oculto">Indicadores de atendimento</h2>
+      <ul class="indicadores">
+        <li class="cartao indicador">
+          <div class="indicador-topo">
+            <h3>Consultas agendadas</h3>
+            <button type="button" class="info-btn" aria-expanded="false" aria-controls="def-1" aria-label="Como é contado: Consultas agendadas"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.1"/></svg></button>
+          </div>
+          <p class="valor">212</p>
+          <p class="definicao" id="def-1" hidden>Consultas com data no período. Canceladas não entram.</p>
+        </li>
+        <li class="cartao indicador">
+          <div class="indicador-topo">
+            <h3>Consultas concluídas</h3>
+            <button type="button" class="info-btn" aria-expanded="false" aria-controls="def-2" aria-label="Como é contado: Consultas concluídas"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.1"/></svg></button>
+          </div>
+          <p class="valor">148</p>
+          <p class="definicao" id="def-2" hidden>Com registro do que foi feito. Presença sem registro não conta.</p>
+        </li>
+        <li class="cartao indicador">
+          <div class="indicador-topo">
+            <h3>Faltas</h3>
+            <button type="button" class="info-btn" aria-expanded="false" aria-controls="def-3" aria-label="Como é contado: Faltas"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.1"/></svg></button>
+          </div>
+          <p class="valor">14</p>
+          <p class="definicao" id="def-3" hidden>Não veio e não avisou. Remarcação antes do horário não conta.</p>
+        </li>
+        <li class="cartao indicador">
+          <div class="indicador-topo">
+            <h3>Canceladas</h3>
+            <button type="button" class="info-btn" aria-expanded="false" aria-controls="def-4" aria-label="Como é contado: Canceladas"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.1"/></svg></button>
+          </div>
+          <p class="valor">11</p>
+          <p class="definicao" id="def-4" hidden>Canceladas pelo paciente ou pela clínica. Ficam fora das agendadas.</p>
+        </li>
+      </ul>
+    </section>
+
+    <div class="inferior">
+      <section class="cartao" aria-labelledby="t-grafico">
+        <div class="cartao-topo">
+          <h2 id="t-grafico">Consultas concluídas por dia</h2>
+          <div class="segmentado" role="group" aria-label="Forma de ver os dados">
+            <button type="button" aria-pressed="true">Gráfico</button>
+            <button type="button" aria-pressed="false">Tabela</button>
+          </div>
+        </div>
+        <p class="apoio">Por dia e por unidade, na mesma escala. Sábado ainda não tem registro.</p>
+        <ul class="legenda" aria-label="Legenda">
+          <li><i class="amostra s1" aria-hidden="true"></i>Centro</li>
+          <li><i class="amostra s2" aria-hidden="true"></i>Jardim América</li>
+        </ul>
+        <div class="plot" role="img" aria-label="Colunas de consultas concluídas por dia, Centro e Jardim América. Segunda 21 e 13; terça 22 e 14; quarta 17 e 11; quinta 23 e 14; sexta, até 10:20, 8 e 5; sábado sem registro.">
+          <div class="eixo-y" aria-hidden="true">
+            <span style="bottom:0">0</span>
+            <span style="bottom:33.333%">10</span>
+            <span style="bottom:66.667%">20</span>
+            <span style="bottom:100%">30</span>
+          </div>
+          <div class="area" aria-hidden="true">
+            <i class="grade" style="bottom:33.333%"></i>
+            <i class="grade" style="bottom:66.667%"></i>
+            <i class="grade" style="bottom:100%"></i>
+            <div class="grupo"><span class="col s1" style="height:70%"></span><span class="col s2" style="height:43.33%"></span></div>
+            <div class="grupo"><span class="col s1" style="height:73.33%"></span><span class="col s2" style="height:46.67%"></span></div>
+            <div class="grupo"><span class="col s1" style="height:56.67%"></span><span class="col s2" style="height:36.67%"></span></div>
+            <div class="grupo"><span class="col s1" style="height:76.67%"><b>23</b></span><span class="col s2" style="height:46.67%"><b>14</b></span></div>
+            <div class="grupo"><span class="col s1" style="height:26.67%"><b>8</b></span><span class="col s2" style="height:16.67%"><b>5</b></span></div>
+            <div class="grupo"><span class="zero">0</span><span class="zero">0</span></div>
+          </div>
+          <div class="eixo-x" aria-hidden="true">
+            <span>Seg 5</span><span>Ter 6</span><span>Qua 7</span><span>Qui 8</span><span class="hoje">Sex 9, hoje</span><span>Sáb 10</span>
+          </div>
+        </div>
+        <ul class="barras-h" role="img" aria-label="Colunas de consultas concluídas por dia, Centro e Jardim América. Segunda 21 e 13; terça 22 e 14; quarta 17 e 11; quinta 23 e 14; sexta, até 10:20, 8 e 5; sábado sem registro.">
+      <li><span class="dia-nome">Seg 5</span>
+        <span class="linha-barra"><i class="barra s1" style="width:70.0%"></i><b>21</b></span>
+        <span class="linha-barra"><i class="barra s2" style="width:43.3%"></i><b>13</b></span></li>
+      <li><span class="dia-nome">Ter 6</span>
+        <span class="linha-barra"><i class="barra s1" style="width:73.3%"></i><b>22</b></span>
+        <span class="linha-barra"><i class="barra s2" style="width:46.7%"></i><b>14</b></span></li>
+      <li><span class="dia-nome">Qua 7</span>
+        <span class="linha-barra"><i class="barra s1" style="width:56.7%"></i><b>17</b></span>
+        <span class="linha-barra"><i class="barra s2" style="width:36.7%"></i><b>11</b></span></li>
+      <li><span class="dia-nome">Qui 8</span>
+        <span class="linha-barra"><i class="barra s1" style="width:76.7%"></i><b>23</b></span>
+        <span class="linha-barra"><i class="barra s2" style="width:46.7%"></i><b>14</b></span></li>
+      <li><span class="dia-nome hoje">Sex 9, hoje</span>
+        <span class="linha-barra"><i class="barra s1" style="width:26.7%"></i><b>8</b></span>
+        <span class="linha-barra"><i class="barra s2" style="width:16.7%"></i><b>5</b></span></li>
+      <li><span class="dia-nome">Sáb 10</span>
+        <span class="linha-barra"><i class="barra s1" style="width:0.0%"></i><b>0</b></span>
+        <span class="linha-barra"><i class="barra s2" style="width:0.0%"></i><b>0</b></span></li>
+        </ul>
+      </section>
+
+      <section class="cartao" aria-labelledby="t-pendencias">
+        <h2 id="t-pendencias">Pendências</h2>
+        <ul class="pendencias">
+          <li>
+            <span><strong>23 consultas sem confirmação</strong><small>De hoje até sábado, nas duas unidades</small></span>
+            <a class="atalho" href="#/agenda?situacao=a-confirmar" aria-label="Abrir agenda com as 23 consultas sem confirmação">Abrir agenda
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          </li>
+          <li>
+            <span><strong>7 orçamentos sem resposta</strong><small>R$&nbsp;18.460,00 apresentados há mais de 7 dias</small></span>
+            <a class="atalho" href="#/orcamentos?situacao=enviado" aria-label="Abrir orçamentos sem resposta">Abrir orçamentos
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          </li>
+          <li>
+            <span><strong>5 itens abaixo do mínimo</strong><small>Estoque das duas unidades</small></span>
+            <a class="atalho" href="#/estoque?filtro=abaixo-do-minimo" aria-label="Abrir estoque com os 5 itens abaixo do mínimo">Abrir estoque
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          </li>
+          <li>
+            <span><strong>3 pacientes sem unidade</strong><small>Cadastros antigos, contados à parte</small></span>
+            <a class="atalho" href="#/pacientes?unidade=sem-unidade" aria-label="Vincular unidade aos 3 pacientes sem unidade">Vincular unidade
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          </li>
+        </ul>
+      </section>
+    </div>
+  </main>
+</div>
+<script>
+  /* Pular para o conteúdo: âncora não serve em rota em hash, então o foco vai por script (seção 4, Acessibilidade). */
+  document.getElementById('pular').addEventListener('click', function () { document.getElementById('conteudo').focus(); });
+
+  /* Menu recolhido abaixo de 1024 px. Esc fecha e devolve o foco ao botão. */
+  var menu = document.getElementById('menu-btn'), lateral = menu.parentElement;
+  function abrirMenu(abrir) { lateral.classList.toggle('aberto', abrir); menu.setAttribute('aria-expanded', abrir); }
+  menu.addEventListener('click', function () { abrirMenu(menu.getAttribute('aria-expanded') !== 'true'); });
+  lateral.addEventListener('keydown', function (e) { if (e.key === 'Escape' && lateral.classList.contains('aberto')) { abrirMenu(false); menu.focus(); } });
+
+  /* Definição do indicador a um toque. */
+  document.querySelectorAll('.info-btn').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var aberto = b.getAttribute('aria-expanded') === 'true';
+      b.setAttribute('aria-expanded', !aberto);
+      document.getElementById(b.getAttribute('aria-controls')).hidden = aberto;
+    });
+  });
+</script>
+</body>
+</html>

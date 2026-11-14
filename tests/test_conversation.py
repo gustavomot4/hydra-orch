@@ -171,6 +171,53 @@ async def test_rollback_refuses_to_discard_conversation_history(service):
 
 
 @pytest.mark.asyncio
+async def test_ordinary_folder_registration_persists_and_chat_edits_are_isolated(service, tmp_path):
+    folder = tmp_path / "plain"
+    folder.mkdir()
+    (folder / "README.md").write_text("Original\n", encoding="utf-8")
+    (folder / ".env").write_text("LOCAL_ONLY=value", encoding="utf-8")
+    (folder / "node_modules").mkdir()
+    (folder / "node_modules" / "cache").write_text("cache")
+    with pytest.raises(ContractViolation):
+        await service.runs.create_project(folder, "Sem Git")
+    project = await service.runs.create_project(folder, "Sem Git", allow_plain_folder=True)
+    reopened = RunService(service.runs.repo_root, store=service.store)
+    assert (await reopened.get_project(project["id"]))["workspace_kind"] == "folder"
+    assert (await reopened.get_project(project["id"]))["base_sha"] is None
+    original = service.runner.run
+    async def editing(turn, conv, prompt, cwd, emit):
+        assert conv["workspace_kind"] == "folder"
+        assert not (cwd / ".git").exists()
+        assert not (cwd / ".env").exists()
+        assert not (cwd / "node_modules").exists()
+        (cwd / "README.md").write_text("Alterado\n", encoding="utf-8")
+        (cwd / "new.txt").write_text("Novo\n", encoding="utf-8")
+        await original(turn, conv, prompt, cwd, emit)
+    service.runner.run = editing
+    result = await service.create(project_id=project["id"], executor="codex", content="Edite o README", access_mode="workspace-write", idempotency_key="plain-folder-message-0001")
+    await service.start()
+    try:
+        snap = await wait_state(service, result["conversation_id"], "completed")
+        assert "Alterado" in snap["turns"][0]["diff"]
+        assert "new.txt" in snap["turns"][0]["diff"]
+        assert (folder / "README.md").read_text() == "Original\n"
+        assert not (folder / ".git").exists()
+    finally:
+        await service.close()
+
+
+@pytest.mark.asyncio
+async def test_history_search_finds_unicode_title_beyond_first_page(service):
+    cid, project = await create(service)
+    for index in range(12):
+        await service.create(project_id=project["id"], executor="codex", content=f"Conversa {index}", idempotency_key=f"history-search-message-{index:04}")
+    await service.create(project_id=project["id"], executor="codex", content="ANÁLISE DA ENTREGA", idempotency_key="history-search-unicode-001")
+    result = await service.list(limit=10, q="análise")
+    assert result["total"] == 1
+    assert result["items"][0]["title"] == "ANÁLISE DA ENTREGA"
+
+
+@pytest.mark.asyncio
 async def test_attachment_promotion_context_and_edit_diff(service):
     project = await service.runs.create_project(service.runs.repo_root, "Teste")
     ref = service.attachments.save_attachment(project["id"], f"draft-{project['id']}", "brief.txt", b"Requisito do teste")

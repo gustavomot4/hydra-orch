@@ -1,9 +1,11 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useState, useEffect, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Eye, EyeOff, KeyRound, Lock, ShieldCheck } from 'lucide-react';
 import { createControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useAuthStore } from '@/store/authStore';
 import { ControlPlaneApiError } from '@/type/controlPlane';
+
+let attemptedDesktopSession = false;
 
 export function AuthGate() {
   const queryClient = useQueryClient();
@@ -15,8 +17,35 @@ export function AuthGate() {
 
   const [tokenInput, setTokenInput] = useState('');
   const [showToken, setShowToken] = useState(false);
+  const [manual, setManual] = useState(false);
+  const desktop = Boolean(document.querySelector('meta[name="hydra-desktop"]'));
 
   const isSubmitting = status === 'authenticating';
+  const connectDesktop = useCallback(async () => {
+    setAuthenticating();
+    try {
+      const response = await fetch('/v1/launcher/session', {
+        method: 'POST',
+        headers: { 'X-Hydra-Desktop': '1', 'Content-Type': 'application/json' },
+      });
+      if (!response.ok)
+        throw new Error('Abra o Hydra pelo executável para conectar automaticamente.');
+      const session = (await response.json()) as { token: string };
+      const bootstrap = await createControlPlaneClient(session.token).getBootstrap();
+      queryClient.setQueryData(['control-plane', 'bootstrap', 'authenticated'], bootstrap);
+      authenticate(session.token, 'operator');
+    } catch (err) {
+      setAuthError(
+        err instanceof Error ? err.message : 'Não foi possível conectar ao Hydra. Tente novamente.',
+      );
+    }
+  }, [authenticate, queryClient, setAuthError, setAuthenticating]);
+  useEffect(() => {
+    if (desktop && !attemptedDesktopSession) {
+      attemptedDesktopSession = true;
+      void connectDesktop();
+    }
+  }, [desktop, connectDesktop]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -41,11 +70,40 @@ export function AuthGate() {
           setAuthError(err.payload.message || `Erro ao validar token (${err.status}).`);
         }
       } else {
-        setAuthError('Não foi possível conectar ao servidor Control Plane (/v1/control-plane/bootstrap).');
+        setAuthError(
+          'Não foi possível conectar ao servidor Control Plane (/v1/control-plane/bootstrap).',
+        );
       }
     }
   }
 
+  if (desktop && !manual)
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#141414] p-6 text-[#E8E8E8]">
+        <section className="w-full max-w-md space-y-4 rounded-2xl border border-[#666] bg-[#202020] p-6">
+          <h1 className="text-2xl font-semibold">Hydra</h1>
+          <p>Seu espaço de trabalho neste computador.</p>
+          {authError && (
+            <p role="alert" className="text-[#FCA5A5]">
+              {authError}
+            </p>
+          )}
+          <button
+            className="min-h-11 w-full rounded-lg bg-[#E8E8E8] px-4 py-2 text-[#181818] disabled:opacity-60"
+            disabled={isSubmitting}
+            onClick={() => void connectDesktop()}
+          >
+            {isSubmitting ? 'Conectando…' : 'Entrar no Hydra'}
+          </button>
+          <button
+            className="min-h-11 text-sm text-[#D1D1D1] underline"
+            onClick={() => setManual(true)}
+          >
+            Conexão avançada
+          </button>
+        </section>
+      </main>
+    );
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#141414] px-4 py-8 text-[#E8E8E8]">
       <section
@@ -65,9 +123,10 @@ export function AuthGate() {
         </div>
 
         <p className="mt-4 text-xs leading-relaxed text-[#969696]">
-          Insira o token configurado em <span className="font-mono text-[#E8E8E8]">HYDRA_API_TOKEN</span>.
-          O token é mantido apenas no <span className="font-mono text-[#E8E8E8]">sessionStorage</span>{' '}
-          desta aba e nunca é gravado na URL.
+          Insira o token configurado em{' '}
+          <span className="font-mono text-[#E8E8E8]">HYDRA_API_TOKEN</span>. O token é mantido
+          apenas no <span className="font-mono text-[#E8E8E8]">sessionStorage</span> desta aba e
+          nunca é gravado na URL.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-4" noValidate>

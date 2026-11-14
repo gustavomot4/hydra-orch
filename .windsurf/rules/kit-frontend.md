@@ -1,0 +1,5 @@
+<!-- kit-frontend:inicio -->
+## Frontend
+
+Para qualquer trabalho de interface (tela, página, componente, visual, UI, UX), siga `.agents/skills/kit-frontend/SKILL.md` antes de escrever código. Ele define o processo, os portões de aprovação, o gosto do dono e a verificação obrigatória. `design/correcoes.md` e `DESIGN.md` deste projeto prevalecem sobre ele, menos no piso de acessibilidade.
+<!-- kit-frontend:fim -->

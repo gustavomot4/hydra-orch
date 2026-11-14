@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catraca — ordens de serviço para oficinas de bicicleta</title>
+<!-- Exemplo de vitrine, construído seguindo o prd.md (versão 3.0.0). Marca e dados fictícios. -->
+<!-- Fonte: exatamente o <link> da seção 3.5 -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,600&display=swap" rel="stylesheet">
+<style>
+/* ===== Tokens: cópia da seção 12 do prd.md ===== */
+/* Base */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-padding-top: 48px; }   /* altura da barra fixa (seção 7); sem barra fixa, remova */
+body { margin: 0; background: var(--paper); color: var(--ink);
+       font-family: Inter, system-ui, sans-serif; font-size: var(--t-17); font-weight: 400; }
+button, input, select, textarea { font: inherit; letter-spacing: inherit; }
+
+:root {
+  color-scheme: light;
+
+  /* Superfícies — uma temperatura só, não misture */
+  --paper:    #FAF9F7;
+  --surface:  #FFFFFF;
+  --sunken:   #F4F2EC;
+  --fill:     rgba(118, 114, 106, 0.12);
+  --fill-2:   rgba(118, 114, 106, 0.18);
+  --line:     #E8E4DC;
+
+  /* Texto — razão sobre --surface · --paper */
+  --ink:      #1C1B19;   /* 17,21 · 16,36 */
+  --ink-2:    #6B6862;   /*  5,55 ·  5,28 */
+  --ink-3:    #827E76;   /*  4,04 ·  3,84 — só não-texto e texto de 28px ou mais */
+
+  /* Acento — troque estes quatro e o produto muda de marca */
+  --accent:        #1F4E8C;   /* 8,31 com branco: serve de fundo E de texto */
+  --accent-hover:  #2A5B9C;   /* mais claro; 6,83 */
+  --accent-active: #183F73;   /* mais escuro; 10,51 */
+  --on-accent:     #FFFFFF;
+
+  /* Perigo — só erro de campo, estado crítico e ação destrutiva */
+  --danger:        #8E2C26;   /* 8,27 com branco */
+  --danger-hover:  #9C332C;   /* 7,18 */
+  --danger-active: #7A2520;   /* 9,94 */
+
+  /* Tipografia: a rampa 12·14·17·21·28·40·48·56 */
+  --t-12: 0.75rem;
+  --t-14: 0.875rem;
+  --t-17: 1.0625rem;
+  --t-21: 1.3125rem;
+  --t-28: 1.75rem;
+  --t-display: 3.5rem;      /* 56; vira 48 em 735–1068 e 40 em ≤734 */
+  --tr-display: -0.005em;   /* acompanha o tamanho: −0,003em em 48, 0 em 40 */
+  --tr-17: -0.011em;
+  --tr-14: -0.008em;
+  --tr-12: -0.005em;        /* 21 e 28 têm tracking 0 */
+  --lh-titulo: calc(1em + 4px);
+  --lh-corpo:  calc(1em + 8px);
+  --lh-denso:  calc(1em + 6px);
+  --lh-botao:  calc(1em + 3px);
+
+  /* Geometria: 50% (avatar, botão do interruptor) é escrito direto */
+  --r-6:    6px;
+  --r-8:    8px;
+  --r-12:  12px;
+  --r-18:  18px;
+  --r-28:  28px;
+  --r-pill: 980px;
+  --shadow-card:    2px 4px 12px 0 rgba(0, 0, 0, 0.08);
+  --shadow-control: 0 1px 2px 0 rgba(0, 0, 0, 0.18);
+  --shadow-modal:   0 16px 48px 0 rgba(0, 0, 0, 0.18);
+
+  /* Espaçamento (5.8) */
+  --s-4: 4px;  --s-8: 8px;  --s-12: 12px;  --s-16: 16px;
+  --s-20: 20px;  --s-24: 24px;  --s-32: 32px;  --s-40: 40px;
+
+  /* Alturas e alvos (6.3 e seção 7) */
+  --h-grande:   44px;   /* botão primário e campo de vitrine e de fluxo */
+  --h-medio:    36px;   /* botão secundário de vitrine e de fluxo */
+  --h-botao:    32px;   /* botão de ferramenta: no toque o alvo cresce pelo ::after, a caixa não */
+  --h-controle: 32px;   /* campo, segmented e item de navegação da ferramenta; 44px no toque */
+  --h-linha:    36px;   /* linha de tabela; 44px no toque */
+  --alvo:       28px;
+
+  /* Layout (seção 5) */
+  --shell:   1024px;    /* 1024 − 44 = 980 de conteúdo */
+  --prosa:    692px;
+  --fluxo:    560px;
+  --gutter:    22px;
+  --secao-pt:  96px;
+  --secao-pb: 104px;
+  --bloco:     40px;
+  --pad-cartao: 24px;
+  --grade-col: 40px;
+  --grade-lin: 82px;
+
+  /* Movimento (seção 8) */
+  --dur-fast:   150ms;
+  --dur-base:   280ms;
+  --dur-screen: 320ms;
+  --ease: cubic-bezier(0.28, 0.11, 0.32, 1);
+}
+
+@media (max-width: 1068px) {
+  :root { --t-display: 3rem; --tr-display: -0.003em;
+          --secao-pt: 80px; --secao-pb: 88px; --bloco: 32px; --pad-cartao: 20px; --grade-col: 24px; }
+}
+@media (max-width: 734px) {
+  :root { --t-display: 2.5rem; --tr-display: 0em;
+          --secao-pt: 72px; --secao-pb: 78px; --pad-cartao: 16px; }
+}
+@media (pointer: coarse) {
+  :root { --alvo: 44px; --h-controle: 44px; --h-linha: 44px; }
+}
+
+/* Texto — cada classe declara tamanho, line-height e tracking (3.3); o peso é .w-600 ou 400 */
+.t-display { font-size: var(--t-display); line-height: var(--lh-titulo); letter-spacing: var(--tr-display); font-weight: 600; }
+.t-28 { font-size: var(--t-28); line-height: var(--lh-titulo); letter-spacing: 0; }
+.t-21 { font-size: var(--t-21); line-height: var(--lh-titulo); letter-spacing: 0; }
+.t-17 { font-size: var(--t-17); line-height: var(--lh-corpo);  letter-spacing: var(--tr-17); }
+.t-14 { font-size: var(--t-14); line-height: var(--lh-denso);  letter-spacing: var(--tr-14); }
+.t-12 { font-size: var(--t-12); line-height: var(--lh-denso);  letter-spacing: var(--tr-12); }
+.lh-titulo { line-height: var(--lh-titulo); }   /* título em 17, 14 ou 12 */
+.lh-corpo  { line-height: var(--lh-corpo); }    /* parágrafo em 14 */
+.w-600 { font-weight: 600; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Layout */
+.shell { max-width: var(--shell); margin-inline: auto; padding-inline: var(--gutter); }
+.shell-fluxo { max-width: calc(var(--fluxo) + 2 * var(--gutter)); }   /* junto de .shell: 560 de conteúdo */
+.grid  { display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
+         column-gap: var(--grade-col); row-gap: var(--grade-lin); }
+@media (max-width: 734px) {
+  .shell { width: 87.5%; max-width: none; padding-inline: 0; }
+  .grid  { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Foco e alvo (6.3 e 6.4) */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card:focus-visible { outline-offset: 3px; }
+.toast :focus-visible { outline-color: var(--surface); }
+.btn, .chave, .terciario { position: relative; }
+.btn::after, .chave::after, .terciario::after {
+  content: ''; position: absolute; top: 50%; left: 50%;
+  width: max(100%, var(--alvo)); height: max(100%, var(--alvo));
+  transform: translate(-50%, -50%);
+}
+@media (forced-colors: active) { input, select, textarea { outline: 1px solid CanvasText; } }
+
+/* Movimento reduzido (seção 8) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+                           transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+/* ===== Esta página: só o que a seção 12 não traz ===== */
+h1, h2, h3, p, figure, ul, dl, dd { margin: 0; padding: 0; }
+ul { list-style: none; }
+a { color: inherit; text-decoration: none; }
+.sec { color: var(--ink-2); }
+
+/* Link para pular: primeiro elemento focável (9.2) */
+.pular { position: absolute; left: var(--s-16); top: var(--s-8); z-index: 20; display: inline-flex; align-items: center; min-height: var(--alvo); padding-inline: var(--s-12);
+  border-radius: var(--r-8); background: var(--surface); color: var(--ink); transform: translateY(-200%); }
+.pular:focus { transform: none; }
+
+/* Vitrine: capítulos (5.4 e 5.7) */
+.secao { padding-top: var(--secao-pt); padding-bottom: var(--secao-pb); }
+.capitulo-cinza { background: var(--sunken); }               /* full-bleed, sem raio */
+.abertura-centro { text-align: center; }                     /* só abertura de capítulo, dona da faixa, sem botão */
+.bloco { margin-top: var(--bloco); }
+.grid-3 { --cols: 3; }
+
+/* Barra translúcida (7): há herói rolando por baixo */
+.bar { position: sticky; top: 0; z-index: 10; min-height: 48px; background: var(--paper); }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .bar {
+    background: color-mix(in srgb, var(--paper) 80%, transparent);
+    -webkit-backdrop-filter: saturate(1.8) blur(20px);
+    backdrop-filter: saturate(1.8) blur(20px);
+  }
+}
+.bar-in { min-height: 48px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; column-gap: var(--s-16); }
+.marca { display: inline-flex; align-items: center; min-height: var(--alvo); }
+.bar nav ul { display: flex; flex-wrap: wrap; column-gap: var(--s-32); }
+.bar nav a { display: inline-flex; align-items: center; justify-content: center; min-height: var(--alvo); min-width: var(--alvo); }
+@media (max-width: 734px) { .bar nav ul { column-gap: var(--s-16); } }
+/* Altura até 480px (zoom alto): a barra rola junto com a página */
+@media (max-height: 480px) { .bar { position: static; } html { scroll-padding-top: 0; } }
+
+/* Botões (7): a altura vem de min-height, sem padding vertical */
+.btn { display: inline-flex; align-items: center; justify-content: center; border: 0; cursor: pointer;
+  white-space: nowrap; line-height: var(--lh-botao); transition: background-color var(--dur-fast) var(--ease); }
+.btn-primario { min-height: var(--h-grande); padding-inline: 22px; font-size: var(--t-17); letter-spacing: var(--tr-17); font-weight: 600;
+  border-radius: var(--r-pill); background: var(--accent); color: var(--on-accent); }
+.btn-primario:active { background: var(--accent-active); }
+.btn-secundario { min-height: var(--h-medio); padding-inline: var(--s-16); font-size: var(--t-14); letter-spacing: var(--tr-14); font-weight: 400;
+  border-radius: var(--r-pill); background: var(--fill); color: var(--ink); }
+.btn-secundario:active { background: var(--fill-2); }
+.btn-secundario.tinta { background: var(--ink); color: var(--surface); }   /* bloco sem primário */
+.btn-secundario.tinta:active { background: var(--ink); }
+
+/* Hover só com mouse (6.3) */
+@media (hover: hover) and (pointer: fine) {
+  .bar nav a:hover, .rodape-in a:hover { text-decoration: underline; }
+  .btn-primario:hover { background: var(--accent-hover); }
+  .btn-secundario:hover { background: var(--fill-2); }
+  .btn-secundario.tinta:hover { background: var(--ink-2); }
+}
+
+/* Herói */
+.heroi h1 { max-width: 900px; }
+.heroi .apoio { margin-top: var(--s-8); }
+.acoes { margin-top: var(--s-32); display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-20); }
+
+/* Mídia: 28px, proporção fixa, fundo --sunken, sem texto sobreposto nem gradiente (7) */
+.midia { border-radius: var(--r-28); background: var(--sunken); overflow: hidden; position: relative; }
+.midia-heroi { aspect-ratio: 16 / 10; }
+.janela { position: absolute; left: 64px; right: 64px; top: 48px; bottom: 48px; overflow: hidden;
+  background: var(--surface); border-radius: var(--r-18); padding: var(--s-24); }
+.janela .prox { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s-24); }
+.janela .prox h3 { margin-top: var(--s-4); }
+.lista { margin-top: var(--s-24); }
+.lista li { display: grid; grid-template-columns: 56px 168px 1fr 152px 56px; align-items: center; min-height: 44px;
+  font-size: var(--t-14); line-height: var(--lh-denso); letter-spacing: var(--tr-14);
+  border-top: 1px solid var(--line); }
+.lista li > :last-child { text-align: right; }
+.resolvido { color: var(--ink-2); }                           /* resolvido = --ink-2, 400, rótulo "Entregue" (4.5) */
+
+/* Blocos de recurso: sem cartão; mídia + texto soltos no espaço */
+.recurso .midia { aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center; }
+.recurso h3 { margin-top: var(--s-16); font-size: var(--t-17); line-height: var(--lh-titulo); letter-spacing: var(--tr-17); font-weight: 600; }
+.recurso p  { margin-top: var(--s-8); max-width: 440px; }
+
+/* Fragmentos de produto dentro das mídias (ilustração; --surface, raio 18) */
+.frag { background: var(--surface); border-radius: var(--r-18); width: 372px; max-width: calc(100% - var(--s-32));
+  font-size: var(--t-14); line-height: var(--lh-denso); letter-spacing: var(--tr-14); }
+.frag.msg { width: 336px; padding: var(--s-20); border-radius: var(--r-18) var(--r-18) var(--r-18) var(--r-6); }
+.frag.msg .preco { margin-top: var(--s-8); font-size: var(--t-28); line-height: var(--lh-titulo); letter-spacing: 0; font-weight: 600; }
+.frag.msg .acoes { margin-top: var(--s-16); gap: var(--s-8); }
+.frag li { display: flex; align-items: center; gap: var(--s-12); min-height: 44px; padding: 0 var(--s-16); position: relative; }
+.frag li + li::before { content: ''; position: absolute; top: 0; right: 0; left: var(--s-16); height: 1px; background: var(--line); }
+.frag li.com-avatar + li.com-avatar::before { left: 56px; }  /* separador recuado até depois do avatar */
+.frag li .fim { margin-left: auto; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--fill-2); display: inline-flex; align-items: center; justify-content: center; font-weight: 600; flex: none; }
+.frag.recibo { width: 336px; padding: var(--s-20); }
+.frag.recibo .valor { margin-top: var(--s-4); font-size: var(--t-28); line-height: var(--lh-titulo); letter-spacing: 0; font-weight: 600; }
+.frag.recibo .rodape { margin-top: var(--s-16); padding-top: var(--s-12); border-top: 1px solid var(--line); }
+
+/* Preços */
+.plano .preco { margin-top: var(--s-8); }
+.plano p.t-17 { margin-top: var(--s-8); }
+.plano .btn { margin-top: var(--s-32); }
+
+/* Perguntas */
+.pergunta dt { font-size: var(--t-17); line-height: var(--lh-titulo); letter-spacing: var(--tr-17); font-weight: 600; }
+.pergunta dd { margin-top: var(--s-8); font-size: var(--t-17); line-height: var(--lh-corpo); letter-spacing: var(--tr-17); }
+
+/* Rodapé legal */
+.rodape-in { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--s-8) var(--s-24);
+  padding: var(--s-24) 0 var(--s-40); border-top: 1px solid var(--line); }
+.rodape-in ul { display: flex; gap: var(--s-32); }
+.rodape-in a { display: inline-flex; align-items: center; min-height: var(--alvo); }
+
+/* Telefone (≤734px) */
+@media (max-width: 734px) {
+  .bar nav ul { gap: var(--s-16); }
+  .acoes .btn-primario { width: 100%; }
+  .janela { left: var(--s-16); right: var(--s-16); top: var(--s-24); bottom: var(--s-24); padding: var(--s-8) var(--s-16); }
+  .janela .prox { display: none; }
+  .lista { margin-top: 0; }
+  .lista li { grid-template-columns: 48px 1fr 48px; }
+  .lista li > :nth-child(3), .lista li > :nth-child(4) { display: none; }
+  .rodape-in ul { gap: var(--s-16); }
+}
+</style>
+</head>
+<body>
+<a class="pular t-14" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="bar">
+  <div class="shell bar-in">
+    <a class="marca t-17 w-600" href="#" aria-label="Catraca, página inicial">Catraca</a>
+    <nav aria-label="Principal">
+      <ul class="t-14">
+        <li><a href="#recursos">Recursos</a></li>
+        <li><a href="#precos">Preços</a></li>
+        <li><a href="#perguntas">Perguntas</a></li>
+        <li><a href="#">Entrar</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="conteudo">
+  <!-- Capítulo 1 · herói (papel). Alinhado à esquerda: herói com ação não é centralizado (5.6). -->
+  <section class="secao heroi" aria-labelledby="titulo">
+    <div class="shell">
+      <h1 id="titulo" class="t-display">A oficina inteira numa tela.</h1>
+      <p class="apoio t-28">Ordens de serviço, agenda e peças para oficinas de bicicleta.</p>
+      <div class="acoes">
+        <a class="btn btn-primario" href="#">Testar 30 dias grátis</a>
+        <p class="t-14 sec">Sem cartão de crédito. Cancele quando quiser.</p>
+      </div>
+
+      <figure class="midia midia-heroi bloco" role="img" aria-label="Tela Hoje do Catraca: a próxima retirada do dia e a lista das demais ordens de serviço.">
+        <div class="janela" aria-hidden="true">
+          <div class="prox">
+            <div>
+              <p class="t-14 sec">Próxima retirada</p>
+              <h3 class="t-28 w-600">Rafael Monteiro retira a Caloi Elite às 15h30</h3>
+              <p class="t-14" style="margin-top:8px">Revisão completa pronta desde 11h20. Falta receber <span class="num">R$ 380,00</span>.</p>
+            </div>
+            <span class="btn btn-secundario">Registrar retirada</span>
+          </div>
+          <ul class="lista">
+            <li><span class="num sec">2483</span><span>Bianca Tavares</span><span>Trek Marlin 5, troca de relação</span><span>Na bancada</span><span class="num">16h00</span></li>
+            <li><span class="num sec">2479</span><span>Jonas Albuquerque</span><span>Sense Impact, sangria de freios</span><span class="w-600">Aprovar orçamento</span><span class="num">16h30</span></li>
+            <li><span class="num sec">2485</span><span>Otávio Reis</span><span>Caloi Explorer, centragem de rodas</span><span>Na bancada</span><span class="num">17h00</span></li>
+            <li><span class="num sec">2480</span><span>Vinícius Prado</span><span>Cannondale Trail 7, revisão completa</span><span>Pronta</span><span class="num">17h30</span></li>
+            <li><span class="num sec">2478</span><span>Camila Rocha</span><span>Oggi 7.2, suspensão dianteira</span><span>Aguardando peça</span><span class="num">seg.</span></li>
+            <li class="resolvido"><span class="num">2472</span><span>Eduardo Brandão</span><span>Monark Barra, lavagem e lubrificação</span><span>Entregue</span><span class="num">9h40</span></li>
+            <li class="resolvido"><span class="num">2474</span><span>Aline Moraes</span><span>Houston Atlantis, regulagem de marchas</span><span>Entregue</span><span class="num">11h05</span></li>
+          </ul>
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <!-- Capítulo 2 · recursos (papel). Grade de 2 colunas. Sem cartão. -->
+  <section class="secao" id="recursos" aria-labelledby="t-recursos">
+    <div class="shell">
+      <h2 id="t-recursos" class="t-28 w-600">Do orçamento à retirada, sem caderno.</h2>
+      <div class="grid grid-2 bloco">
+
+        <article class="recurso">
+          <figure class="midia" role="img" aria-label="Mensagem de orçamento enviada ao cliente com os botões Aprovar e Falar com a oficina.">
+            <div class="frag msg" aria-hidden="true">
+              <p class="sec">Oficina Pedal Sul</p>
+              <p class="w-600" style="margin-top:4px">Orçamento da sua Sense Impact</p>
+              <p>Sangria dos dois freios e pastilhas novas.</p>
+              <p class="preco num">R$ 640,00</p>
+              <div class="acoes">
+                <span class="btn btn-secundario tinta">Aprovar</span>
+                <span class="btn btn-secundario">Falar com a oficina</span>
+              </div>
+            </div>
+          </figure>
+          <h3>O cliente aprova pelo WhatsApp</h3>
+          <p>Você envia o orçamento com fotos e ele aprova com um toque. A aprovação fica registrada na ordem.</p>
+        </article>
+
+        <article class="recurso">
+          <figure class="midia" role="img" aria-label="Fila de serviços por mecânico: Diego, Karina e Tomás, cada um com a próxima bicicleta e o horário.">
+            <ul class="frag" aria-hidden="true">
+              <li class="com-avatar"><span class="avatar">D</span><span><span class="w-600">Diego</span> · Trek Marlin 5</span><span class="fim num">16h00</span></li>
+              <li class="com-avatar"><span class="avatar">K</span><span><span class="w-600">Karina</span> · Caloi Explorer</span><span class="fim num">17h00</span></li>
+              <li class="com-avatar"><span class="avatar">T</span><span><span class="w-600">Tomás</span> · Groove Hype 50</span><span class="fim num">17h30</span></li>
+            </ul>
+          </figure>
+          <h3>Cada bancada vê a sua fila</h3>
+          <p>O mecânico abre o celular e encontra só o que é dele, na ordem em que precisa sair.</p>
+        </article>
+
+        <article class="recurso">
+          <figure class="midia" role="img" aria-label="Estoque de peças com quantidades livres e reservadas; a pastilha Shimano B01S está sem unidades livres.">
+            <ul class="frag" aria-hidden="true">
+              <li><span>Corrente KMC 11v</span><span class="fim num">4 livres</span></li>
+              <li><span class="w-600">Pastilha Shimano B01S</span><span class="fim num w-600">0 livres, comprar hoje</span></li>
+              <li><span>Câmara 29 × 2.10 presta</span><span class="fim num">1 livre</span></li>
+            </ul>
+          </figure>
+          <h3>Peça reservada sai do estoque</h3>
+          <p>Ao abrir a ordem, a peça deixa de contar como livre. Você sabe o que comprar antes de faltar.</p>
+        </article>
+
+        <article class="recurso">
+          <figure class="midia" role="img" aria-label="Recibo da ordem 2481: 380 reais pagos por Pix às 15h34 e enviados ao cliente.">
+            <div class="frag recibo" aria-hidden="true">
+              <p class="sec">Recibo da ordem <span class="num">2481</span></p>
+              <p class="valor num">R$ 380,00</p>
+              <p style="margin-top:4px">Pago por Pix às <span class="num">15h34</span></p>
+              <p class="rodape sec">Enviado para Rafael Monteiro</p>
+            </div>
+          </figure>
+          <h3>Retirada com recibo na hora</h3>
+          <p>Receba por Pix ou cartão e envie o recibo. A ordem fecha sozinha e o caixa do dia já está certo.</p>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Capítulo 3 · preços (--sunken, full-bleed). Abertura centralizada: dona sozinha da faixa, sem botão. -->
+  <section class="secao capitulo-cinza" id="precos" aria-labelledby="t-precos">
+    <div class="shell">
+      <div class="abertura-centro">
+        <h2 id="t-precos" class="t-28 w-600">Um preço por oficina, não por mecânico.</h2>
+        <p class="t-17" style="margin-top:8px">Os dois planos têm todos os recursos e mecânicos ilimitados.</p>
+      </div>
+      <div class="grid grid-2 bloco">
+        <div class="plano">
+          <h3 class="t-17 w-600 lh-titulo">Mensal</h3>
+          <p class="preco t-28 w-600 num">R$ 119 por mês</p>
+          <p class="t-17">Sem fidelidade. Cancele quando quiser.</p>
+          <a class="btn btn-secundario tinta" href="#">Assinar mensal</a>
+        </div>
+        <div class="plano">
+          <h3 class="t-17 w-600 lh-titulo">Anual</h3>
+          <p class="preco t-28 w-600 num">R$ 99 por mês</p>
+          <p class="t-17"><span class="num">R$ 1.188</span> por ano, <span class="num">R$ 240</span> a menos que no mensal.</p>
+          <a class="btn btn-secundario tinta" href="#">Assinar anual</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Capítulo 4 · perguntas (papel) -->
+  <section class="secao" id="perguntas" aria-labelledby="t-perguntas">
+    <div class="shell">
+      <h2 id="t-perguntas" class="t-28 w-600">Antes de assinar</h2>
+      <dl class="grid grid-3 bloco">
+        <div class="pergunta">
+          <dt>Posso importar ordens antigas?</dt>
+          <dd>Sim. Você envia a planilha e a importação fica pronta em até dois dias úteis.</dd>
+        </div>
+        <div class="pergunta">
+          <dt>Funciona sem internet?</dt>
+          <dd>Funciona. As ordens abertas ficam no aparelho e sincronizam quando a conexão volta.</dd>
+        </div>
+        <div class="pergunta">
+          <dt>E se eu cancelar?</dt>
+          <dd>Você exporta clientes, ordens e estoque em planilha. Nada fica preso.</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- Capítulo 5 · fechamento: repete a ação do herói (única repetição permitida, 4.1). À esquerda. -->
+  <section class="secao" aria-labelledby="t-fecho">
+    <div class="shell">
+      <h2 id="t-fecho" class="t-28 w-600">Comece pela ordem de hoje.</h2>
+      <div class="acoes">
+        <a class="btn btn-primario" href="#">Testar 30 dias grátis</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="shell">
+    <div class="rodape-in t-14 sec">
+      <p>Catraca Tecnologia Ltda. · Florianópolis, SC</p>
+      <nav aria-label="Rodapé">
+        <ul>
+          <li><a href="#">Termos de uso</a></li>
+          <li><a href="#">Privacidade</a></li>
+          <li><a href="#">Suporte</a></li>
+        </ul>
+      </nav>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

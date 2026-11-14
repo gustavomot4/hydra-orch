@@ -140,11 +140,18 @@ class ConversationService:
                 refs = await asyncio.to_thread(self._promote, cid, conv["project_id"], draft_session_id, attachment_ids)
                 return await self._insert_turn(db, cid, content, idempotency_key, request_hash, refs)
 
-    async def list(self, project_id=None, offset=0, limit=30):
+    async def list(self, project_id=None, offset=0, limit=30, q=None):
         await self.store.initialize()
         async with self.store._connect() as db:
-            where = "WHERE project_id=?" if project_id else ""
-            params = (project_id,) if project_id else ()
+            clauses, params = [], []
+            if project_id:
+                clauses.append("project_id=?")
+                params.append(project_id)
+            if q:
+                await db.create_function("hydra_casefold", 1, lambda value: str(value).casefold())
+                clauses.append("instr(hydra_casefold(title),hydra_casefold(?))>0")
+                params.append(q)
+            where = "WHERE " + " AND ".join(clauses) if clauses else ""
             rows = await (await db.execute(f"SELECT * FROM conversations {where} ORDER BY updated_at DESC,id LIMIT ? OFFSET ?", (*params, limit, offset))).fetchall()
             total = (await (await db.execute(f"SELECT COUNT(*) FROM conversations {where}", params)).fetchone())[0]
             return {"items": [dict(r) for r in rows], "total": total}
@@ -272,6 +279,17 @@ class ConversationService:
 
     async def _workspace(self, conv):
         project = await self.runs.get_project(conv["project_id"])
+        conv["workspace_kind"] = project.get("workspace_kind", "git")
+        if conv["workspace_kind"] == "folder":
+            from hydra_orch.core.folder_workspace import snapshot
+            directory = self.runs.runtime_dir / "folder_workspace" / conv["id"]
+            path = await asyncio.to_thread(snapshot, Path(project["canonical_root"]), directory)
+            if conv["workspace_path"] and Path(conv["workspace_path"]).resolve() != path.resolve():
+                raise ContractViolation("workspace_invalid", "A pasta desta conversa mudou. Abra um novo chat.")
+            async with self.store._connect() as db:
+                await db.execute("UPDATE conversations SET workspace_path=? WHERE id=?", (str(path), conv["id"]))
+            conv["workspace_path"] = str(path)
+            return None, path
         ws = self.runs._get_git_workspace(project["canonical_root"])
         if conv["workspace_path"]:
             path = Path(conv["workspace_path"]).resolve()
@@ -325,6 +343,10 @@ class ConversationService:
             async with self.store._connect() as db:
                 await db.execute("UPDATE conversation_turns SET context_strategy=? WHERE id=?", ("native" if conv.get("native_session_id") else "transcript", tid))
             await self.runner.run(turn, conv, prompt, cwd, lambda kind, payload: self._emit(turn, kind, payload))
+            if ws is None:
+                from hydra_orch.core.folder_workspace import diff as folder_diff
+                diff = await asyncio.to_thread(folder_diff, cwd.parent / "base", cwd)
+                return
             # A textual answer is a successful result; a patch is optional.
             scope = await asyncio.to_thread(ws.validate_worktree_scope, cwd, base_sha=conv["base_sha"], allowed_paths=("*",))
             if not scope.valid:
