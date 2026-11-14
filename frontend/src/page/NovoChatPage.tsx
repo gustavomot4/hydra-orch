@@ -1,25 +1,17 @@
-import { ReactNode, useMemo, useRef, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { Send } from 'lucide-react';
+import { clearComposerDraft, OrchestrationMode } from '@/feature/composer/composerTypes';
 import {
-  Bot,
-  FolderGit2,
-  Mic,
-  Paperclip,
-  Send,
-  Sparkles,
-} from 'lucide-react';
-import { StatusBadge } from '@/component/StatusBadge';
-import {
-  clearComposerDraft,
-  OrchestrationMode,
-  ORCHESTRATION_MODE_LABELS,
-} from '@/feature/composer/composerTypes';
-import { useCapabilities } from '@/hook/useCapabilities';
+  ConversationAgent,
+  clearPendingSend,
+  pendingSendKey,
+} from '@/feature/chat/conversationTypes';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useWorkspaceHierarchy } from '@/hook/useWorkspaceHierarchy';
 import { useLayoutStore } from '@/store/layoutStore';
-import { ControlPlaneApiError, QuotaInventory } from '@/type/controlPlane';
+import { ControlPlaneApiError } from '@/type/controlPlane';
 
 export interface ComposerSlotProps {
   draft: string;
@@ -30,241 +22,239 @@ export interface ComposerSlotProps {
   onSubmit: () => void;
   isSubmitting: boolean;
 }
-
 export interface NovoChatPageProps {
   renderComposer?: (props: ComposerSlotProps) => ReactNode;
+  attachmentIds?: string[];
+  attachmentsReady?: boolean;
+  onStarted?: () => void;
 }
+const fieldClass =
+  'min-h-11 w-full rounded-lg border border-[#666] bg-[#1C1C1C] px-3 py-2 text-sm text-[#E8E8E8]';
 
-interface QuickChip {
-  id: string;
-  label: string;
-  prompt: string;
-  icon: typeof Sparkles;
-}
-
-const QUICK_CHIPS: QuickChip[] = [
-  {
-    id: 'chip-review',
-    label: 'Revisar alterações e gerar PR',
-    prompt: 'Analise o diff atual do workspace, execute os checks e prepare o pacote de PR.',
-    icon: Sparkles,
-  },
-  {
-    id: 'chip-tests',
-    label: 'Executar testes',
-    prompt: 'Execute a suíte de testes do projeto selecionado e reporte eventuais falhas.',
-    icon: Bot,
-  },
-  {
-    id: 'chip-swarm',
-    label: 'Planejar tarefas em paralelo',
-    prompt: 'Decomponha esta entrega em subtarefas paralelas isoladas por worktree.',
-    icon: FolderGit2,
-  },
-];
-
-export function NovoChatPage({ renderComposer }: NovoChatPageProps) {
+export function NovoChatPage({
+  renderComposer,
+  attachmentIds = [],
+  attachmentsReady = true,
+  onStarted,
+}: NovoChatPageProps) {
   const client = useControlPlaneClient();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { projects, executors, isLoading } = useWorkspaceHierarchy();
-  const { getHostCapability } = useCapabilities();
-
-  const selectedHostId = useLayoutStore((s) => s.selectedHostId);
+  const { projects, isLoading } = useWorkspaceHierarchy();
   const selectedProjectId = useLayoutStore((s) => s.selectedProjectId);
+  const selectedHostId = useLayoutStore((s) => s.selectedHostId);
   const selectHierarchy = useLayoutStore((s) => s.selectHierarchy);
   const openTab = useLayoutStore((s) => s.openTab);
-
   const [draft, setDraft] = useState('');
-  const [mode, setMode] = useState<OrchestrationMode>('relay');
-  const [selectedExecutor, setSelectedExecutor] = useState<string>('codex');
-  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [mode, setMode] = useState<OrchestrationMode>('persistent');
+  const [executor, setExecutor] = useState('codex');
+  const [accessMode, setAccessMode] = useState('read-only');
+  const [error, setError] = useState<string | null>(null);
+  const [folder, setFolder] = useState('');
+  const inFlight = useRef(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
-
-  const effectiveProjectId = selectedProjectId ?? projects[0]?.id ?? '';
-  const effectiveExecutorId = executors.some((executor) => executor.id === selectedExecutor)
-    ? selectedExecutor
-    : executors[0]?.id ?? selectedExecutor;
-  const activeProject = useMemo(
-    () => projects.find((p) => p.id === effectiveProjectId) ?? null,
-    [projects, effectiveProjectId],
-  );
-
-  const inventoryQuery = useQuery<QuotaInventory>({
-    queryKey: ['control-plane', 'omniroute-inventory'],
-    queryFn: () => client.getOmniRouteInventory('default'),
+  const activeProject = selectedProjectId
+    ? projects.find((p) => p.id === selectedProjectId)
+    : projects[0];
+  const agents = useQuery({
+    queryKey: ['control-plane', 'conversation-agents'],
+    queryFn: () => client.request<ConversationAgent[]>('/v1/control-plane/conversation-agents'),
     retry: false,
-    staleTime: 30_000,
   });
-
-  const createRunMutation = useMutation({
+  const available = agents.data?.filter((agent) => agent.available) ?? [];
+  const effectiveExecutor =
+    available.find((a) => a.id === executor)?.id ?? available[0]?.id ?? executor;
+  useEffect(() => {
+    document.title = 'Novo chat · Hydra';
+    headingRef.current?.focus();
+  }, []);
+  useEffect(() => {
+    if (error) errorRef.current?.focus();
+  }, [error]);
+  const create = useMutation({
     mutationFn: async () => {
-      if (!activeProject) {
-        throw new Error('Selecione um projeto para criar a tarefa.');
-      }
-      const cleanObjective = draft.trim();
-      if (!cleanObjective) {
-        throw new Error('Descreva o objetivo da tarefa antes de enviar.');
-      }
-      const idempotencyKey = `ui-run-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-      const resolvedExecutor =
-        executors.find((ex) => ex.id === effectiveExecutorId)?.driver ?? effectiveExecutorId;
-      return client.request<{ run_id: string }>('/v1/control-plane/runs', {
+      if (!activeProject) throw new Error('Selecione ou cadastre a pasta do projeto.');
+      if (!draft.trim()) throw new Error('Escreva sua mensagem antes de enviar.');
+      if (!attachmentsReady)
+        throw new Error('Aguarde o envio dos anexos ou remova os que falharam.');
+      const payload = {
+        project_id: activeProject.id,
+        executor: effectiveExecutor,
+        content: draft.trim(),
+        access_mode: accessMode,
+        draft_session_id: `draft-${activeProject.id}`,
+        attachment_ids: attachmentIds,
+      };
+      return client.request<{ conversation_id: string }>('/v1/control-plane/conversations', {
         method: 'POST',
-        headers: { 'Idempotency-Key': idempotencyKey },
-        body: {
-          project_id: activeProject.id,
-          repo_root: activeProject.canonical_root,
-          base_branch: activeProject.base_branch ?? 'main',
-          objective: cleanObjective,
-          mode,
-          task_spec: {
-            task_id: `task-${idempotencyKey}`,
-            objective: cleanObjective,
-            acceptance_criteria: [
-              {
-                check_id: 'chk-status',
-                command: ['git', 'status', '--short'],
-                description: 'Verificação base do workspace',
-              },
-            ],
-            allowed_paths: ['*'],
-            assigned_executor: resolvedExecutor,
-          },
-          idempotency_key: idempotencyKey,
-          execute: false,
-        },
+        body: { ...payload, idempotency_key: pendingSendKey(`new:${activeProject.id}`, payload) },
       });
     },
     retry: false,
-    onSuccess: (created) => {
-      const route = `/chat/${encodeURIComponent(created.run_id)}`;
-      if (activeProject) clearComposerDraft(`draft-${activeProject.id}`);
-      setDraft('');
-      void queryClient.invalidateQueries({ queryKey: ['control-plane', 'runs'] });
+    onSuccess: ({ conversation_id }) => {
+      const route = `/chat/${encodeURIComponent(conversation_id)}`;
+      clearPendingSend(`new:${activeProject?.id}`);
+      clearComposerDraft(`draft-${activeProject?.id}`);
+      void queryClient.invalidateQueries({ queryKey: ['control-plane', 'conversations'] });
       openTab({
-        id: `tab:run:${created.run_id}`,
+        id: `tab:chat:${conversation_id}`,
         kind: 'chat',
-        title: draft.trim(),
+        title: draft.trim().slice(0, 90),
         route,
-        runId: created.run_id,
+        runId: conversation_id,
         projectId: activeProject?.id,
         hostId: selectedHostId,
         closable: true,
       });
+      setDraft('');
+      onStarted?.();
       navigate(route);
     },
-    onError: (err) => {
-      if (err instanceof ControlPlaneApiError) {
-        setSubmissionError(err.payload.message);
-      } else if (err instanceof Error) {
-        setSubmissionError(err.message);
-      } else {
-        setSubmissionError('Não foi possível criar a tarefa. Tente novamente.');
-      }
+    onError: (err) =>
+      setError(
+        err instanceof ControlPlaneApiError
+          ? err.payload.message
+          : err instanceof Error
+            ? err.message
+            : 'Não foi possível enviar. Tente novamente.',
+      ),
+    onSettled: () => {
+      inFlight.current = false;
     },
   });
-  const submitTask = () => {
-    setSubmissionError(null);
-    createRunMutation.mutate();
+  const register = useMutation({
+    mutationFn: () =>
+      client.request<{ id: string }>('/v1/control-plane/projects', {
+        method: 'POST',
+        body: {
+          canonical_root: folder.trim(),
+          name: folder.trim().split(/[\\/]/).filter(Boolean).pop() || 'Meu projeto',
+        },
+      }),
+    onSuccess: (project) => {
+      selectHierarchy({ projectId: project.id, runId: null, sessionId: null });
+      void queryClient.invalidateQueries({ queryKey: ['control-plane', 'projects'] });
+      setFolder('');
+      setError(null);
+    },
+    onError: (err) =>
+      setError(err instanceof Error ? err.message : 'Não foi possível cadastrar a pasta.'),
+  });
+  const submit = () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setError(null);
+    create.mutate();
   };
-
-  const attachmentsCap = getHostCapability(selectedHostId, 'attachments');
-  const dictationCap = getHostCapability(selectedHostId, 'dictation_stt');
-  const inventory = inventoryQuery.data;
-  const routeModeLabel =
-    !inventory
-      ? (inventoryQuery.isLoading ? 'Consultando rota…' : 'Rota indisponível')
-      : inventory.connection_mode === 'disabled'
-        ? 'Rota direta'
-        : inventory.available
-          ? `Gateway (${inventory.connection_mode})`
-          : 'Gateway indisponível';
-
-  const accountOverrideKeys = inventory
-    ? Object.keys(inventory.next_account_overrides ?? {})
-    : [];
-
   return (
-    <div
-      data-testid="novo-chat-page"
-      className="mx-auto w-full max-w-4xl px-4 py-6 md:px-8 md:py-12"
-    >
-      <div className="space-y-4">
-        <h1 className="text-2xl font-semibold tracking-tight text-[#E8E8E8] md:text-3xl">
-          Novo chat
-        </h1>
-        <div className="flex flex-wrap gap-3">
-          <div className="flex min-w-0 flex-[2_1_10rem] flex-col gap-1">
-            <label htmlFor="novo-chat-project-select" className="text-sm font-medium text-[#D1D1D1]">
-              Projeto
-            </label>
-            <select
-              id="novo-chat-project-select"
-              value={effectiveProjectId}
-              onChange={(e) => {
-                const project = projects.find((entry) => entry.id === e.target.value);
-                selectHierarchy({
-                  projectId: project?.id ?? null,
-                  workspaceId: project?.workspace_id ?? null,
-                  runId: null,
-                  sessionId: null,
-                });
-              }}
-              className="min-h-9 w-full rounded-lg border border-[#666] bg-[#1C1C1C] px-2.5 py-1.5 text-sm text-[#E8E8E8] [@media(pointer:coarse)]:min-h-[44px]"
-            >
-              {projects.length === 0 ? (
-                <option value="">{isLoading ? 'Carregando projetos…' : 'Selecione um projeto'}</option>
-              ) : (
-                <>
-                  {!activeProject ? <option value={effectiveProjectId}>Selecione um projeto</option> : null}
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name} ({project.base_branch ?? 'main'})
-                    </option>
-                  ))}
-                </>
-              )}
-            </select>
-          </div>
-
-          <div className="flex min-w-0 flex-[1_1_8rem] flex-col gap-1">
-            <label htmlFor="novo-chat-agent-select" className="text-sm font-medium text-[#D1D1D1]">
-              Agente
-            </label>
-            <select
-              id="novo-chat-agent-select"
-              value={effectiveExecutorId}
-              onChange={(e) => setSelectedExecutor(e.target.value)}
-              className="min-h-9 w-full rounded-lg border border-[#666] bg-[#1C1C1C] px-2.5 py-1.5 text-sm text-[#E8E8E8] [@media(pointer:coarse)]:min-h-[44px]"
-            >
-              {executors.length === 0 ? (
-                <>
-                  <option value="codex">Codex</option>
-                  <option value="claude">Claude</option>
-                </>
-              ) : (
-                executors.map((ex) => (
-                  <option key={ex.id} value={ex.id}>
-                    {ex.name}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
+    <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6" data-testid="novo-chat-page">
+      <h1 ref={headingRef} tabIndex={-1} className="mb-6 text-2xl font-semibold text-[#E8E8E8]">
+        O que vamos fazer?
+      </h1>
+      <div className="mb-4 flex flex-wrap gap-3">
+        <div className="min-w-0 flex-[2_1_12rem]">
+          <label htmlFor="novo-chat-project-select" className="mb-1 block text-sm text-[#D1D1D1]">
+            Projeto
+          </label>
+          <select
+            id="novo-chat-project-select"
+            value={activeProject?.id ?? ''}
+            className={fieldClass}
+            onChange={(e) =>
+              selectHierarchy({ projectId: e.target.value, runId: null, sessionId: null })
+            }
+          >
+            {!projects.length && (
+              <option value="">
+                {isLoading ? 'Carregando projetos…' : 'Cadastre uma pasta abaixo'}
+              </option>
+            )}
+            {projects.length > 0 && !activeProject && (
+              <option value="">Selecione um projeto</option>
+            )}
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
         </div>
-        {!activeProject && !isLoading ? (
-          <p role="status" className="text-sm text-[#D1D1D1]">
-            {projects.length ? 'Selecione um projeto para criar a tarefa.' : 'Cadastre um projeto para criar sua primeira tarefa.'}
-          </p>
-        ) : null}
+        <div className="min-w-0 flex-[1_1_9rem]">
+          <label htmlFor="novo-chat-agent-select" className="mb-1 block text-sm text-[#D1D1D1]">
+            Agente
+          </label>
+          <select
+            id="novo-chat-agent-select"
+            className={fieldClass}
+            value={effectiveExecutor}
+            onChange={(e) => setExecutor(e.target.value)}
+          >
+            {(
+              agents.data ?? [
+                { id: 'codex', name: 'Codex', available: true },
+                { id: 'claude', name: 'Claude Code', available: true },
+              ]
+            ).map((agent) => (
+              <option key={agent.id} value={agent.id} disabled={!agent.available}>
+                {agent.name}
+                {!agent.available ? ' · Não instalado' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
-
-      <div
-        data-testid="novo-chat-composer-slot"
-        ref={composerRef}
-        className="mt-4"
-      >
+      {agents.data && !available.length && (
+        <p role="status" className="mb-3 text-sm text-[#D1D1D1]">
+          Instale Codex ou Claude Code e conecte sua conta.{' '}
+          <Link to="/recursos" className="underline">
+            Abrir recursos
+          </Link>
+        </p>
+      )}
+      {agents.data?.find((a) => a.id === effectiveExecutor)?.authenticated === false &&
+        available.length > 0 && (
+          <p role="status" className="mb-3 text-sm text-[#D1D1D1]">
+            Conecte a conta do agente antes de enviar.{' '}
+            <Link className="underline" to="/terminal">
+              Abrir terminal
+            </Link>{' '}
+            para executar{' '}
+            <code>{effectiveExecutor === 'codex' ? 'codex login' : 'claude auth login'}</code>.
+          </p>
+        )}
+      <details className="mb-4 text-sm text-[#D1D1D1]" open={!projects.length && !isLoading}>
+        <summary className="w-fit cursor-pointer py-2">Cadastrar outra pasta</summary>
+        <form
+          className="mt-2 flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            register.mutate();
+          }}
+        >
+          <div className="min-w-0 flex-[1_1_15rem]">
+            <label htmlFor="chat-folder" className="mb-1 block">
+              Caminho da pasta neste computador
+            </label>
+            <input
+              id="chat-folder"
+              className={fieldClass}
+              autoComplete="off"
+              value={folder}
+              onChange={(e) => setFolder(e.target.value)}
+              placeholder="C:\\projetos\\meu-projeto"
+            />
+          </div>
+          <button
+            className="min-h-11 rounded-lg border border-[#666] px-3"
+            disabled={!folder.trim() || register.isPending}
+          >
+            Cadastrar pasta
+          </button>
+        </form>
+      </details>
+      <div ref={composerRef} data-testid="novo-chat-composer-slot">
         {renderComposer ? (
           renderComposer({
             draft,
@@ -272,118 +262,88 @@ export function NovoChatPage({ renderComposer }: NovoChatPageProps) {
             mode,
             onModeChange: setMode,
             selectedProjectId: activeProject?.id ?? '',
-            onSubmit: submitTask,
-            isSubmitting: createRunMutation.isPending,
+            onSubmit: submit,
+            isSubmitting: create.isPending,
           })
         ) : (
-          <div className="rounded-2xl border border-[#303030] bg-[#202020] p-3 shadow-lg">
-            <label htmlFor="novo-chat-prompt-input" className="mb-1 block text-sm font-semibold">
-              Descreva a tarefa para o coordenador
+          <form
+            className="rounded-2xl border border-[#666] bg-[#202020] p-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submit();
+            }}
+          >
+            <label htmlFor="novo-chat-prompt-input" className="mb-2 block text-sm text-[#D1D1D1]">
+              Sua mensagem
             </label>
             <textarea
               id="novo-chat-prompt-input"
-              rows={3}
+              className={`${fieldClass} min-h-28 resize-y`}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Descreva a tarefa ou comando para o coordenador..."
-              className="w-full resize-y rounded-lg border border-[#666] bg-[#181818] px-2 py-2 text-sm text-[#E8E8E8] placeholder:text-[#969696]"
+              placeholder="Ex.: leia o README e explique como iniciar este projeto."
             />
-
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-[#303030] pt-2.5">
-              <div className="flex flex-wrap items-center gap-2">
-                <label htmlFor="novo-chat-mode-select" className="sr-only">
-                  Modo de orquestração
-                </label>
-                <select
-                  id="novo-chat-mode-select"
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value as OrchestrationMode)}
-                  className="rounded-lg border border-[#303030] bg-[#141414] px-2.5 py-1 text-xs text-[#E8E8E8]"
-                >
-                  {Object.entries(ORCHESTRATION_MODE_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-
-                <span
-                  title={
-                    attachmentsCap.supported
-                      ? 'Anexos habilitados na Onda 14'
-                      : 'Anexos indisponíveis neste host'
-                  }
-                  className="inline-flex items-center gap-1 rounded-lg border border-[#303030] bg-[#141414] px-2 py-1 text-[11px] text-[#969696]"
-                >
-                  <Paperclip aria-hidden="true" className="h-3 w-3" />
-                  <span>Anexos</span>
-                </span>
-
-                <span
-                  title={
-                    dictationCap.detail?.duplex_voice_enabled
-                      ? 'Voz ativa'
-                      : 'Ditado opcional apenas como rascunho de texto (Onda 14)'
-                  }
-                  className="inline-flex items-center gap-1 rounded-lg border border-[#303030] bg-[#141414] px-2 py-1 text-[11px] text-[#969696]"
-                >
-                  <Mic aria-hidden="true" className="h-3 w-3" />
-                  <span>Ditado</span>
-                </span>
-              </div>
-
+            <div className="mt-3 flex justify-end">
               <button
-                type="button"
-                disabled={createRunMutation.isPending || !activeProject || !draft.trim()}
-                onClick={submitTask}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-3.5 py-1.5 text-xs font-medium text-[#181818] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#E8E8E8] px-4 text-[#181818] disabled:opacity-60"
+                disabled={create.isPending || !draft.trim() || !activeProject}
+                aria-busy={create.isPending}
               >
-                <Send aria-hidden="true" className="h-3.5 w-3.5" />
-                <span>{createRunMutation.isPending ? 'Enviando...' : 'Criar tarefa'}</span>
+                <Send aria-hidden="true" size={16} />
+                {create.isPending ? 'Enviando…' : 'Enviar'}
               </button>
             </div>
-          </div>
+          </form>
         )}
-
-        {submissionError ? (
-          <div
-            role="alert"
-            className="mt-2 rounded-lg border border-[#EF4444]/40 bg-[#EF4444]/10 px-3 py-2 text-sm text-[#FCA5A5]"
-          >
-            {submissionError}
-          </div>
-        ) : null}
       </div>
-      <div className="mt-5 space-y-3 border-t border-[#303030] pt-3">
-        {!draft.trim() ? (
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Sugestões de tarefa">
-            {QUICK_CHIPS.map((chip) => {
-              const Icon = chip.icon;
-              return (
-                <button
-                  key={chip.id}
-                  type="button"
-                  onClick={() => {
-                    setDraft(chip.prompt);
-                    setSubmissionError(null);
-                    composerRef.current?.querySelector('textarea')?.focus();
-                  }}
-                  className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#303030] bg-[#202020] px-3 py-1.5 text-left text-sm text-[#E8E8E8] hover:bg-[#282828]"
-                >
-                  <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#969696]" />
-                  <span>{chip.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-        <details className="text-sm text-[#D1D1D1]">
-          <summary className="w-fit cursor-pointer rounded-md py-1">Roteamento e conta</summary>
-          <div className="flex flex-wrap items-center gap-2 px-4 py-2">
-            <span>{routeModeLabel}</span>
-            {accountOverrideKeys.length ? <span>{accountOverrideKeys.join(', ')}</span> : null}
-            <StatusBadge status={inventory?.quota?.status ?? 'unknown'} compact />
-          </div>
-        </details>
-      </div>
+      {error && (
+        <div
+          ref={errorRef}
+          tabIndex={-1}
+          role="alert"
+          className="mt-3 rounded-lg border border-[#FCA5A5] p-3 text-sm text-[#FCA5A5]"
+        >
+          {error}
+        </div>
+      )}
+      {!attachmentsReady && (
+        <p role="status" className="mt-2 text-sm text-[#D1D1D1]">
+          Aguarde os anexos ou remova os que falharam antes de enviar.
+        </p>
+      )}
+      {!draft && (
+        <div className="mt-4 flex flex-wrap gap-2" aria-label="Sugestões de mensagem">
+          {[
+            'Explique como iniciar este projeto',
+            'Revise o código e encontre problemas',
+            'Me ajude a planejar uma mudança',
+          ].map((label) => (
+            <button
+              key={label}
+              className="min-h-11 rounded-lg border border-[#666] px-3 py-2 text-left text-sm text-[#D1D1D1]"
+              onClick={() => {
+                setDraft(label);
+                composerRef.current?.querySelector('textarea')?.focus();
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      <details className="mt-4 text-sm text-[#D1D1D1]">
+        <summary className="w-fit cursor-pointer py-2">Opções da conversa</summary>
+        <label className="mt-2 flex min-h-11 items-center gap-3">
+          <input
+            type="checkbox"
+            className="h-8 w-8 shrink-0"
+            checked={accessMode === 'workspace-write'}
+            onChange={(e) => setAccessMode(e.target.checked ? 'workspace-write' : 'read-only')}
+          />
+          Permitir edições em uma cópia isolada do projeto
+        </label>
+        <p className="mt-1">As alterações ficam disponíveis para revisão na conversa.</p>
+      </details>
     </div>
   );
 }

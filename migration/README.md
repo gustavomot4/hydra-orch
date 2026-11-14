@@ -17,6 +17,8 @@ Diretório canônico para scripts SQL versionados de evolução de esquema do SQ
 - `rollback/0002_control_plane.sql`: Down explícito para 0001, com recusa de perda de dados e tentativas ativas. Scripts down não entram no glob de migração up.
 - `0003_ui_automation.sql`: Tabelas duráveis de automações (`automation_schedules`, `automation_runs`) para agendamentos cron/intervalo/one-shot na UI e CLI.
 - `rollback/0003_ui_automation.sql`: Down explícito de `0003_ui_automation.sql` para `0002`, preservando dados até confirmação/estado vazio.
+- `0004_conversation.sql`: Conversas independentes de runs, turnos enfileirados, idempotência, lease e eventos de resposta. Vincula sessões antigas e preserva mensagens, sem disparar execuções.
+- `rollback/0004_conversation.sql`: Retorno a `0003` apenas se não houver nenhuma conversa ou histórico importado.
 
 ## Operação T10
 

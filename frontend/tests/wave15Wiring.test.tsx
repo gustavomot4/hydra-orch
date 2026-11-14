@@ -179,7 +179,7 @@ describe('Onda 15 Part A (T35) App shell wiring', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await screen.findByLabelText('Descreva a tarefa para o coordenador');
+    await screen.findByLabelText('Sua mensagem');
     const rail = within(screen.getByRole('navigation', { name: 'Navegação principal' }));
 
     await user.click(rail.getByRole('button', { name: 'Recursos' }));

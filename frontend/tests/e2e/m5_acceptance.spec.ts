@@ -4,9 +4,55 @@ import { expect, Page, test } from '@playwright/test';
 
 const require = createRequire(import.meta.url);
 const axeSource = fs.readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8');
+const kitSource = fs.readFileSync('../.agents/skills/kit-frontend/scripts/tela.js', 'utf8');
 
-const E2E_TOKEN =
-  process.env.HYDRA_API_TOKEN || 'hydra-e2e-hermetic-local-token-0123456789';
+async function checkConversationLayout(page: Page, name: string) {
+  const reports: unknown[] = [];
+  for (const [width, height] of [
+    [1440, 900],
+    [768, 1024],
+    [375, 812],
+    [320, 256],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.evaluate(
+      (papel) => {
+        (window as unknown as { __kitOpcoes: unknown }).__kitOpcoes = { papel };
+      },
+      width <= 375 ? 'celular' : 'desktop',
+    );
+    const report = await page.evaluate(kitSource);
+    reports.push({ width, height, report });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+  }
+  fs.mkdirSync('../ws/b_output/conversation', { recursive: true });
+  fs.writeFileSync(
+    `../ws/b_output/conversation/${name}_layout.json`,
+    JSON.stringify(reports, null, 2),
+  );
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.screenshot({
+    path: `../ws/b_output/conversation/${name}_contrast.png`,
+    fullPage: true,
+  });
+  await page.emulateMedia({ forcedColors: 'none' });
+  await page.setViewportSize({ width: 1920, height: 1100 });
+}
+
+const E2E_TOKEN = process.env.HYDRA_API_TOKEN || 'hydra-e2e-hermetic-local-token-0123456789';
 
 interface AxeRunResult {
   violations: Array<{
@@ -65,15 +111,20 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
   test('keeps a responsive WebSocket terminal while resizing its viewport', async ({ page }) => {
     await loginControlPlane(page);
     await expect(page.getByLabel('Projeto', { exact: true })).toContainText('hydra-e2e-repo');
-    await page.getByRole('navigation', { name: 'Navegação principal' })
-      .getByRole('button', { name: 'Terminal', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Navegação principal' })
+      .getByRole('button', { name: 'Terminal', exact: true })
+      .click();
     const started = Date.now();
     await page.getByRole('button', { name: 'Iniciar Codex CLI' }).click();
     const terminal = page.locator('[data-session-id][data-renderer="xterm"]');
     await expect(terminal).toHaveAttribute('data-transport', 'ws');
     await expect(terminal.getByText('HYDRA-PTY-READY:codex', { exact: true })).toBeVisible();
     console.log(`PTY de teste pronto em ${Date.now() - started} ms`);
-    await expect(page.getByTestId('split-terminal-view')).toHaveAttribute('data-layout-mode', 'single-primary');
+    await expect(page.getByTestId('split-terminal-view')).toHaveAttribute(
+      'data-layout-mode',
+      'single-primary',
+    );
     await expect(terminal.locator('textarea.xterm-helper-textarea')).toBeFocused();
     const inputRequests: string[] = [];
     page.on('request', (request) => {
@@ -97,25 +148,75 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await expect(page.getByTestId('terminal-close-dialog')).toBeHidden();
   });
 
-  test('opens the task created from Novo chat and clears its draft', async ({ page }) => {
+  test('sends two chat turns, reloads during execution, reopens history and cancels', async ({
+    page,
+  }) => {
     await loginControlPlane(page);
-    const taskObjective = 'Verificar criação pelo Novo chat';
-    const composer = page.getByLabel('Descreva a tarefa para o coordenador');
+    await checkConversationLayout(page, 'novo_chat');
+    await runAxeWcagAA(page, 'Novo chat');
+    const taskObjective = 'Leia o README e explique como iniciar o projeto';
+    const composer = page.getByLabel('Sua mensagem');
     await expect(page.getByLabel('Projeto', { exact: true })).toContainText('hydra-e2e-repo');
     await composer.fill(taskObjective);
-    const creation = page.waitForResponse((response) =>
-      response.url().endsWith('/v1/control-plane/runs') && response.request().method() === 'POST',
+    const creation = page.waitForResponse(
+      (response) =>
+        response.url().endsWith('/v1/control-plane/conversations') &&
+        response.request().method() === 'POST',
     );
-    await page.getByRole('button', { name: 'Criar tarefa', exact: true }).click();
+    await page.getByRole('button', { name: 'Enviar', exact: true }).click();
     const created = await creation;
     const body = await created.text();
     expect(created.ok(), body).toBe(true);
-    expect(created.request().postDataJSON()).toMatchObject({ objective: taskObjective, execute: false });
-    const { run_id: createdId } = JSON.parse(body);
+    expect(created.request().postDataJSON()).toMatchObject({
+      content: taskObjective,
+      executor: 'codex',
+      access_mode: 'read-only',
+    });
+    const { conversation_id: createdId } = JSON.parse(body);
     await expect(page).toHaveURL(new RegExp(`/chat/${createdId}$`));
-    await expect(page.getByTestId('coordinator-view').getByText(taskObjective, { exact: true }).first()).toBeVisible();
-    await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('button', { name: 'Novo chat' }).click();
+    await expect(
+      page.getByTestId('conversation-page').getByText(taskObjective, { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId('conversation-turn-1').getByTestId('agent-response'),
+    ).toContainText('Primeiro');
+    await page.reload();
+    await expect(
+      page.getByTestId('conversation-turn-1').getByTestId('agent-response'),
+    ).toContainText('Segundo, inicie');
+    await expect(page.getByText('Resposta concluída', { exact: true })).toBeVisible();
+    await page.getByLabel('Sua mensagem').fill('Agora detalhe o segundo passo');
+    await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+    await expect(
+      page.getByTestId('conversation-turn-2').getByTestId('agent-response'),
+    ).toContainText('Segundo passo detalhado');
+    await runAxeWcagAA(page, 'conversa com duas respostas');
+    await checkConversationLayout(page, 'chat');
+    fs.mkdirSync('../ws/b_output/conversation', { recursive: true });
+    await page.screenshot({ path: '../ws/b_output/conversation/desktop.png', fullPage: true });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.screenshot({ path: '../ws/b_output/conversation/mobile.png', fullPage: true });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+    await page.setViewportSize({ width: 1920, height: 1100 });
+    await page
+      .getByRole('navigation', { name: 'Navegação principal' })
+      .getByRole('button', { name: 'Novo chat' })
+      .click();
     await expect(composer).toHaveValue('');
+    await page
+      .getByRole('region', { name: 'Conversas recentes' })
+      .getByRole('button', { name: taskObjective, exact: true })
+      .click();
+    await expect(page.getByTestId('conversation-turn-2')).toBeVisible();
+    await page.getByLabel('Sua mensagem').fill('Aguarde e explique de novo');
+    await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+    await expect(
+      page.getByTestId('conversation-turn-3').getByTestId('agent-response'),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Parar', exact: true }).click();
+    await expect(page.getByText('Interrompido', { exact: true })).toBeVisible();
   });
 
   test('executes full 10-step E2E scenario against isolated FastAPI backend with test executors', async ({
@@ -124,7 +225,11 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     test.setTimeout(120_000);
     const postedRuns: Array<{ url: string; method: string }> = [];
     page.on('request', (req) => {
-      if (req.url().includes('/v1/control-plane/runs') && req.method() === 'POST' && !req.url().includes('/interventions')) {
+      if (
+        req.url().includes('/v1/control-plane/runs') &&
+        req.method() === 'POST' &&
+        !req.url().includes('/interventions')
+      ) {
         postedRuns.push({ url: req.url(), method: req.method() });
       }
     });
@@ -147,7 +252,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await expect(page.getByText('evidencia-e2e.txt')).toBeVisible();
 
     // Preserved unsent composer draft across route/tab navigation (Step 3 invariant)
-    const composer = page.getByLabel('Descreva a tarefa para o coordenador');
+    const composer = page.getByLabel('Sua mensagem');
     const preservedDraft = 'Rascunho preservado durante inspeção E2E';
     await composer.fill(preservedDraft);
 
@@ -171,7 +276,10 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await expect(page.getByText('HYDRA-PTY-READY:codex')).toBeVisible({ timeout: 15_000 });
 
     // Cleanly close active PTY process via UI close dialog (ensuring zero orphan children)
-    await page.getByRole('button', { name: /Fechar terminal/i }).first().click();
+    await page
+      .getByRole('button', { name: /Fechar terminal/i })
+      .first()
+      .click();
     await expect(page.getByTestId('terminal-close-dialog')).toBeVisible();
     await page.getByRole('button', { name: 'Encerrar processo' }).click();
     await expect(page.getByTestId('terminal-close-dialog')).toBeHidden({ timeout: 10_000 });
@@ -181,7 +289,9 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     // Step 3 + Step 5: Open seeded Swarm run timeline, verify Coordinator + Workers & zero duplicate replay on reload
     await page.goto('/chat/run-e2e-swarm');
     await expect(page.getByTestId('coordinator-view')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Auditoria E2E M5 multi-agente' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Auditoria E2E M5 multi-agente' }),
+    ).toBeVisible();
     await expect(page.getByTestId('worker-card-task-wave0')).toBeVisible();
     await expect(page.getByTestId('worker-card-task-wave1')).toBeVisible();
     await expect(page.getByText('Aprovar aplicação do patch da Onda 1?')).toBeVisible();
@@ -189,7 +299,9 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     const runPostCountBeforeReload = postedRuns.length;
     await page.reload();
     await expect(page.getByTestId('coordinator-view')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Auditoria E2E M5 multi-agente' })).toHaveCount(1);
+    await expect(page.getByRole('heading', { name: 'Auditoria E2E M5 multi-agente' })).toHaveCount(
+      1,
+    );
     await expect(
       page.getByTestId('coordinator-timeline-pane').locator('[data-testid^="step-group-"]'),
     ).toHaveCount(1);
@@ -257,14 +369,19 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await page.getByLabel(/Fuso horário/i).fill('America/Sao_Paulo');
     await page.getByLabel('Projeto (opcional)').selectOption({ label: 'hydra-e2e-repo' });
     await page.getByRole('button', { name: 'Criar automação' }).click();
-    await expect(page.getByRole('button', { name: 'Executar agora Auditoria E2E M5' })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Executar agora Auditoria E2E M5' }),
+    ).toBeVisible();
 
     await page.getByRole('button', { name: 'Executar agora Auditoria E2E M5' }).click();
     const runsPanel = page.getByTestId('automation-runs-panel');
     await expect(runsPanel.getByRole('button', { name: /Abrir run/i }).first()).toBeVisible({
       timeout: 10_000,
     });
-    await runsPanel.getByRole('button', { name: /Abrir run/i }).first().click();
+    await runsPanel
+      .getByRole('button', { name: /Abrir run/i })
+      .first()
+      .click();
     await expect(page.getByTestId('coordinator-view')).toBeVisible();
 
     // Step 9 (Parking Lot F06/F07): Verify capability-gated panels never fake execution
@@ -328,11 +445,12 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     const drawerToggle = rail.getByRole('button', { name: /barra lateral/i });
     await drawerToggle.click();
     const drawer = page.getByTestId('mobile-sidebar-drawer');
-    await expect(drawer.getByRole('button', { name: 'Workspaces', exact: true })).toHaveText('Workspaces');
+    await expect(drawer.getByRole('button', { name: 'Workspaces', exact: true })).toHaveText(
+      'Workspaces',
+    );
     await page.keyboard.press('Escape');
     await expect(drawer).toBeHidden();
     await expect(drawerToggle).toBeFocused();
-
   });
 
   test('Step 8: Dictation control handles permission denial and editable preview without auto-submit', async ({
@@ -403,7 +521,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await previewBox.fill('Revisar patch E2E editado manualmente');
     await page.getByRole('button', { name: 'Inserir no rascunho' }).click();
 
-    await expect(page.getByLabel('Descreva a tarefa para o coordenador')).toHaveValue(
+    await expect(page.getByLabel('Sua mensagem')).toHaveValue(
       /Revisar patch E2E editado manualmente/,
     );
     expect(runSubmitCalls).toBe(0);

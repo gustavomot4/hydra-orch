@@ -234,6 +234,8 @@ O ambiente do processo usa `TERM=xterm-256color` por padrão, com possibilidade 
 
 ## 10. GAPs
 
+O fluxo executável do Novo chat usa o contrato adicional de [conversa e turnos](fluxo_conversa.md), com migração aditiva e rotas próprias. As rotas de runs, sessões legadas e terminais continuam disponíveis.
+
 - **GAP-UI-01 (Integração `server.py` / `openapi.yaml`):** A exposição HTTP das rotas `/v1/control-plane/pty/sessions*`, `/v1/control-plane/sessions/{id}/attachments*`, `/v1/control-plane/artifacts/{id}/content` e `/v1/control-plane/search` e o mapeamento HTTP de `forbidden_scope` (`403`), `path_traversal_blocked` (`400`/`403`) e `attachment_too_large` / `preview_too_large` (`413`/`422`) pertencem à etapa de integração do líder após Onda 12.
 - **GAP-UI-02 (Certificação Win32 ConPTY — Fechado):** Implementado backend nativo `src/hydra_orch/bridge/conpty.py` (`windows_conpty`, `pty_certified=True`) com `os.isatty(1) == True`, `ResizePseudoConsole`, execução de shims `.cmd`/`.bat`, `Ctrl+C`, Job Object tree-kill sem órfãos e fallback determinístico para `pipe_interactive_bridge` (`HYDRA_PTY_BACKEND=pipe`).
 - **GAP-UI-03 (Parking Lot `F06` e `F07`):** Voz full-duplex (`F06`), *Computer Use* (`F07`) e emulação móvel permanecem `unavailable` até entrega de bridges certificados com HITL e gate próprio.

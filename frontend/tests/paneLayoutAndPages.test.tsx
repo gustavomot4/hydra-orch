@@ -321,12 +321,12 @@ describe('PaneLayout, NovoChatPage (18:8) and ConfigPerfilPage (18:454)', () => 
     expect(screen.getByTestId('novo-chat-page')).toBeInTheDocument();
     expect(screen.getByTestId('novo-chat-composer-slot')).toBeInTheDocument();
 
-    const chip = screen.getByRole('button', { name: /Revisar alterações e gerar PR/i });
+    const chip = screen.getByRole('button', { name: /Revise o código e encontre problemas/i });
     await user.click(chip);
 
-    const textarea = screen.getByLabelText('Descreva a tarefa para o coordenador');
+    const textarea = screen.getByLabelText('Sua mensagem');
     expect(textarea).toHaveValue(
-      'Analise o diff atual do workspace, execute os checks e prepare o pacote de PR.',
+      'Revise o código e encontre problemas',
     );
   });
 

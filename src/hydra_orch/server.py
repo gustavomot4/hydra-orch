@@ -32,6 +32,7 @@ from hydra_orch.core.git_workspace import GitWorkspaceError
 from hydra_orch.core.router import HydraRouter
 from hydra_orch.core.run_service import RunService
 from hydra_orch.core.session_service import SessionService, SessionState
+from hydra_orch.core.conversation_service import ConversationService
 from hydra_orch.core.metrics import MetricsService, MetricScope
 from hydra_orch.core.hitl import HITLService, HitlKind, HitlRequest
 from hydra_orch.core.agent_registry import AgentRegistry
@@ -162,6 +163,7 @@ def shutdown_event() -> None:
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await startup_event()
+    await get_conversation_service().start()
     async def reconcile_deadlines():
         while True:
             await asyncio.sleep(1)
@@ -174,6 +176,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await get_conversation_service().close()
         deadline_task.cancel()
         with suppress(asyncio.CancelledError):
             await deadline_task
@@ -263,6 +266,89 @@ async def control_plane_security_middleware(request: Request, call_next: Any) ->
 # ============================================================================
 # REQUEST / RESPONSE SCHEMAS FOR M1 CONTROL PLANE (T07)
 # ============================================================================
+
+class ConversationMessagePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    content: str = Field(min_length=1, max_length=100000)
+    idempotency_key: str = Field(min_length=16, max_length=100)
+    expected_last_seq: int = Field(default=0, ge=0)
+    draft_session_id: Optional[str] = None
+    attachment_ids: List[str] = Field(default_factory=list, max_length=10)
+
+
+class ConversationCreatePayload(ConversationMessagePayload):
+    project_id: str
+    executor: Literal["codex", "claude"] = "codex"
+    access_mode: Literal["read-only", "workspace-write"] = "read-only"
+
+
+def get_conversation_service() -> ConversationService:
+    service = getattr(app.state, "conversation_service", None)
+    runs = get_run_service()
+    if service is None or service.runs is not runs:
+        service = ConversationService(runs, attachments=get_attachment_service())
+        app.state.conversation_service = service
+    return service
+
+
+@app.get("/v1/control-plane/conversation-agents")
+async def conversation_agents():
+    return await get_conversation_service().runner.capabilities()
+
+
+@app.post("/v1/control-plane/conversations", status_code=202)
+async def create_conversation(payload: ConversationCreatePayload):
+    service = get_conversation_service()
+    await service.start()
+    data = payload.model_dump(exclude={"expected_last_seq"})
+    return await service.create(**data)
+
+
+@app.get("/v1/control-plane/conversations")
+async def list_conversations(project_id: Optional[str] = None, offset: int = Query(default=0, ge=0), limit: int = Query(default=30, ge=1, le=100)):
+    return await get_conversation_service().list(project_id, offset, limit)
+
+
+@app.get("/v1/control-plane/conversations/{conversation_id}")
+async def conversation_snapshot(conversation_id: str):
+    return await get_conversation_service().snapshot(conversation_id)
+
+
+@app.post("/v1/control-plane/conversations/{conversation_id}/messages", status_code=202)
+async def send_conversation_message(conversation_id: str, payload: ConversationMessagePayload):
+    service = get_conversation_service()
+    await service.start()
+    return await service.send(conversation_id, **payload.model_dump())
+
+
+@app.post("/v1/control-plane/conversations/{conversation_id}/turns/{turn_id}/cancel")
+async def cancel_conversation_turn(conversation_id: str, turn_id: str):
+    return await get_conversation_service().cancel(conversation_id, turn_id)
+
+
+@app.get("/v1/control-plane/conversations/{conversation_id}/events")
+async def conversation_event_stream(conversation_id: str, request: Request, after: int = Query(default=0, ge=0),
+                                    last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID")):
+    service = get_conversation_service()
+    await service.snapshot(conversation_id)
+    try:
+        cursor = max(after, int(last_event_id or 0))
+    except ValueError:
+        return _error_response(400, "invalid_cursor", "Cursor de conversa inválido.")
+
+    async def stream():
+        nonlocal cursor
+        idle = 0
+        while not await request.is_disconnected():
+            events = await service.events(conversation_id, cursor)
+            for event in events:
+                cursor = event["seq"]
+                yield f"id: {cursor}\nevent: conversation\ndata: {json.dumps(redact(event), ensure_ascii=False)}\n\n"
+            idle += 1
+            if idle % 20 == 0:
+                yield ": heartbeat\n\n"
+            await asyncio.sleep(.15)
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 class ProjectCreatePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -3012,6 +3098,9 @@ async def optimistic_lock_handler(request: Request, exc: OptimisticLockError) ->
 @app.exception_handler(ContractViolation)
 async def contract_violation_handler(request: Request, exc: ContractViolation) -> JSONResponse:
     conflict_codes = {
+        "conversation_queue_full",
+        "conversation_process_active",
+        "agent_unavailable",
         "invalid_transition",
         "invalid_run_state",
         "invalid_task_state",
@@ -3116,6 +3205,8 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         "pty_session_conflict",
     }
     forbidden_codes = {
+        "attachment_scope_mismatch",
+        "attachment_path_escape",
         "authorization_denied",
         "session_scope_mismatch",
         "thread_scope_mismatch",
@@ -3129,7 +3220,7 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
     }
     if exc.code in forbidden_codes:
         status_code = 403
-    elif exc.code == "resource_not_found":
+    elif exc.code in {"resource_not_found", "conversation_not_found", "turn_not_found"}:
         status_code = 404
     elif exc.code == "cursor_expired":
         status_code = 410

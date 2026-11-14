@@ -300,7 +300,7 @@ describe('Onda 14 App shell wiring', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const textarea = await screen.findByLabelText('Descreva a tarefa para o coordenador');
+    const textarea = await screen.findByLabelText('Sua mensagem');
     expect(screen.getByRole('button', { name: /Anexar arquivo/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /ditado/i })).toBeInTheDocument();
 
@@ -316,7 +316,7 @@ describe('Onda 14 App shell wiring', () => {
       expect(screen.queryByTestId('quickopen-dialog')).not.toBeInTheDocument();
     });
 
-    const stillTextarea = screen.getByLabelText('Descreva a tarefa para o coordenador') as HTMLTextAreaElement;
+    const stillTextarea = screen.getByLabelText('Sua mensagem') as HTMLTextAreaElement;
     expect(stillTextarea.value).toBe('Implementar fluxo integrado');
   });
 
@@ -324,7 +324,7 @@ describe('Onda 14 App shell wiring', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await screen.findByLabelText('Descreva a tarefa para o coordenador');
+    await screen.findByLabelText('Sua mensagem');
 
     await user.click(screen.getByRole('button', { name: 'Contas e consumo' }));
     expect(await screen.findByRole('heading', { name: 'Contas e consumo' })).toBeInTheDocument();

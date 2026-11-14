@@ -1,6 +1,12 @@
 # Plano do fluxo de conversa do Hydra
 
-Status proposto para implementação. Atualizado em 14/11/2026.
+Status: primeira entrega implementada, com expansão de coordenação pendente. Atualizado em 14/11/2026.
+
+## Execução do plano
+
+As etapas 1 a 3 estão implementadas juntas: conversa/turno, migração de histórico, fila durável, idempotência, retomada de contexto, envio real, resposta progressiva, continuação, interrupção e histórico lateral. A etapa 4 entrega promoção dos anexos, cópia isolada persistente e diff para leitura/revisão; a integração decisória de patches continua nos contratos de runs existentes. A etapa 5 inclui o segundo adaptador, Claude Code, com protocolo testado; sua prova autenticada depende de login nesta máquina. Distribuição de tarefas pelo coordenador, rotas/orçamento e aprovações interativas no chat permanecem pendentes.
+
+O contrato implementado, as evidências e os limites estão em [fluxo de conversa](../b_spc/fluxo_conversa.md). As propostas abaixo continuam como referência da expansão; não representam capacidades adicionais já entregues.
 
 ## Resultado esperado
 
@@ -102,4 +108,4 @@ A tarefa do terminal corrige autenticação WebSocket no navegador, estabilidade
 
 Na verificação local, um processo de eco controlado confirmou digitação por WebSocket e preservação da tela ao redimensionar. O Codex instalado abriu até o campo de prompt em aproximadamente 2,3 segundos numa medição, sem enviar pedido ao modelo. Essa evidência cobre a abertura e a renderização. A resposta do provedor e o uso diário exigem validação própria.
 
-O plano acima conecta a conversa ao executor em uma próxima implementação.
+O Novo chat agora conecta a conversa ao executor conforme o contrato da primeira entrega. A coordenação avançada continua como próxima etapa do plano.

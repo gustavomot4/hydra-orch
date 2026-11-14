@@ -325,7 +325,7 @@ export function DictationControl({
 
       <p
         data-testid="dictation-mode-notice"
-        className="mt-1.5 text-[11px] text-[#969696]"
+        className="mt-1.5 text-xs text-[#969696]"
       >
         {DICTATION_NOTICE}
       </p>
@@ -354,7 +354,7 @@ export function DictationControl({
             type="button"
             disabled={disabled}
             onClick={startListening}
-            className="shrink-0 rounded-md border border-[#EF4444]/40 bg-[#202020] px-2.5 py-1 text-[11px] font-medium text-[#E8E8E8] hover:bg-[#282828]"
+            className="shrink-0 rounded-md border border-[#EF4444]/40 bg-[#202020] px-2.5 py-1 text-xs font-medium text-[#E8E8E8] hover:bg-[#282828]"
           >
             Tentar novamente
           </button>
@@ -373,7 +373,7 @@ export function DictationControl({
             >
               Rascunho revisável do ditado
             </label>
-            <span className="text-[11px] text-[#969696]">
+            <span className="text-xs text-[#969696]">
               Revise antes de inserir — não envia automaticamente
             </span>
           </div>

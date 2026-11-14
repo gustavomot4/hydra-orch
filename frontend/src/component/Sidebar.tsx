@@ -8,6 +8,7 @@ import {
 import { Search } from 'lucide-react';
 import { AppRail } from '@/component/AppRail';
 import { WorkspaceTree } from '@/component/WorkspaceTree';
+import { ConversationHistory } from '@/feature/chat/ConversationHistory';
 import { useWorkspaceHierarchy, WorkspaceTreeNode } from '@/hook/useWorkspaceHierarchy';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, useLayoutStore } from '@/store/layoutStore';
 
@@ -73,6 +74,13 @@ export function Sidebar({ onSelectTreeNode, ...navigation }: SidebarProps) {
         />
       ) : null}
       <AppRail {...navigation}>
+        <ConversationHistory
+          filter={filterQuery}
+          onSelect={(node) => {
+            onSelectTreeNode(node);
+            setMobileDrawerOpen(false);
+          }}
+        />
         <section
           className="border-t border-[#303030] pb-2 pt-3"
           aria-labelledby="sidebar-projects-title"
@@ -123,7 +131,7 @@ export function Sidebar({ onSelectTreeNode, ...navigation }: SidebarProps) {
           data-testid="sidebar-resizer"
           onPointerDown={handleResizePointerDown}
           onKeyDown={handleResizeKeyDown}
-          className="absolute bottom-0 right-0 top-0 hidden w-2 cursor-col-resize bg-transparent hover:bg-[#3B82F6]/60 focus:bg-[#3B82F6] md:block"
+          className="absolute bottom-0 -right-4 top-0 z-10 hidden w-8 cursor-col-resize bg-transparent focus:outline focus:outline-2 focus:outline-[#3B82F6] md:block"
         />
       ) : null}
     </aside>

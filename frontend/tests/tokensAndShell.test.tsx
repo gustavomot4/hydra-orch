@@ -158,7 +158,7 @@ describe('Figma dark design tokens & PT-BR shell invariants', () => {
     expect(await screen.findByTestId('hydra-app-shell')).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Navegação principal' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Configurações e perfil' })).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: 'Novo chat' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'O que vamos fazer?' })).toBeInTheDocument();
 
     // Zero fake macOS window dots
     expect(container.querySelector('.bg-red-500')).toBeNull();

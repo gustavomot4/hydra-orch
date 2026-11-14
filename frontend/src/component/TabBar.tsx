@@ -69,7 +69,7 @@ export function TabBar({ paneId, onSyncRoute }: TabBarProps) {
                   onSyncRoute?.(tab.route);
                 }}
                 onKeyDown={(e) => handleTabKeyDown(e, idx)}
-                className="truncate px-2.5 py-1 text-left"
+                className="min-h-8 truncate px-2.5 py-1 text-left [@media(pointer:coarse)]:min-h-[44px]"
               >
                 {tab.title}
               </button>
@@ -82,7 +82,7 @@ export function TabBar({ paneId, onSyncRoute }: TabBarProps) {
                   }}
                   aria-label={`Fechar aba ${tab.title}`}
                   title="Fechar aba (não encerra processos em execução)"
-                  className="mr-1 rounded p-0.5 text-[#969696] hover:bg-[#303030] hover:text-[#E8E8E8]"
+                  className="mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#969696] hover:bg-[#303030] hover:text-[#E8E8E8] [@media(pointer:coarse)]:h-[44px] [@media(pointer:coarse)]:w-[44px]"
                 >
                   <X aria-hidden="true" className="h-3 w-3" />
                 </button>
@@ -108,7 +108,7 @@ export function TabBar({ paneId, onSyncRoute }: TabBarProps) {
           }}
           aria-label="Abrir novo chat neste painel"
           title="Novo chat"
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[#969696] hover:bg-[#282828] hover:text-[#E8E8E8]"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#969696] hover:bg-[#282828] hover:text-[#E8E8E8] [@media(pointer:coarse)]:h-[44px] [@media(pointer:coarse)]:w-[44px]"
         >
           <Plus aria-hidden="true" className="h-3.5 w-3.5" />
         </button>

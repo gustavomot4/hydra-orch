@@ -114,7 +114,7 @@ export function AppRail({ activeRoute, onNavigate, onSearch, children }: AppRail
           if (kind === 'search') onSearch();
           else onNavigate({ id, label, route, kind });
         }}
-        aria-label={label}
+        aria-label={expanded && kind === 'search' ? `${label} Ctrl+K` : label}
         aria-current={active ? 'page' : undefined}
         title={label}
         className={buttonClass(active)}

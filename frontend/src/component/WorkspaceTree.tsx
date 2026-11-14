@@ -73,11 +73,7 @@ function NodeIcon({ kind }: { kind: WorkspaceTreeNode['kind'] }) {
   }
 }
 
-export function WorkspaceTree({
-  nodes,
-  filterQuery = '',
-  onSelectNode,
-}: WorkspaceTreeProps) {
+export function WorkspaceTree({ nodes, filterQuery = '', onSelectNode }: WorkspaceTreeProps) {
   const expandedNodeIds = useLayoutStore((s) => s.expandedNodeIds);
   const toggleTreeNode = useLayoutStore((s) => s.toggleTreeNode);
   const selectedHostId = useLayoutStore((s) => s.selectedHostId);
@@ -119,10 +115,14 @@ export function WorkspaceTree({
       return false;
     }
     if (node.kind === 'workspace') {
-      return Boolean(node.workspaceId && selectedWorkspaceId === node.workspaceId && !selectedSessionId);
+      return Boolean(
+        node.workspaceId && selectedWorkspaceId === node.workspaceId && !selectedSessionId,
+      );
     }
     if (node.kind === 'project') {
-      return Boolean(node.projectId && selectedProjectId === node.projectId && !selectedWorkspaceId);
+      return Boolean(
+        node.projectId && selectedProjectId === node.projectId && !selectedWorkspaceId,
+      );
     }
     if (node.kind === 'host') {
       return selectedHostId === node.hostId && !selectedProjectId;
@@ -268,7 +268,7 @@ export function WorkspaceTree({
                       e.stopPropagation();
                       toggleTreeNode(node.id);
                     }}
-                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[#969696] hover:text-[#E8E8E8]"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#969696] hover:text-[#E8E8E8] [@media(pointer:coarse)]:h-[44px] [@media(pointer:coarse)]:w-[44px]"
                   >
                     {isExpanded ? (
                       <ChevronDown aria-hidden="true" className="h-3.5 w-3.5" />
@@ -284,7 +284,11 @@ export function WorkspaceTree({
 
                 <span className="min-w-0 break-words font-medium text-[#E8E8E8]">
                   {node.label}
-                  {node.subtitle ? <span className="block break-all text-xs font-normal text-[#969696]">{node.subtitle}</span> : null}
+                  {node.subtitle ? (
+                    <span className="block break-all text-xs font-normal text-[#969696]">
+                      {node.subtitle}
+                    </span>
+                  ) : null}
                 </span>
               </div>
 

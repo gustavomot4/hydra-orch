@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  BrowserRouter,
-  Navigate,
-  Route,
-  Routes,
-  useLocation,
-  useNavigate,
-} from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
 import { AuthGate } from '@/component/AuthGate';
@@ -15,6 +8,7 @@ import { Sidebar } from '@/component/Sidebar';
 import { AttachmentDropzone, AttachmentItemView } from '@/feature/attachment';
 import { AutomationsPage } from '@/feature/automation';
 import { ChatTimelinePage } from '@/feature/chat';
+import { ConversationPage } from '@/feature/chat/ConversationPage';
 import { PromptComposer, SlashCommandItem } from '@/feature/composer';
 import { ComputerUsePanel } from '@/feature/computer_use';
 import { DevicePanel } from '@/feature/device';
@@ -96,6 +90,7 @@ export function HydraShell() {
 
   const bootstrapQuery = useBootstrap();
   const { projects } = useWorkspaceHierarchy();
+  const activeDraftSessionId = `draft-${selectedProjectId ?? projects[0]?.id ?? 'default'}`;
 
   const activeProjectRoot = useMemo(() => {
     const project = projects.find((p) => p.id === selectedProjectId) ?? projects[0];
@@ -188,9 +183,7 @@ export function HydraShell() {
       const chatId = decodeURIComponent(path.slice('/chat/'.length));
       if (chatId) {
         const tabs = useLayoutStore.getState().tabs;
-        const alreadyOpen = Object.values(tabs).some(
-          (t) => t.route === path && t.kind === 'chat',
-        );
+        const alreadyOpen = Object.values(tabs).some((t) => t.route === path && t.kind === 'chat');
         if (!alreadyOpen) {
           openTab({
             id: `tab:chat:${chatId}`,
@@ -363,6 +356,18 @@ export function HydraShell() {
         case 'new_chat':
           return (
             <NovoChatPage
+              attachmentIds={draftAttachments
+                .filter((a) => a.session_id === activeDraftSessionId)
+                .map((a) => a.attachment_id)
+                .filter((id): id is string => Boolean(id))}
+              attachmentsReady={draftAttachments
+                .filter((a) => a.session_id === activeDraftSessionId)
+                .every((a) => ['local_ready', 'transferred'].includes(a.status))}
+              onStarted={() =>
+                setDraftAttachments((items) =>
+                  items.filter((a) => a.session_id !== activeDraftSessionId),
+                )
+              }
               renderComposer={(slot) => {
                 const draftSessionId = `draft-${slot.selectedProjectId || 'default'}`;
                 const workspaceScope = selectedWorkspaceId ?? (slot.selectedProjectId || 'default');
@@ -401,8 +406,13 @@ export function HydraShell() {
                     sessionId={draftSessionId}
                     workspaceId={workspaceScope}
                     hostId={selectedHostId}
-                    attachments={draftAttachments}
-                    onAttachmentsChange={setDraftAttachments}
+                    attachments={draftAttachments.filter((a) => a.session_id === draftSessionId)}
+                    onAttachmentsChange={(items) =>
+                      setDraftAttachments((previous) => [
+                        ...previous.filter((a) => a.session_id !== draftSessionId),
+                        ...items,
+                      ])
+                    }
                     compact
                   >
                     <PromptComposer
@@ -414,7 +424,9 @@ export function HydraShell() {
                       sessionKey={draftSessionId}
                       onSubmit={slot.onSubmit}
                       isSubmitting={slot.isSubmitting}
-                      submitLabel="Criar tarefa"
+                      submitLabel="Enviar"
+                      hideModeSelector
+                      textareaAriaLabel="Sua mensagem"
                       placeholder="Ex.: revise as alterações deste projeto e explique o que falta validar."
                       visibleTextareaLabel
                       submitDisabled={!slot.selectedProjectId}
@@ -422,7 +434,7 @@ export function HydraShell() {
                       renderAttachControl={null}
                       renderDictationControl={
                         <details className="min-w-0 text-xs">
-                          <summary className="w-fit cursor-pointer rounded-md px-2 py-1 text-[#D1D1D1]">
+                          <summary className="flex min-h-8 w-fit cursor-pointer items-center rounded-md px-2 py-1 text-[#D1D1D1] [@media(pointer:coarse)]:min-h-[44px]">
                             Ditado por voz
                           </summary>
                           <DictationControl
@@ -448,6 +460,8 @@ export function HydraShell() {
         case 'settings':
           return <ConfigPerfilPage />;
         case 'chat':
+          if (tab.runId?.startsWith('conversation-'))
+            return <ConversationPage key={tab.runId} conversationId={tab.runId} />;
           return (
             <ChatTimelinePage
               runId={tab.runId}
@@ -505,7 +519,12 @@ export function HydraShell() {
               <Search aria-hidden="true" className="h-8 w-8 text-[#969696]" />
               <h1 className="text-lg font-semibold text-[#E8E8E8]">Busca global (QuickOpen)</h1>
               <p className="text-xs text-[#969696]">
-                Pressione <kbd className="rounded border border-[#303030] bg-[#202020] px-1.5 py-0.5 font-mono text-[11px] text-[#E8E8E8]">Ctrl+K</kbd> em qualquer tela para pesquisar áreas, workspaces, projetos, runs, sessões e artefatos sem perder rascunhos abertos.
+                Pressione{' '}
+                <kbd className="rounded border border-[#303030] bg-[#202020] px-1.5 py-0.5 font-mono text-[11px] text-[#E8E8E8]">
+                  Ctrl+K
+                </kbd>{' '}
+                em qualquer tela para pesquisar áreas, workspaces, projetos, runs, sessões e
+                artefatos sem perder rascunhos abertos.
               </p>
               <button
                 type="button"
@@ -522,6 +541,7 @@ export function HydraShell() {
     [
       activeProjectRoot,
       draftAttachments,
+      activeDraftSessionId,
       handleNavigate,
       handleOpenRunFromAutomation,
       handleOpenTerminalFromRun,
@@ -557,8 +577,9 @@ export function HydraShell() {
 
       <main id="hydra-content" tabIndex={-1} className="flex min-w-0 flex-1 flex-col bg-[#141414]">
         {bootstrapQuery.isLoading ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-[#969696]">
-            Carregando Control Plane Hydra...
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-[#969696]">
+            <h1 className="text-xl font-semibold text-[#E8E8E8]">Hydra</h1>
+            <p role="status">Carregando sua área de trabalho…</p>
           </div>
         ) : (
           <PaneLayout
