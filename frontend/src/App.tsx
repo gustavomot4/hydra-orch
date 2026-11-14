@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BrowserRouter,
   Navigate,
@@ -9,7 +9,6 @@ import {
 } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
-import { AppRail } from '@/component/AppRail';
 import { AuthGate } from '@/component/AuthGate';
 import { PaneLayout } from '@/component/PaneLayout';
 import { Sidebar } from '@/component/Sidebar';
@@ -79,7 +78,6 @@ function buildTabFromQuickOpen(item: QuickOpenSearchItem): WorkspaceTab {
 export function HydraShell() {
   const location = useLocation();
   const navigate = useNavigate();
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const token = useAuthStore((s) => s.token);
   const status = useAuthStore((s) => s.status);
@@ -107,6 +105,7 @@ export function HydraShell() {
   useKeyboardShortcuts({
     enabled: Boolean(token) && status === 'authenticated',
     onFocusSearch: () => {
+      setMobileDrawerOpen(false);
       setQuickOpenOpen(true);
     },
   });
@@ -404,6 +403,7 @@ export function HydraShell() {
                     hostId={selectedHostId}
                     attachments={draftAttachments}
                     onAttachmentsChange={setDraftAttachments}
+                    compact
                   >
                     <PromptComposer
                       draft={slot.draft}
@@ -414,22 +414,30 @@ export function HydraShell() {
                       sessionKey={draftSessionId}
                       onSubmit={slot.onSubmit}
                       isSubmitting={slot.isSubmitting}
-                      submitLabel="Iniciar run"
+                      submitLabel="Criar tarefa"
+                      placeholder="Ex.: revise as alterações deste projeto e explique o que falta validar."
+                      visibleTextareaLabel
+                      submitDisabled={!slot.selectedProjectId}
                       onSlashCommand={handleSlash}
                       renderAttachControl={null}
                       renderDictationControl={
-                        <DictationControl
-                          onInsertTranscript={(text) => {
-                            const cleaned = text.trim();
-                            if (!cleaned) {
-                              return;
-                            }
-                            const next = slot.draft.trim()
-                              ? `${slot.draft.trimEnd()} ${cleaned}`
-                              : cleaned;
-                            slot.onDraftChange(next);
-                          }}
-                        />
+                        <details className="min-w-0 text-xs">
+                          <summary className="w-fit cursor-pointer rounded-md px-2 py-1 text-[#D1D1D1]">
+                            Ditado por voz
+                          </summary>
+                          <DictationControl
+                            onInsertTranscript={(text) => {
+                              const cleaned = text.trim();
+                              if (!cleaned) {
+                                return;
+                              }
+                              const next = slot.draft.trim()
+                                ? `${slot.draft.trimEnd()} ${cleaned}`
+                                : cleaned;
+                              slot.onDraftChange(next);
+                            }}
+                          />
+                        </details>
                       }
                     />
                   </AttachmentDropzone>
@@ -534,15 +542,20 @@ export function HydraShell() {
       data-testid="hydra-app-shell"
       className="flex h-screen w-screen overflow-hidden bg-[#141414] text-[#E8E8E8]"
     >
-      <AppRail activeRoute={location.pathname} onNavigate={handleNavigate} />
-
+      <a
+        href="#hydra-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[60] focus:rounded-md focus:bg-[#202020] focus:p-3"
+      >
+        Pular para o conteúdo
+      </a>
       <Sidebar
-        searchInputRef={searchInputRef}
-        onOpenRoute={handleNavigate}
+        activeRoute={location.pathname}
+        onNavigate={handleNavigate}
+        onSearch={() => setQuickOpenOpen(true)}
         onSelectTreeNode={handleSelectTreeNode}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col bg-[#141414]">
+      <main id="hydra-content" tabIndex={-1} className="flex min-w-0 flex-1 flex-col bg-[#141414]">
         {bootstrapQuery.isLoading ? (
           <div className="flex flex-1 items-center justify-center text-sm text-[#969696]">
             Carregando Control Plane Hydra...

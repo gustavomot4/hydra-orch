@@ -244,7 +244,7 @@ export function WorkspaceTree({
               onClick={() => handleActivate(node)}
               onKeyDown={(e) => handleKeyDown(e, idx)}
               style={{ paddingLeft: `${depth * 14 + 8}px` }}
-              className={`group relative flex cursor-pointer items-center justify-between gap-1.5 rounded-lg py-1.5 pr-2 text-xs transition-colors ${
+              className={`group relative flex min-h-8 cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 rounded-lg py-1.5 pr-2 text-sm transition-colors ${
                 selected
                   ? 'bg-[#282828] text-[#E8E8E8]'
                   : 'text-[#969696] hover:bg-[#282828]/70 hover:text-[#E8E8E8]'
@@ -258,7 +258,7 @@ export function WorkspaceTree({
                 />
               ) : null}
 
-              <div className="flex min-w-0 items-center gap-1.5">
+              <div className="flex min-w-0 flex-[1_1_8rem] items-start gap-1.5">
                 {hasChildren ? (
                   <button
                     type="button"
@@ -282,13 +282,10 @@ export function WorkspaceTree({
 
                 <NodeIcon kind={node.kind} />
 
-                <span className="truncate font-medium text-[#E8E8E8]">{node.label}</span>
-
-                {node.subtitle ? (
-                  <span className="hidden truncate font-mono text-[10px] text-[#969696] sm:inline">
-                    {node.subtitle}
-                  </span>
-                ) : null}
+                <span className="min-w-0 break-words font-medium text-[#E8E8E8]">
+                  {node.label}
+                  {node.subtitle ? <span className="block break-all text-xs font-normal text-[#969696]">{node.subtitle}</span> : null}
+                </span>
               </div>
 
               {node.kind === 'session' || node.kind === 'host' ? (

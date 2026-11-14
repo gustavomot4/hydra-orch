@@ -62,6 +62,27 @@ async function runAxeWcagAA(page: Page, contextLabel: string): Promise<void> {
 }
 
 test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Responsividade)', () => {
+  test('opens the task created from Novo chat and clears its draft', async ({ page }) => {
+    await loginControlPlane(page);
+    const taskObjective = 'Verificar criação pelo Novo chat';
+    const composer = page.getByLabel('Descreva a tarefa para o coordenador');
+    await expect(page.getByLabel('Projeto', { exact: true })).toContainText('hydra-e2e-repo');
+    await composer.fill(taskObjective);
+    const creation = page.waitForResponse((response) =>
+      response.url().endsWith('/v1/control-plane/runs') && response.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: 'Criar tarefa', exact: true }).click();
+    const created = await creation;
+    const body = await created.text();
+    expect(created.ok(), body).toBe(true);
+    expect(created.request().postDataJSON()).toMatchObject({ objective: taskObjective, execute: false });
+    const { run_id: createdId } = JSON.parse(body);
+    await expect(page).toHaveURL(new RegExp(`/chat/${createdId}$`));
+    await expect(page.getByTestId('coordinator-view').getByText(taskObjective, { exact: true }).first()).toBeVisible();
+    await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('button', { name: 'Novo chat' }).click();
+    await expect(composer).toHaveValue('');
+  });
+
   test('executes full 10-step E2E scenario against real FastAPI backend without fake bridges', async ({
     page,
   }) => {
@@ -102,21 +123,14 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await expect(composer).toHaveValue(preservedDraft);
 
     await page.keyboard.press('Control+k');
-    const quickSearch = page.getByPlaceholder(/Buscar/i).first();
+    const quickSearch = page.getByTestId('quickopen-dialog').getByPlaceholder(/Buscar/i);
     await quickSearch.fill('Auditoria');
     await expect(page.getByText(/Auditoria E2E M5 multi-agente/i).first()).toBeVisible({
       timeout: 10_000,
     });
     await page.keyboard.press('Escape');
 
-    // Navigate directly to Split Terminal PTY via composer slash command in secondary step after preserving/checking draft
-    await composer.fill('/terminal');
-    const terminalOption = page.getByRole('option', { name: /\/terminal/i }).first();
-    if (await terminalOption.isVisible().catch(() => false)) {
-      await terminalOption.click();
-    } else {
-      await rail.getByRole('button', { name: 'Workspaces' }).click();
-    }
+    await rail.getByRole('button', { name: 'Terminal', exact: true }).click();
     await expect(page.getByTestId('split-terminal-view')).toBeVisible();
     await page.getByRole('button', { name: 'Iniciar Codex CLI' }).click();
     await expect(page.getByText('HYDRA-PTY-READY:codex')).toBeVisible({ timeout: 15_000 });
@@ -237,7 +251,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await runAxeWcagAA(page, 'GovernancePage (1920x1100)');
 
     await page.keyboard.press('Control+k');
-    const quickOpenInput = page.getByPlaceholder(/Buscar/i).first();
+    const quickOpenInput = page.getByTestId('quickopen-dialog').getByPlaceholder(/Buscar/i);
     await expect(quickOpenInput).toBeVisible();
     await quickOpenInput.fill('Auditoria');
     await expect(page.getByText(/Auditoria E2E M5 multi-agente/i).first()).toBeVisible({
@@ -278,9 +292,12 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
 
     const drawerToggle = rail.getByRole('button', { name: /barra lateral/i });
     await drawerToggle.click();
-    await expect(page.getByTestId('mobile-sidebar-drawer')).toBeVisible();
+    const drawer = page.getByTestId('mobile-sidebar-drawer');
+    await expect(drawer.getByRole('button', { name: 'Workspaces', exact: true })).toHaveText('Workspaces');
     await page.keyboard.press('Escape');
-    await expect(page.getByTestId('mobile-sidebar-drawer')).toBeHidden();
+    await expect(drawer).toBeHidden();
+    await expect(drawerToggle).toBeFocused();
+
   });
 
   test('Step 8: Dictation control handles permission denial and editable preview without auto-submit', async ({
@@ -338,6 +355,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await loginControlPlane(page);
     await expect(page.getByTestId('novo-chat-page')).toBeVisible();
 
+    await page.locator('summary').filter({ hasText: 'Ditado por voz' }).click();
     await page.getByRole('button', { name: 'Iniciar ditado' }).click();
     await expect(page.getByTestId('dictation-error-notice')).toBeVisible({ timeout: 5000 });
 

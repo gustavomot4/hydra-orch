@@ -37,7 +37,12 @@ export function useKeyboardShortcuts(options: KeyboardShortcutOptions = {}) {
 
       if (mod && event.key.toLowerCase() === 'b' && !event.shiftKey && !event.altKey) {
         event.preventDefault();
-        toggleSidebar();
+        if (window.innerWidth < 768) {
+          const state = useLayoutStore.getState();
+          state.setMobileDrawerOpen(!state.mobileDrawerOpen);
+        } else {
+          toggleSidebar();
+        }
         return;
       }
 

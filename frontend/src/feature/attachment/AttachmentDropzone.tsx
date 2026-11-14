@@ -39,6 +39,7 @@ export interface AttachmentDropzoneProps {
   disabled?: boolean;
   multiple?: boolean;
   showList?: boolean;
+  compact?: boolean;
   client?: ControlPlaneClient;
   attachments?: AttachmentItemView[];
   onAttachmentsChange?: (items: AttachmentItemView[]) => void;
@@ -97,6 +98,7 @@ export function AttachmentDropzone({
   disabled = false,
   multiple = true,
   showList = true,
+  compact = false,
   client,
   attachments,
   onAttachmentsChange,
@@ -422,7 +424,7 @@ export function AttachmentDropzone({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onPaste={handlePaste}
-      className={`relative rounded-2xl border border-[#303030] bg-[#1C1C1C] p-3 text-[#E8E8E8] transition-colors ${
+      className={`relative rounded-2xl ${compact ? 'border border-transparent' : 'border border-[#303030] bg-[#1C1C1C] p-3'} text-[#E8E8E8] transition-colors ${
         isDragActive ? 'border-[#3B82F6] bg-[#202020]' : ''
       } ${className}`}
     >
@@ -449,11 +451,12 @@ export function AttachmentDropzone({
         accept={SAFE_ATTACHMENT_ACCEPT}
         disabled={disabled}
         aria-label="Selecionar arquivos para anexar"
+        tabIndex={-1}
         onChange={handleFileInputChange}
         className="sr-only"
       />
 
-      {children ? <div className="mb-3">{children}</div> : null}
+      {children ? <div className={compact ? 'mb-2' : 'mb-3'}>{children}</div> : null}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -467,15 +470,15 @@ export function AttachmentDropzone({
             <span>Anexar arquivo</span>
           </button>
 
-          <span className="text-[11px] text-[#969696]">
+          {!compact ? <span className="text-[11px] text-[#969696]">
             Arraste e solte, cole (Ctrl+V) ou selecione · Máx.{' '}
             {formatAttachmentSize(maxBytes)}
-          </span>
+          </span> : null}
         </div>
 
-        <span className="rounded border border-[#303030] bg-[#141414] px-2 py-0.5 font-mono text-[11px] text-[#969696]">
+        {!compact ? <span className="rounded border border-[#303030] bg-[#141414] px-2 py-0.5 font-mono text-[11px] text-[#969696]">
           host: {hostId}
-        </span>
+        </span> : null}
       </div>
 
       {errorBanner ? (
@@ -518,7 +521,7 @@ export function AttachmentDropzone({
         </div>
       ) : null}
 
-      {showList ? (
+      {showList && (!compact || resolvedItems.length > 0) ? (
         <div className="mt-3">
           <AttachmentList
             items={resolvedItems}

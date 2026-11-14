@@ -16,6 +16,7 @@ import {
   loadComposerDraft,
   MentionItem,
   OrchestrationMode,
+  ORCHESTRATION_MODE_LABELS,
   PromptComposerProps,
   replaceTriggerToken,
   saveComposerDraft,
@@ -36,6 +37,7 @@ export function PromptComposer({
   sessionKey,
   placeholder = 'Descreva a tarefa ou comando (/review, /swarm, @agente)...',
   submitLabel = 'Enviar',
+  submitDisabled = false,
   disabled = false,
   hideModeSelector = false,
   mentionItems,
@@ -45,6 +47,7 @@ export function PromptComposer({
   renderDictationControl,
   attachmentChips,
   textareaAriaLabel = 'Descreva a tarefa para o coordenador',
+  visibleTextareaLabel = false,
   className = '',
 }: PromptComposerProps) {
   const effectiveSessionKey =
@@ -240,7 +243,7 @@ export function PromptComposer({
   };
 
   const triggerSubmit = () => {
-    if (disabled || isSubmitting || currentDraft.trim().length === 0) {
+    if (disabled || submitDisabled || isSubmitting || currentDraft.trim().length === 0) {
       return;
     }
     const payload = currentDraft;
@@ -333,7 +336,7 @@ export function PromptComposer({
           </div>
         ) : null}
 
-        <label htmlFor={`${listboxId}-textarea`} className="sr-only">
+        <label htmlFor={`${listboxId}-textarea`} className={visibleTextareaLabel ? 'mb-1 block text-sm font-semibold' : 'sr-only'}>
           {textareaAriaLabel}
         </label>
         <textarea
@@ -366,7 +369,7 @@ export function PromptComposer({
                 ? `${listboxId}-commands-opt-${safeActiveIndex}`
                 : undefined
           }
-          className="w-full resize-none bg-transparent px-1 py-1 text-sm text-[#E8E8E8] placeholder:text-[#969696] focus:outline-none disabled:opacity-60"
+          className={`w-full resize-y rounded-lg bg-transparent px-2 py-2 text-sm text-[#E8E8E8] placeholder:text-[#969696] disabled:opacity-60 ${visibleTextareaLabel ? 'min-h-24 border border-[#666] bg-[#181818]' : ''}`}
         />
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-[#303030] pt-2.5">
@@ -381,11 +384,11 @@ export function PromptComposer({
                   disabled={disabled || isSubmitting}
                   value={currentMode}
                   onChange={(e) => handleModeChange(e.target.value as OrchestrationMode)}
-                  className="rounded-lg border border-[#303030] bg-[#141414] px-2.5 py-1 text-xs text-[#E8E8E8]"
+                  className="min-h-9 rounded-lg border border-[#666] bg-[#141414] px-2.5 py-1 text-sm text-[#E8E8E8] [@media(pointer:coarse)]:min-h-[44px]"
                 >
-                  <option value="relay">Modo Relay</option>
-                  <option value="swarm">Modo Swarm</option>
-                  <option value="persistent">Modo Persistente</option>
+                  {Object.entries(ORCHESTRATION_MODE_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
                 </select>
               </>
             ) : null}
@@ -415,7 +418,7 @@ export function PromptComposer({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2">
             {statusNotice ? (
               <span role="status" className="text-[11px] text-[#969696]">
                 {statusNotice}
@@ -423,9 +426,9 @@ export function PromptComposer({
             ) : null}
             <button
               type="button"
-              disabled={disabled || isSubmitting || currentDraft.trim().length === 0}
+              disabled={disabled || submitDisabled || isSubmitting || currentDraft.trim().length === 0}
               onClick={triggerSubmit}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-3.5 py-1.5 text-xs font-medium text-[#181818] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-3.5 py-1.5 text-sm font-semibold text-[#181818] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 [@media(pointer:coarse)]:min-h-[44px]"
             >
               <Send aria-hidden="true" className="h-3.5 w-3.5" />
               <span>{isSubmitting ? 'Enviando...' : submitLabel}</span>

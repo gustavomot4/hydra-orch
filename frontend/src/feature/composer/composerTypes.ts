@@ -2,6 +2,12 @@ import { ReactNode } from 'react';
 
 export type OrchestrationMode = 'relay' | 'swarm' | 'persistent';
 
+export const ORCHESTRATION_MODE_LABELS: Record<OrchestrationMode, string> = {
+  relay: 'Em sequência (Relay)',
+  swarm: 'Em paralelo (Swarm)',
+  persistent: 'Persistente',
+};
+
 export type MentionKind = 'file' | 'workspace' | 'agent';
 
 export interface MentionItem {
@@ -220,6 +226,7 @@ export interface PromptComposerProps {
   sessionKey?: string;
   placeholder?: string;
   submitLabel?: string;
+  submitDisabled?: boolean;
   disabled?: boolean;
   hideModeSelector?: boolean;
   mentionItems?: MentionItem[];
@@ -229,5 +236,6 @@ export interface PromptComposerProps {
   renderDictationControl?: ReactNode;
   attachmentChips?: ReactNode;
   textareaAriaLabel?: string;
+  visibleTextareaLabel?: boolean;
   className?: string;
 }
