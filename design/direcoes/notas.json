@@ -1,0 +1,20 @@
+{
+  "a_mesa_de_comando": {
+    "nome": "A · Mesa de comando",
+    "conceito": "Escreva a tarefa e confira projeto, agente e modo dentro do mesmo painel.",
+    "assinatura": "Tipografia condensada, linhas de rota em âmbar e a ação destacada em uma superfície escura.",
+    "cega": "Os dois avaliadores escolheram A por margem leve. Um destacou a identificação visual e pediu que o traço represente a rota real. O outro pediu o projeto junto do ambiente no topo e um acesso móvel à sessão em execução."
+  },
+  "b_campo_de_trabalho": {
+    "nome": "B · Campo de trabalho",
+    "conceito": "Comece pela pergunta e confira as escolhas da tarefa na coluna ao lado.",
+    "assinatura": "Faixa azul, fundo claro e navegação nomeada à direita no desktop.",
+    "cega": "Os avaliadores destacaram a sequência no celular e a expressão “Onde e com quem”. Um sentiu falta da branch no celular, e o outro achou o botão distante das opções no desktop."
+  },
+  "c_central_de_sessoes": {
+    "nome": "C · Central de sessões",
+    "conceito": "Veja o que está rodando e encontre a criação de uma tarefa logo abaixo.",
+    "assinatura": "Sessões com estados escritos no topo, sidebar ameixa e formulário vermelho.",
+    "cega": "Os avaliadores destacaram a visibilidade das sessões. No celular, a lista anterior ao formulário deixa “Criar tarefa” abaixo da primeira dobra."
+  }
+}

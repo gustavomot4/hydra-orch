@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mesa de comando | Hydra</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Geist:wght@400;500;600;700&display=swap');
+:root { color-scheme: dark; --base:#151410; --side:#1d1b16; --surface:#222019; --line:#494132; --edge:#85765c; --text:#fff6e3; --muted:#c9bda6; --action:#ffd465; }
+* { box-sizing:border-box }
+body { margin:0; color:var(--text); background:var(--base); font:1rem/1.45 Geist,system-ui,sans-serif }
+button,input,textarea,select { font:inherit; color:inherit }
+button,select,summary { cursor:pointer }
+button:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible,a:focus-visible { outline:3px solid var(--action); outline-offset:3px }
+.skip { position:absolute; z-index:2; top:.6rem; left:.6rem; padding:.75rem; background:var(--base); color:var(--text); transform:translateY(-170%) }
+.skip:focus { transform:none }
+.shell { display:grid; grid-template-columns:17.5rem minmax(0,1fr); min-height:100vh }
+.sidebar { background:var(--side); border-right:1px solid var(--line); padding:1.65rem 1.15rem; display:flex; flex-direction:column; gap:2.25rem }
+.brand { display:flex; align-items:center; gap:.75rem; font:700 2.35rem/1 'Barlow Condensed',sans-serif; letter-spacing:.045em }
+.brand svg { width:1.55rem; height:1.55rem; color:var(--action); flex:none }
+.menu { display:grid; gap:.35rem }
+.menu button,.recent button { width:100%; min-height:2.75rem; display:flex; align-items:center; gap:.8rem; border:1px solid transparent; padding:.65rem .75rem; text-align:left; color:var(--muted); background:transparent }
+.menu button[aria-current] { color:var(--action); border-color:#74623d; background:#332b1b; font-weight:700 }
+.icon { width:1.15rem; text-align:center; flex:none; font-size:1.15rem }
+.recent h2 { margin:0 .7rem .5rem; font-size:.875rem; color:var(--muted); font-weight:600 }
+.recent button { color:var(--text); padding-block:.7rem }
+.recent small { color:var(--muted); display:block }
+.sidebar-foot { margin-top:auto; padding-top:.9rem; border-top:1px solid var(--line) }
+main { min-width:0 }
+.location { min-height:4.25rem; border-bottom:1px solid var(--line); padding:.75rem clamp(1rem,4vw,4.5rem); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.5rem 1rem; color:var(--muted); font-size:.875rem }
+.location strong { color:var(--text) }
+.workspace { width:min(100%,82rem); margin-inline:auto; padding:clamp(1.6rem,3.4vw,4rem) clamp(1rem,3.6vw,4.5rem) 2rem; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,.75fr); grid-template-areas:"title console" "templates console"; grid-template-rows:auto 1fr; align-items:start; gap:1.45rem clamp(1.6rem,6vw,6rem) }
+.title { grid-area:title; padding-top:2.8rem }
+h1 { margin:0; font:700 clamp(3.2rem,6.8vw,7.3rem)/.92 'Barlow Condensed',sans-serif; letter-spacing:-.01em; overflow-wrap:anywhere }
+.title p { color:var(--muted); margin:.9rem 0 0; font-size:1rem }
+.junction { width:min(100%,21rem); margin-top:3.1rem; display:grid; grid-template-columns:1fr 1fr 1fr; align-items:center; opacity:.82 }
+.junction i { display:block; height:2.4rem; border-bottom:3px solid var(--action); transform:skewX(-38deg) }
+.junction i:first-child { border-top:3px solid var(--action); border-right:3px solid var(--action) }
+.junction i:last-child { border-top:3px solid var(--action); border-left:3px solid var(--action) }
+.console { grid-area:console; background:var(--surface); border:1px solid var(--edge); border-top:3px solid var(--action) }
+.console-body { padding:clamp(1rem,2.5vw,2rem) }
+label { display:block; font-weight:600; margin-bottom:.45rem }
+textarea { display:block; width:100%; min-height:7.25rem; resize:vertical; padding:.8rem 1rem; border:1px solid var(--edge); border-radius:.2rem; background:#191711 }
+textarea::placeholder { color:var(--muted) }
+.routing { display:grid; grid-template-columns:minmax(0,1fr); margin-top:1.25rem; gap:.85rem }
+.routing > :last-child { grid-column:1/-1 }
+.routing label { font-size:.875rem; color:var(--muted) }
+select { width:100%; min-width:0; min-height:2.75rem; border:1px solid var(--edge); border-radius:.2rem; background:#191711; color:var(--text); padding:.5rem .55rem; }
+.console-foot { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.75rem; color:var(--muted); border-top:1px solid var(--line); padding:.85rem clamp(1rem,2.5vw,2rem) }
+.primary { border:1px solid var(--action); padding:.65rem 1.25rem; min-height:2.75rem; background:var(--action); color:#1c1608; font-weight:700 }
+.templates { grid-area:templates }
+.templates h2 { margin:0 0 .6rem; font-size:1rem }
+.templates .options { display:flex; flex-wrap:wrap; gap:.65rem }
+.templates button { border:1px solid var(--edge); color:var(--text); min-height:2.75rem; background:transparent; text-align:left; padding:.55rem .8rem }
+.mobile { display:none }
+@media (hover:hover) and (pointer:fine) {
+  .menu button:hover,.recent button:hover,.templates button:hover { background:#332b1b; color:var(--text) }
+  .primary:hover { background:#ffe5a4 }
+}
+@media (max-width:68rem) {
+  .shell { grid-template-columns:14.5rem minmax(0,1fr) }
+  .workspace { grid-template-columns:1fr; grid-template-areas:"title" "console" "templates"; grid-template-rows:auto; padding-top:2rem }
+  .title { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:1rem; padding:0 }
+  .junction { width:8rem; margin:0 }
+  .routing { grid-template-columns:repeat(2,minmax(0,1fr)) }
+}
+@media (max-width:48rem) {
+  .shell { display:block }
+  .sidebar { display:none }
+  .mobile { display:block; background:var(--side); border-bottom:1px solid var(--line); padding:.75rem 1rem }
+  .mobile summary { min-height:2.75rem; width:fit-content; padding:.35rem 0 }
+  .mobile strong { font:700 1.5rem 'Barlow Condensed',sans-serif; margin-right:.7rem }
+  .mobile nav { margin-top:.6rem }
+  .location { min-height:0 }
+  .junction { width:4rem }
+  .junction i { height:1rem }
+  .workspace { padding-top:1.75rem }
+  .console-foot { align-items:stretch; flex-direction:column }
+}
+@media (forced-colors:active) { :focus-visible { outline-color:Highlight !important } }
+</style>
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M4 5v10M16 5v10M4 10h12M10 5v10"/></svg>
+      HYDRA
+    </div>
+    <nav class="menu" aria-label="Navegação principal">
+      <button type="button" aria-current="page"><span class="icon" aria-hidden="true">＋</span>Nova tarefa</button>
+      <button type="button"><span class="icon" aria-hidden="true">▤</span>Projetos e sessões</button>
+      <button type="button"><span class="icon" aria-hidden="true">◷</span>Automações</button>
+      <button type="button"><span class="icon" aria-hidden="true">▦</span>Recursos</button>
+      <button type="button"><span class="icon" aria-hidden="true">≋</span>Contas e consumo</button>
+    </nav>
+    <section class="recent">
+      <h2>Sessões recentes</h2>
+      <button type="button"><span class="icon" aria-hidden="true">◉</span><span>Revisar checkout<small>Loja Aurora · Em execução</small></span></button>
+      <button type="button"><span class="icon" aria-hidden="true">✓</span><span>Atualizar catálogo<small>Loja Aurora · Concluída</small></span></button>
+    </section>
+    <nav class="menu sidebar-foot" aria-label="Preferências"><button type="button"><span class="icon" aria-hidden="true">⊞</span>Configurações</button></nav>
+  </aside>
+  <details class="mobile">
+    <summary><strong>HYDRA</strong> Menu</summary>
+    <nav class="menu" aria-label="Navegação principal">
+      <button type="button" aria-current="page">Nova tarefa</button><button type="button">Projetos e sessões</button><button type="button">Automações</button><button type="button">Recursos</button><button type="button">Contas e consumo</button><button type="button">Configurações</button>
+    </nav>
+  </details>
+  <main id="conteudo" tabindex="-1">
+    <header class="location"><strong>Nova tarefa</strong><span>Ambiente local</span></header>
+    <div class="workspace">
+      <header class="title">
+        <div><h1>Orquestrar<br>tarefa.</h1><p>Defina o objetivo e confira a rota.</p></div>
+        <div class="junction" aria-hidden="true"><i></i><i></i><i></i></div>
+      </header>
+      <section class="console" aria-label="Preparar tarefa">
+        <div class="console-body">
+          <label for="objective-a">O que precisa ser feito?</label>
+          <textarea id="objective-a" rows="3" placeholder="Ex.: revisar as alterações no checkout"></textarea>
+          <div class="routing">
+            <div><label for="project-a">Projeto</label><select id="project-a"><option>Loja Aurora</option></select></div>
+            <div><label for="agent-a">Agente</label><select id="agent-a"><option>Codex</option><option>Claude</option></select></div>
+            <div><label for="mode-a">Modo</label><select id="mode-a"><option>Em sequência (relay)</option><option>Em paralelo (swarm)</option><option>Persistente</option></select></div>
+          </div>
+        </div>
+        <div class="console-foot"><span>Branch <strong>main</strong></span><button class="primary" type="button">Criar tarefa</button></div>
+      </section>
+      <section class="templates">
+        <h2>Comece por um modelo</h2>
+        <div class="options"><button type="button">Revisar alterações</button><button type="button">Executar testes</button></div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>
