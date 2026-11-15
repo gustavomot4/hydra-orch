@@ -184,6 +184,7 @@ class ConversationRunner:
         stderr = bytearray()
         text_seen = False
         partial = False
+        observed_agents = {}
 
         async def read_errors():
             while chunk := await process.stderr.read(4096):
@@ -205,6 +206,11 @@ class ConversationRunner:
                     except (ValueError, UnicodeDecodeError):
                         continue
                     kind = event.get("type")
+                    from hydra_orch.bridge.agent_observation import observations
+                    for agent in observations(driver, event, observed_agents):
+                        if agent['id'] in observed_agents or len(observed_agents) < 128:
+                            observed_agents[agent['id']] = agent
+                            await emit('agent.observed', agent)
                     if kind == "thread.started" or kind == "system" and event.get("subtype") == "init":
                         native_id = event.get("thread_id") or event.get("session_id")
                         if native_id:
@@ -214,13 +220,13 @@ class ConversationRunner:
                             usage = {k: v for k, v in event['usage'].items() if k in {'input_tokens', 'cached_input_tokens', 'output_tokens'} and isinstance(v, int) and v >= 0}
                             if usage:
                                 metrics.update(usage=usage, usage_status='observed', usage_source='codex_cli')
-                        if kind == "item.completed":
+                        if kind in {"item.started", "item.completed"}:
                             item = event.get("item", {})
-                            if item.get("type") == "agent_message":
+                            if item.get("type") == "agent_message" and kind == "item.completed":
                                 text_seen = True
                                 await emit("text.delta", {"text": item.get("text", "") + "\n"})
                             elif item.get("type") in {"command_execution", "file_change", "mcp_tool_call", "web_search"}:
-                                await emit("tool.completed", {"tool": item.get("type"), "detail": redact_text(json.dumps(item, ensure_ascii=False))[:12000]})
+                                await emit("tool.started" if kind == "item.started" else "tool.completed", {"tool": item.get("type"), "detail": redact_text(json.dumps(item, ensure_ascii=False))[:12000]})
                         elif kind in {"error", "turn.failed"}:
                             error = event.get("message") or event.get("error", {}).get("message") or "Falha ao executar Codex. Confira o login e tente novamente."
                             raise ContractViolation("agent_failed", redact_text(str(error)))

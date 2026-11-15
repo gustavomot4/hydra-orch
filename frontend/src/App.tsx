@@ -433,43 +433,51 @@ export function HydraShell() {
                     }
                     compact
                   >
-                    <PromptComposer
-                      draft={slot.draft}
-                      onDraftChange={slot.onDraftChange}
-                      mode={slot.mode}
-                      onModeChange={slot.onModeChange}
-                      selectedProjectId={slot.selectedProjectId}
-                      sessionKey={draftSessionId}
-                      onSubmit={slot.onSubmit}
-                      isSubmitting={slot.isSubmitting}
-                      submitLabel="Enviar"
-                      hideModeSelector
-                      textareaAriaLabel="Sua mensagem"
-                      placeholder="Ex.: revise as alterações deste projeto e explique o que falta validar."
-                      visibleTextareaLabel
-                      submitDisabled={!slot.selectedProjectId}
-                      onSlashCommand={handleSlash}
-                      renderAttachControl={null}
-                      renderDictationControl={
-                        <details className="min-w-0 text-xs">
-                          <summary className="flex min-h-8 w-fit cursor-pointer items-center rounded-md px-2 py-1 text-[#D1D1D1] [@media(pointer:coarse)]:min-h-[44px]">
-                            Ditado por voz
-                          </summary>
-                          <DictationControl
-                            onInsertTranscript={(text) => {
-                              const cleaned = text.trim();
-                              if (!cleaned) {
-                                return;
-                              }
-                              const next = slot.draft.trim()
-                                ? `${slot.draft.trimEnd()} ${cleaned}`
-                                : cleaned;
-                              slot.onDraftChange(next);
-                            }}
-                          />
-                        </details>
-                      }
-                    />
+                    {(attachControl) => (
+                      <PromptComposer
+                        draft={slot.draft}
+                        onDraftChange={slot.onDraftChange}
+                        mode={slot.mode}
+                        onModeChange={slot.onModeChange}
+                        selectedProjectId={slot.selectedProjectId}
+                        sessionKey={draftSessionId}
+                        onSubmit={slot.onSubmit}
+                        isSubmitting={slot.isSubmitting}
+                        submitLabel="Enviar"
+                        hideModeSelector
+                        toolbarStart={
+                          <>
+                            {attachControl}
+                            {slot.toolbar}
+                          </>
+                        }
+                        className="chat-composer"
+                        textareaAriaLabel="Sua mensagem"
+                        placeholder="Ex.: revise as alterações deste projeto e explique o que falta validar."
+                        submitDisabled={!slot.selectedProjectId}
+                        onSlashCommand={handleSlash}
+                        renderAttachControl={null}
+                        renderDictationControl={
+                          <details className="min-w-0 text-xs">
+                            <summary className="flex min-h-8 w-fit cursor-pointer items-center rounded-md px-2 py-1 text-[#D1D1D1] [@media(pointer:coarse)]:min-h-[44px]">
+                              Ditado por voz
+                            </summary>
+                            <DictationControl
+                              onInsertTranscript={(text) => {
+                                const cleaned = text.trim();
+                                if (!cleaned) {
+                                  return;
+                                }
+                                const next = slot.draft.trim()
+                                  ? `${slot.draft.trimEnd()} ${cleaned}`
+                                  : cleaned;
+                                slot.onDraftChange(next);
+                              }}
+                            />
+                          </details>
+                        }
+                      />
+                    )}
                   </AttachmentDropzone>
                 );
               }}

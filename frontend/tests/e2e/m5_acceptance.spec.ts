@@ -78,6 +78,34 @@ async function loginControlPlane(page: Page): Promise<void> {
     window.sessionStorage.getItem('hydra_control_plane_token'),
   );
   expect(storedToken).toBe(E2E_TOKEN);
+  const folder = page.getByRole('button', { name: /^Pasta:/ });
+  await expect(folder).toBeVisible();
+  if (!(await folder.textContent())?.includes('hydra-e2e-repo')) {
+    await folder.click();
+    await page
+      .getByRole('button', { name: /hydra-e2e-repo/ })
+      .last()
+      .click();
+  }
+}
+
+async function waitForFixtureTurn(page: Page, ordinal: number) {
+  // Execution includes a deliberate CLI delay and Git workspace finalization.
+  // Wait for durable completion separately from the UI propagation assertion.
+  await expect
+    .poll(
+      async () => {
+        const id = page.url().split('/chat/')[1];
+        const response = await page.request.get(`/v1/control-plane/conversations/${id}`, {
+          headers: { Authorization: `Bearer ${E2E_TOKEN}` },
+        });
+        return (await response.json()).turns?.find(
+          (t: { ordinal: number }) => t.ordinal === ordinal,
+        )?.state;
+      },
+      { timeout: 30000 },
+    )
+    .toBe('completed');
 }
 
 async function runAxeWcagAA(page: Page, contextLabel: string): Promise<void> {
@@ -127,6 +155,19 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     ).toBeVisible();
     await details.getByRole('button', { name: 'Atividade', exact: true }).click();
     await expect(details.getByText('Nenhuma verificação executada registrada.')).toBeVisible();
+    const card = page.getByTestId('agent-node-task-wave0');
+    const originalLeft = await card.evaluate((e) => (e as HTMLElement).style.left);
+    const body = (await card.locator('.agent-node-open').boundingBox())!;
+    await page.mouse.move(body.x + 70, body.y + 65);
+    await page.mouse.down();
+    await page.mouse.move(body.x + 130, body.y + 95, { steps: 8 });
+    await page.mouse.up();
+    await expect
+      .poll(() => card.evaluate((e) => (e as HTMLElement).style.left))
+      .not.toBe(originalLeft);
+    await expect(
+      details.getByRole('heading', { name: 'Executar verificação integrada' }),
+    ).toBeVisible();
     const scale = Number(await canvas.getAttribute('data-scale'));
     await page.getByRole('button', { name: 'Aumentar zoom' }).click();
     await expect
@@ -221,7 +262,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     expect(registered.ok()).toBe(true);
     expect(registered.request().postDataJSON().allow_plain_folder).toBe(true);
     expect((await registered.json()).workspace_kind).toBe('folder');
-    await expect(page.getByLabel('Pasta', { exact: true })).toContainText('plain-folder');
+    await expect(page.getByRole('button', { name: /^Pasta:/ })).toContainText('plain-folder');
     await page.getByLabel('Sua mensagem').fill('Leia o README desta pasta sem Git');
     await page.getByRole('button', { name: 'Enviar', exact: true }).click();
     await expect(
@@ -231,7 +272,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
   });
   test('keeps a responsive WebSocket terminal while resizing its viewport', async ({ page }) => {
     await loginControlPlane(page);
-    await expect(page.getByLabel('Pasta', { exact: true })).toContainText('hydra-e2e-repo');
+    await expect(page.getByRole('button', { name: /^Pasta:/ })).toContainText('hydra-e2e-repo');
     await page
       .getByRole('navigation', { name: 'Navegação principal' })
       .getByRole('button', { name: 'Terminal', exact: true })
@@ -288,7 +329,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await runAxeWcagAA(page, 'Novo chat');
     const taskObjective = 'Leia o README e explique como iniciar o projeto';
     const composer = page.getByLabel('Sua mensagem');
-    await expect(page.getByLabel('Pasta', { exact: true })).toContainText('hydra-e2e-repo');
+    await expect(page.getByRole('button', { name: /^Pasta:/ })).toContainText('hydra-e2e-repo');
     await composer.fill(taskObjective);
     await expect(composer).toHaveValue(taskObjective);
     const creation = page.waitForResponse(
@@ -363,17 +404,24 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     page,
   }) => {
     await loginControlPlane(page);
-    await page.getByLabel('Modelo', { exact: true }).selectOption('model-a');
+    await page.getByRole('button', { name: /Configurar agente, conexão e modelo/ }).click();
+    await page.getByRole('button', { name: /^Modelo:/ }).click();
+    await page.getByRole('button', { name: 'Modelo A', exact: true }).click();
+    await page.getByRole('button', { name: 'Concluir configuração' }).click();
     await page.getByLabel('Sua mensagem').fill('Decisão antiga: preservar o README');
     await expect(page.getByLabel('Sua mensagem')).toHaveValue('Decisão antiga: preservar o README');
     await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+    await waitForFixtureTurn(page, 1);
     await expect(
       page.getByTestId('conversation-turn-1').getByText('Resposta concluída', { exact: true }),
     ).toBeVisible();
     const url = page.url();
     for (const [index, model] of ['model-b', 'model-a'].entries()) {
-      await page.getByRole('button', { name: 'Trocar modelo ou combo' }).click();
-      await page.getByLabel('Modelo', { exact: true }).selectOption(model);
+      await page.getByRole('button', { name: /Trocar modelo ou combo/ }).click();
+      await page.getByRole('button', { name: /^Modelo:/ }).click();
+      await page
+        .getByRole('button', { name: model === 'model-a' ? 'Modelo A' : 'Modelo B', exact: true })
+        .click();
       await page.getByRole('button', { name: 'Usar nos próximos envios' }).click();
       await expect(page.getByRole('button', { name: 'Cancelar troca' })).toBeHidden();
       await page
@@ -386,6 +434,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
       await page.getByRole('button', { name: 'Enviar', exact: true }).click();
       const accepted = await acceptance;
       expect(accepted.ok(), await accepted.text()).toBe(true);
+      await waitForFixtureTurn(page, index + 2);
       await expect(
         page.getByTestId(`conversation-turn-${index + 2}`).getByTestId('agent-response'),
       ).toBeVisible();
@@ -397,6 +446,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
       expect(page.url()).toBe(url);
     }
     await page.reload();
+    await waitForFixtureTurn(page, 1);
     await expect(
       page.getByTestId('conversation-turn-1').getByRole('heading', { name: 'Codex · model-a' }),
     ).toBeVisible();
@@ -415,11 +465,12 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await loginControlPlane(page);
     await page.getByLabel('Sua mensagem').fill('Preparar opções de trabalho');
     await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+    await waitForFixtureTurn(page, 1);
     await expect(
       page.getByTestId('conversation-turn-1').getByText('Resposta concluída', { exact: true }),
     ).toBeVisible();
     const url = page.url();
-    await page.getByRole('button', { name: 'Trocar modelo ou combo' }).click();
+    await page.getByRole('button', { name: /Trocar modelo ou combo/ }).click();
     await page.getByRole('radio', { name: 'Coordenar tarefas com agentes' }).check();
     await page.getByRole('checkbox', { name: /Escolher entre combos/ }).check();
     await runAxeWcagAA(page, 'opções de execução');
@@ -467,7 +518,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
 
     // Step 1: Select project/workspace + open Split Terminal PTY & verify live output + clean terminate
     await expect(page.getByTestId('novo-chat-page')).toBeVisible();
-    await expect(page.locator('#novo-chat-project-select')).toContainText('hydra-e2e-repo');
+    await expect(page.getByRole('button', { name: /^Pasta:/ })).toContainText('hydra-e2e-repo');
 
     // Step 2: Attach file in composer & verify real upload
     const dropzone = page.getByTestId('novo-chat-composer-slot').locator('input[type="file"]');
@@ -753,4 +804,169 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     );
     expect(runSubmitCalls).toBe(0);
   });
+});
+
+test('keeps composer settings in reach, renders Markdown and adds CLI agents from live events', async ({
+  page,
+}) => {
+  await loginControlPlane(page);
+  const chat = {
+    id: 'conversation-fixture-live',
+    title: 'Revisar o projeto',
+    project_id: 'fixture-project',
+    project_name: 'Projeto de demonstração',
+    executor: 'codex',
+    access_mode: 'read-only',
+    route_revision: 0,
+    execution_mode: 'single',
+    last_seq: 1,
+    route: { executor: 'codex', connection_mode: 'direct', target_kind: 'model', target_ref: '' },
+    tools: [
+      {
+        seq: 1,
+        turn_id: 'turn1',
+        type: 'tool.completed',
+        payload: {
+          tool: 'command_execution',
+          detail: JSON.stringify({ command: 'read README.md' }),
+        },
+      },
+    ],
+    agents: [] as unknown[],
+    turns: [
+      {
+        id: 'turn1',
+        ordinal: 1,
+        content: 'Leia o projeto e explique a arquitetura com os próximos passos.',
+        state: 'completed',
+        error: null,
+        diff: '',
+        attachments: [],
+        route: {
+          executor: 'codex',
+          connection_mode: 'direct',
+          target_kind: 'model',
+          target_ref: '',
+        },
+        response:
+          '# Visão do projeto\n\nO Hydra organiza **agentes e tarefas** em uma conversa.\n\n## Como funciona\n\n1. Você descreve o pedido.\n2. O agente lê os arquivos.\n3. O resultado fica disponível para revisão.\n\n```bash\npython -m hydra_orch\n```\n\n## Próximos passos\n\n- Revisar o fluxo de conversa\n- Conferir as verificações\n\n' +
+          Array(15)
+            .fill(
+              '### Uma etapa do trabalho\n\nEste texto de demonstração verifica a leitura do histórico sem tirar o compositor da tela.',
+            )
+            .join('\n\n'),
+      },
+    ],
+  };
+  let snapshotReads = 0;
+  await page.route('**/v1/control-plane/conversations/conversation-fixture-live', (route) => {
+    snapshotReads++;
+    return route.fulfill({ json: chat });
+  });
+  await page.addInitScript(() => {
+    const original = window.fetch;
+    window.fetch = async (input, init) => {
+      if (String(input).endsWith('/conversations/conversation-fixture-live/events')) {
+        let streamController: ReadableStreamDefaultController<Uint8Array>;
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            streamController = controller;
+            controller.enqueue(new TextEncoder().encode(': ready\n\n'));
+          },
+        });
+        (window as unknown as { emitFixtureEvent: () => void }).emitFixtureEvent = () =>
+          streamController.enqueue(
+            new TextEncoder().encode('id: 2\nevent: agent.observed\ndata: {}\n\n'),
+          );
+        init?.signal?.addEventListener('abort', () => {
+          try {
+            streamController.close();
+          } catch {}
+        });
+        return new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      return original(input, init);
+    };
+  });
+  await page.goto('/chat/conversation-fixture-live');
+  await expect(
+    page.getByTestId('agent-response').getByRole('heading', { name: 'Visão do projeto' }),
+  ).toBeVisible();
+  const transcript = page.getByTestId('chat-transcript');
+  await transcript.evaluate((e) => (e.scrollTop = e.scrollHeight));
+  await expect(page.getByRole('button', { name: /Trocar modelo ou combo/ })).toBeInViewport();
+  await expect(page.getByLabel('Sua mensagem')).toBeInViewport();
+  await page.getByRole('button', { name: /Trocar modelo ou combo/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Configuração da conversa' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await transcript.evaluate((e) => (e.scrollTop = 0));
+  fs.mkdirSync('../ws/b_output/chat_ux', { recursive: true });
+  await page.screenshot({
+    path: '../ws/b_output/chat_ux/conversation_desktop.png',
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(page.getByRole('button', { name: /Trocar modelo ou combo/ })).toBeInViewport();
+  await expect(page.getByLabel('Sua mensagem')).toBeInViewport();
+  await page.screenshot({ path: '../ws/b_output/chat_ux/conversation_mobile.png', fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  snapshotReads = 0;
+  await page.goto('/agentes?chat=conversation-fixture-live');
+  await expect(page.getByTestId('agent-node-coordinator')).toBeVisible();
+  // Drain the initial connection refresh before injecting a new observation.
+  // A pending initial fetch must not make this event-propagation test pass.
+  await expect.poll(() => snapshotReads).toBeGreaterThanOrEqual(2);
+  chat.agents = [
+    {
+      id: 'cli-child',
+      parent_id: 'root',
+      turn_id: 'turn1',
+      title: 'Revisar arquitetura',
+      state: 'running',
+      executor: 'codex',
+      model: 'Não informado pela CLI',
+      summary: 'Lendo os módulos',
+      source: 'cli',
+    },
+  ];
+  chat.last_seq = 2;
+  await page.evaluate(() =>
+    (window as unknown as { emitFixtureEvent: () => void }).emitFixtureEvent(),
+  );
+  await expect(page.getByTestId('agent-node-cli:cli-child')).toBeVisible({ timeout: 1800 });
+  await page.getByRole('button', { name: 'Novo chat', exact: true }).first().click();
+  await expect(page.getByTestId('novo-chat-page')).toBeVisible();
+  await page.screenshot({ path: '../ws/b_output/chat_ux/new_chat_desktop.png', fullPage: true });
+  await page.route('**/v1/control-plane/omniroute/combos?**', (route) =>
+    route.fulfill({
+      json: {
+        status: 'connected',
+        combos: [
+          {
+            id: 'demo',
+            name: 'Combo de demonstração',
+            target_kind: 'combo',
+            compatibility: 'unverified',
+          },
+        ],
+        models: [],
+        direct_models: [],
+      },
+    }),
+  );
+  await page.getByRole('button', { name: /Configurar agente, conexão e modelo/ }).click();
+  await page.getByRole('radio', { name: 'OmniRoute', exact: true }).check();
+  await page.getByRole('button', { name: /Modelo ou combo/ }).click();
+  const catalog = page.getByRole('dialog', { name: 'Escolher modelo ou combo' });
+  await expect(catalog).toBeVisible();
+  await catalog.getByLabel('Buscar pelo nome').fill('demonstracao');
+  await catalog.getByRole('button', { name: /Combo de demonstração/ }).click();
+  await expect(catalog).toBeHidden();
+  await expect(page.getByRole('button', { name: /Modelo ou combo/ })).toContainText(
+    'Combo de demonstração',
+  );
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.screenshot({ path: '../ws/b_output/chat_ux/new_chat_mobile.png', fullPage: true });
 });

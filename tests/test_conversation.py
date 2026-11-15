@@ -251,6 +251,10 @@ async def test_real_subprocess_protocol_parsing_and_native_resume(tmp_path, monk
         events = [{"type": "thread.started", "thread_id": "native-123"}, {"type": "item.completed", "item": {"type": "agent_message", "text": "Resposta"}}]
     else:
         events = [{"type": "system", "subtype": "init", "session_id": "native-123"}, {"type": "stream_event", "event": {"delta": {"type": "text_delta", "text": "Resposta"}}}, {"type": "assistant", "message": {"content": [{"type": "text", "text": "Resposta"}]}}, {"type": "result", "is_error": False}]
+    if driver == 'codex':
+        events.insert(1, {'type':'item.completed','item':{'type':'collab_tool_call','tool':'spawn_agent','sender_thread_id':'native-123','receiver_thread_ids':['child-test'],'status':'completed','agents_states':{'child-test':{'status':'running'}},'prompt':'Revisar API'}})
+    else:
+        events.insert(1, {'type':'system','subtype':'task_started','task_id':'child-test','task_type':'local_agent','description':'Revisar API'})
     script.write_text("import sys,json\nsys.stdin.read()\n" + "\n".join(f"print({json.dumps(json.dumps(e))}, flush=True)" for e in events), encoding="utf-8")
     real_spawn = asyncio.create_subprocess_exec
     argv = []
@@ -264,6 +268,7 @@ async def test_real_subprocess_protocol_parsing_and_native_resume(tmp_path, monk
         seen.append((kind, payload))
     await ConversationRunner().run({"id": "turn-test"}, {"executor": driver, "native_session_id": "native-previous", "access_mode": "read-only"}, "Continue", tmp_path, emit)
     assert "native-previous" in argv
+    assert any(kind == 'agent.observed' and payload['id'] == 'child-test' and payload['state'] == 'running' for kind,payload in seen)
     assert any(kind == "session.started" and payload["session_id"] == "native-123" for kind, payload in seen)
     assert "".join(p["text"] for k, p in seen if k == "text.delta").strip() == "Resposta"
 

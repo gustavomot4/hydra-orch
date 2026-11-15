@@ -12,6 +12,9 @@ A escolha entre propostas também entra, porque vira calibração do gosto:
 
 <!-- kit-frontend:correcoes -->
 
+- 2026-11-15 | cards e atualização | “podermos arrastar ele de um lado para o outro”, “deveria aparecer na hora nos cards” | arrastar pelo corpo do card, distinguir clique de movimento, atualizar por eventos e representar subagentes somente quando observados no protocolo | canvas, eventos e snapshots
+- 2026-11-15 | conversa e início | “mudar modelo ... fica preso em cima”, “texto deveria ter estilização melhor”, “balão ... muito feio”, “dropdown ... ruins” | manter compositor e configuração acessíveis no rodapé; resposta em Markdown, atividade discreta em cinza, mensagem do usuário compacta; substituir formulário inicial por contexto junto do compositor e busca de pastas; seguir interação familiar de Codex e Claude Code, mantendo o preto | Novo chat e Conversa
+
 - 2026-11-15 | calibração de cor | “exagerou no laranja, o principal é preto ainda” | preto e cinza neutro dominam fundo, sidebar e cards; laranja aparece só em ações, foco, seleção e pequenos detalhes, sem fundos marrons nem degradê amplo | tokens, navegação e canvas
 
 - 2026-11-15 | escolha e cor | “gostei mais da versão a ... cores da versão c ... utilize mais das cores no sistema, esta muito preto” | construir a mesa livre com detalhe lateral da A; adotar laranja/cobre da C em ações, seleção, navegação e superfícies quentes, com estados distintos e legíveis | canvas, casca e tokens compartilhados

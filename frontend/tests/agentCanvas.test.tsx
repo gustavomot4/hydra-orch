@@ -116,6 +116,60 @@ describe('agent workspace uses persisted evidence', () => {
     ]);
   });
 
+  it('shows observed CLI children under their parent and excludes agents from older turns', () => {
+    const chat = {
+      id: 'c1',
+      executor: 'codex',
+      access_mode: 'read-only',
+      tools: [],
+      turns: [
+        { id: 'old', content: 'Antes', response: 'Feito', state: 'completed', ordinal: 1 },
+        { id: 'current', content: 'Agora', response: '', state: 'running', ordinal: 2 },
+      ],
+      agents: [
+        {
+          id: 'old-child',
+          parent_id: 'root',
+          turn_id: 'old',
+          title: 'Trabalho antigo',
+          state: 'completed',
+          executor: 'codex',
+          model: 'a',
+          summary: 'Feito',
+          source: 'cli',
+        },
+        {
+          id: 'child',
+          parent_id: 'root',
+          turn_id: 'current',
+          title: 'Revisar API',
+          state: 'running',
+          executor: 'codex',
+          model: 'a',
+          summary: 'Lendo',
+          source: 'cli',
+        },
+        {
+          id: 'nested',
+          parent_id: 'child',
+          turn_id: 'current',
+          title: 'Conferir testes',
+          state: 'completed',
+          executor: 'codex',
+          model: 'a',
+          summary: 'Pronto',
+          source: 'cli',
+        },
+      ],
+    } as unknown as ConversationSnapshot;
+    const graph = graphFromConversation(chat);
+    expect(graph.nodes.map((n) => n.id)).toEqual(['coordinator', 'cli:child', 'cli:nested']);
+    expect(graph.edges).toContainEqual(
+      expect.objectContaining({ source: 'cli:child', target: 'cli:nested' }),
+    );
+    expect(graph.nodes.find((n) => n.id === 'cli:nested')?.state).toBe('completed');
+  });
+
   it('parses actual CLI messages and keeps command output out of the chat', () => {
     const log = [
       { type: 'item.completed', item: { type: 'agent_message', text: 'Mensagem real' } },

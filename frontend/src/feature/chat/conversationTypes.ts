@@ -64,6 +64,17 @@ export interface ConversationSnapshot {
     type: string;
     payload: { tool?: string; detail?: string };
   }[];
+  agents?: {
+    id: string;
+    parent_id: string;
+    turn_id: string;
+    title: string;
+    state: string;
+    executor: string;
+    model: string;
+    summary: string;
+    source: 'cli';
+  }[];
 }
 
 // A network retry or a remount must retain the identity of the same send.

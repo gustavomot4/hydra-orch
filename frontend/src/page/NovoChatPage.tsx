@@ -1,7 +1,9 @@
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { Send } from 'lucide-react';
+import { Send, FolderOpen, ChevronDown, ArrowUpRight, Code2, Search, Map } from 'lucide-react';
+import { ChatChoice, ChatDialog } from '@/feature/chat/ChatDialog';
+import '@/feature/chat/conversation.css';
 import { clearComposerDraft, OrchestrationMode } from '@/feature/composer/composerTypes';
 import {
   ConversationAgent,
@@ -25,6 +27,7 @@ export interface ComposerSlotProps {
   selectedProjectId: string;
   onSubmit: () => void;
   isSubmitting: boolean;
+  toolbar: ReactNode;
 }
 export interface NovoChatPageProps {
   renderComposer?: (props: ComposerSlotProps) => ReactNode;
@@ -59,6 +62,8 @@ export function NovoChatPage({
   const [accessMode, setAccessMode] = useState('read-only');
   const [error, setError] = useState<string | null>(null);
   const [folder, setFolder] = useState('');
+  const [folderOpen, setFolderOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
   const [pickingFolder, setPickingFolder] = useState(false);
   const desktop = Boolean(document.querySelector('meta[name="hydra-desktop"]'));
   const inFlight = useRef(false);
@@ -171,6 +176,7 @@ export function NovoChatPage({
       selectHierarchy({ projectId: project.id, runId: null, sessionId: null });
       void queryClient.invalidateQueries({ queryKey: ['control-plane', 'projects'] });
       setFolder('');
+      setFolderOpen(false);
       setError(null);
     },
     onError: (err) =>
@@ -203,85 +209,66 @@ export function NovoChatPage({
     setError(null);
     create.mutate();
   };
+  const toolbar = (
+    <div className="chat-footer-controls">
+      <button
+        type="button"
+        className="chat-choice"
+        aria-label={`${effectiveExecutor === 'codex' ? 'Codex' : 'Claude Code'} · ${route.target_ref || 'Padrão do agente'}. Configurar agente, conexão e modelo`}
+        aria-haspopup="dialog"
+        onClick={() => setConfigOpen(true)}
+      >
+        <span>
+          {effectiveExecutor === 'codex' ? 'Codex' : 'Claude Code'} ·{' '}
+          {route.target_ref || 'Padrão do agente'}
+        </span>
+        <ChevronDown size={14} aria-hidden="true" />
+      </button>
+    </div>
+  );
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6" data-testid="novo-chat-page">
-      <h1 ref={headingRef} tabIndex={-1} className="mb-6 text-2xl font-semibold text-[#E8E8E8]">
+    <div className="chat-new" data-testid="novo-chat-page">
+      <h1 ref={headingRef} tabIndex={-1}>
         O que vamos fazer?
       </h1>
-      <p className="mb-5 text-sm text-[#D1D1D1]">
-        Escolha uma pasta e envie seu pedido. Cada conversa mantém seu próprio histórico.
-      </p>
-      <div className="mb-4 flex flex-wrap gap-3">
-        <div className="min-w-0 flex-[2_1_12rem]">
-          <label htmlFor="novo-chat-project-select" className="mb-1 block text-sm text-[#D1D1D1]">
-            Pasta
-          </label>
-          <select
-            id="novo-chat-project-select"
-            value={activeProject?.id ?? ''}
-            className={fieldClass}
-            onChange={(e) =>
-              selectHierarchy({ projectId: e.target.value, runId: null, sessionId: null })
-            }
-          >
-            {!projects.length && (
-              <option value="">
-                {isLoading ? 'Carregando pastas…' : 'Adicione uma pasta abaixo'}
-              </option>
-            )}
-            {projects.length > 0 && !activeProject && <option value="">Selecione uma pasta</option>}
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="min-w-0 flex-[1_1_9rem]">
-          <label htmlFor="novo-chat-agent-select" className="mb-1 block text-sm text-[#D1D1D1]">
-            Agente
-          </label>
-          <select
-            id="novo-chat-agent-select"
-            className={fieldClass}
-            value={effectiveExecutor}
-            onChange={(e) => {
-              setExecutor(e.target.value);
-              setRoute(defaultRoute(e.target.value as 'codex' | 'claude'));
-            }}
-          >
-            {(
-              agents.data ?? [
-                { id: 'codex', name: 'Codex', available: true },
-                { id: 'claude', name: 'Claude Code', available: true },
-              ]
-            ).map((agent) => (
-              <option key={agent.id} value={agent.id} disabled={!agent.available}>
-                {agent.name}
-                {!agent.available ? ' · Não instalado' : ''}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="chat-context">
+        <FolderOpen size={16} aria-hidden="true" />
+        <ChatChoice
+          label="Pasta"
+          value={activeProject?.id ?? ''}
+          options={projects.map((p) => ({ id: p.id, name: p.name, detail: p.canonical_root }))}
+          onChange={(id) => selectHierarchy({ projectId: id, runId: null, sessionId: null })}
+          onAdd={() => setFolderOpen(true)}
+        />
+        <button type="button" className="chat-text-button" onClick={() => setFolderOpen(true)}>
+          Adicionar pasta
+        </button>
       </div>
-      <ConversationRoutePicker
-        value={{ ...route, executor: effectiveExecutor as 'codex' | 'claude' }}
-        onChange={setRoute}
-        onReadyChange={setRouteReady}
-        disabled={create.isPending}
-      />
+      {isLoading && !projects.length && (
+        <p role="status" className="chat-activity">
+          Carregando pastas…
+        </p>
+      )}
+      {agents.isError && (
+        <p role="alert" className="chat-activity">
+          Não foi possível consultar os agentes.{' '}
+          <button className="chat-text-button" onClick={() => void agents.refetch()}>
+            Tentar novamente
+          </button>
+        </p>
+      )}
       {agents.data && !available.length && (
-        <p role="status" className="mb-3 text-sm text-[#D1D1D1]">
-          Instale Codex ou Claude Code e conecte sua conta.{' '}
-          <Link to="/recursos" className="underline">
-            Abrir recursos
-          </Link>
+        <p role="alert" className="chat-activity">
+          Nenhum agente instalado disponível.{' '}
+          <Link className="underline" to="/terminal">
+            Abrir terminal
+          </Link>{' '}
+          para configurar Codex ou Claude Code.
         </p>
       )}
       {route.connection_mode === 'direct' &&
-        agents.data?.find((a) => a.id === effectiveExecutor)?.authenticated === false &&
-        available.length > 0 && (
-          <p role="status" className="mb-3 text-sm text-[#D1D1D1]">
+        agents.data?.find((a) => a.id === effectiveExecutor)?.authenticated === false && (
+          <p role="status" className="chat-activity">
             Conecte a conta do agente antes de enviar.{' '}
             <Link className="underline" to="/terminal">
               Abrir terminal
@@ -290,8 +277,12 @@ export function NovoChatPage({
             <code>{effectiveExecutor === 'codex' ? 'codex login' : 'claude auth login'}</code>.
           </p>
         )}
-      <details className="mb-4 text-sm text-[#D1D1D1]" open={!projects.length && !isLoading}>
-        <summary className="w-fit cursor-pointer py-2">Adicionar pasta</summary>
+      <ChatDialog
+        title="Adicionar pasta"
+        open={folderOpen}
+        onOpenChange={setFolderOpen}
+        description="Escolha a pasta do projeto ou informe o caminho neste computador."
+      >
         <form
           className="mt-2 flex flex-wrap items-end gap-2"
           onSubmit={(e) => {
@@ -329,8 +320,62 @@ export function NovoChatPage({
             Usar esta pasta
           </button>
         </form>
-      </details>
-      <div ref={composerRef} data-testid="novo-chat-composer-slot">
+      </ChatDialog>
+      <ChatDialog title="Configuração do pedido" open={configOpen} onOpenChange={setConfigOpen}>
+        <fieldset className="chat-agent-options">
+          <legend>Agente</legend>
+          {(
+            agents.data ?? [
+              { id: 'codex', name: 'Codex', available: true },
+              { id: 'claude', name: 'Claude Code', available: true },
+            ]
+          ).map((agent) => (
+            <label key={agent.id}>
+              <input
+                type="radio"
+                name="new-chat-agent"
+                checked={effectiveExecutor === agent.id}
+                disabled={!agent.available}
+                onChange={() => {
+                  setExecutor(agent.id);
+                  setRoute(defaultRoute(agent.id as 'codex' | 'claude'));
+                }}
+              />
+              {agent.name}
+              {!agent.available && ' · Não instalado'}
+            </label>
+          ))}
+        </fieldset>
+        <ConversationRoutePicker
+          value={{ ...route, executor: effectiveExecutor as 'codex' | 'claude' }}
+          onChange={setRoute}
+          onReadyChange={setRouteReady}
+          disabled={create.isPending}
+        />
+        <ConversationWorkflow
+          mode={executionMode}
+          automatic={autoRoute}
+          onChange={(value, automatic) => {
+            setExecutionMode(value);
+            setMode(value === 'swarm' ? 'swarm' : 'persistent');
+            setAutoRoute(automatic);
+          }}
+          disabled={create.isPending}
+        />
+        <label className="flex min-h-11 items-center gap-3 text-sm">
+          <input
+            type="checkbox"
+            className="h-6 w-6"
+            checked={accessMode === 'workspace-write'}
+            onChange={(e) => setAccessMode(e.target.checked ? 'workspace-write' : 'read-only')}
+          />
+          Permitir edições em uma cópia isolada do projeto
+        </label>
+        <button type="button" className="chat-save mt-4" onClick={() => setConfigOpen(false)}>
+          Concluir configuração
+        </button>
+      </ChatDialog>
+      <div ref={composerRef} className="chat-composer" data-testid="novo-chat-composer-slot">
         {renderComposer ? (
           renderComposer({
             draft,
@@ -343,6 +388,7 @@ export function NovoChatPage({
             selectedProjectId: activeProject?.id ?? '',
             onSubmit: submit,
             isSubmitting: create.isPending,
+            toolbar,
           })
         ) : (
           <form
@@ -362,7 +408,8 @@ export function NovoChatPage({
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Ex.: leia o README e explique como iniciar este projeto."
             />
-            <div className="mt-3 flex justify-end">
+            <div className="mt-3 flex justify-between">
+              {toolbar}
               <button
                 className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#E8E8E8] px-4 text-[#181818] disabled:opacity-60"
                 disabled={create.isPending || !draft.trim() || !activeProject}
@@ -391,7 +438,7 @@ export function NovoChatPage({
         </p>
       )}
       {!draft && (
-        <div className="mt-4 flex flex-wrap gap-2" aria-label="Sugestões de mensagem">
+        <div className="chat-suggestions" aria-label="Sugestões de mensagem">
           {[
             'Explique como iniciar este projeto',
             'Revise o código e encontre problemas',
@@ -399,40 +446,35 @@ export function NovoChatPage({
           ].map((label) => (
             <button
               key={label}
-              className="min-h-11 rounded-lg border border-[#666] px-3 py-2 text-left text-sm text-[#D1D1D1]"
+              className="chat-suggestion"
               onClick={() => {
                 setDraft(label);
                 composerRef.current?.querySelector('textarea')?.focus();
               }}
             >
-              {label}
+              {label.startsWith('Explique') ? (
+                <Code2 size={16} aria-hidden="true" />
+              ) : label.startsWith('Revise') ? (
+                <Search size={16} aria-hidden="true" />
+              ) : (
+                <Map size={16} aria-hidden="true" />
+              )}
+              <span>{label}</span>
+              <ArrowUpRight size={14} aria-hidden="true" />
             </button>
           ))}
         </div>
       )}
-      <details className="mt-4 text-sm text-[#D1D1D1]">
-        <summary className="w-fit cursor-pointer py-2">Opções da conversa</summary>
-        <ConversationWorkflow
-          mode={executionMode}
-          automatic={autoRoute}
-          onChange={(value, automatic) => {
-            setExecutionMode(value);
-            setMode(value === 'swarm' ? 'swarm' : 'persistent');
-            setAutoRoute(automatic);
-          }}
-          disabled={create.isPending}
-        />
-        <label className="mt-2 flex min-h-11 items-center gap-3">
-          <input
-            type="checkbox"
-            className="h-8 w-8 shrink-0"
-            checked={accessMode === 'workspace-write'}
-            onChange={(e) => setAccessMode(e.target.checked ? 'workspace-write' : 'read-only')}
-          />
-          Permitir edições em uma cópia isolada do projeto
-        </label>
-        <p className="mt-1">As alterações ficam disponíveis para revisão na conversa.</p>
-      </details>
+      <div className="chat-footer-controls">
+        <button type="button" className="chat-text-button" onClick={() => setConfigOpen(true)}>
+          Opções da conversa
+        </button>
+        <span className="text-xs text-[var(--text-muted)]">
+          {accessMode === 'read-only' ? 'Somente leitura' : 'Edições em cópia isolada'} ·{' '}
+          {route.connection_mode === 'omniroute' ? 'OmniRoute' : 'Conta do agente'}
+          {executionMode === 'swarm' ? ' · Coordenação de agentes' : ''}
+        </span>
+      </div>
     </div>
   );
 }

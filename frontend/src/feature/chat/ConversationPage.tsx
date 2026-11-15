@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createParser } from 'eventsource-parser';
 import { Link } from 'react-router-dom';
-import { Square } from 'lucide-react';
+import { Square, ChevronDown, Network } from 'lucide-react';
+import { ChatDialog } from './ChatDialog';
+import { MarkdownSafeView } from '@/feature/artifact/MarkdownSafeView';
+import './conversation.css';
 import { PromptComposer } from '@/feature/composer';
 import { AttachmentDropzone, AttachmentItemView } from '@/feature/attachment';
 import { DictationControl } from '@/feature/dictation';
@@ -66,6 +69,7 @@ export function ConversationPage({ conversationId }: { conversationId: string })
   const headingRef = useRef<HTMLHeadingElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const followOutputRef = useRef(true);
   const renderedSeqRef = useRef<number | null>(null);
@@ -100,11 +104,8 @@ export function ConversationPage({ conversationId }: { conversationId: string })
     if (error) errorRef.current?.focus();
   }, [error]);
   useEffect(() => {
-    let parent = pageRef.current?.parentElement;
-    while (parent && !/auto|scroll/.test(getComputedStyle(parent).overflowY))
-      parent = parent.parentElement;
-    if (!parent) return;
-    const container = parent;
+    const container = transcriptRef.current;
+    if (!container) return;
     const onScroll = () => {
       followOutputRef.current =
         container.scrollHeight - container.scrollTop - container.clientHeight < 160;
@@ -336,70 +337,302 @@ export function ConversationPage({ conversationId }: { conversationId: string })
     );
   const active = data.turns.find((t) => t.state === 'running' || t.state === 'stopping');
   return (
-    <div
-      ref={pageRef}
-      className="mx-auto w-full max-w-3xl px-4 py-6 text-[#E8E8E8] sm:px-6"
-      data-testid="conversation-page"
-    >
-      <header className="mb-6 border-b border-[#303030] pb-4">
-        {data.project_name && <p className="mb-2 text-sm text-[#D1D1D1]">{data.project_name}</p>}
-        <h1 ref={headingRef} tabIndex={-1} className="break-words text-xl font-semibold">
-          {data.title}
-        </h1>
-        <p className="mt-2 text-sm text-[#D1D1D1]">
-          {data.executor === 'codex' ? 'Codex' : 'Claude Code'} ·{' '}
-          {data.access_mode === 'read-only' ? 'Somente leitura' : 'Edições em cópia isolada'}
-          {data.route?.target_ref && (
-            <>
-              {' '}
-              · {data.route.connection_mode === 'omniroute' ? 'OmniRoute · ' : ''}
-              {data.route.target_ref}
-            </>
-          )}
-        </p>
-        {data.route_revision !== undefined && (
-          <button
-            type="button"
-            className="mt-2 min-h-11 rounded-lg border border-[#666] px-3 text-sm"
-            aria-expanded={Boolean(routeDraft)}
-            onClick={() => {
-              setWorkflowDraft(data.execution_mode ?? 'single');
-              setAutoDraft(data.auto_route ?? false);
-              setRouteDraft(
-                routeDraft
-                  ? null
-                  : routeSelection(data.route ?? defaultRoute(data.executor as 'codex' | 'claude')),
-              );
-            }}
-          >
-            Trocar modelo ou combo
-          </button>
-        )}
+    <div ref={pageRef} className="conversation-page" data-testid="conversation-page">
+      <header className="conversation-header">
+        <div>
+          {data.project_name && <p>{data.project_name}</p>}
+          <h1 ref={headingRef} tabIndex={-1}>
+            {data.title}
+          </h1>
+        </div>
         <Link
-          className="ml-2 mt-2 inline-flex min-h-11 items-center rounded-lg border border-[#666] px-3 text-sm"
+          className="chat-text-button"
           to={`/agentes?chat=${encodeURIComponent(conversationId)}`}
         >
+          <Network size={16} aria-hidden="true" />
           Ver agentes
         </Link>
+      </header>
+      <div ref={transcriptRef} className="chat-transcript" data-testid="chat-transcript">
+        <div className="chat-transcript-inner">
+          {!connected && (
+            <p role="status" className="mt-2 text-sm text-[#D1D1D1]">
+              Reconectando… Suas mensagens estão salvas.
+            </p>
+          )}
+          {data.legacy_run_id && (
+            <Link
+              className="mt-2 inline-block min-h-11 py-2 underline"
+              to={`/chat/${data.legacy_run_id}`}
+            >
+              Ver execução anterior
+            </Link>
+          )}
+          <div aria-label="Mensagens da conversa">
+            {data.turns.map((turn) => (
+              <section
+                key={turn.id}
+                data-testid={`conversation-turn-${turn.ordinal}`}
+                className="chat-turn"
+              >
+                <div className="chat-user">
+                  <h2 className="mb-1 text-sm font-semibold text-[#D1D1D1]">Você</h2>
+                  <p className="whitespace-pre-wrap break-words">{turn.content}</p>
+                  {turn.attachments.map((a) => (
+                    <p className="mt-2 break-words text-sm text-[#D1D1D1]" key={a.attachment_id}>
+                      Anexo: {a.filename}
+                    </p>
+                  ))}
+                </div>
+                <div className="chat-assistant">
+                  <h2 className="mb-2 text-sm font-semibold text-[#D1D1D1]">
+                    {(turn.route?.executor ?? data.executor) === 'codex' ? 'Codex' : 'Claude Code'}
+                    {turn.route?.target_ref && <> · {turn.route.target_ref}</>}
+                  </h2>
+                  {data.tools
+                    .filter((t) => t.turn_id === turn.id)
+                    .slice(-1)
+                    .map((tool) => (
+                      <p
+                        key={tool.seq}
+                        className="chat-activity"
+                        data-testid="agent-latest-activity"
+                      >
+                        {activityLabel(tool.payload.tool, tool.payload.detail)}
+                      </p>
+                    ))}
+                  {turn.response && (
+                    <div data-testid="agent-response">
+                      <MarkdownSafeView markdown={turn.response} bare />
+                    </div>
+                  )}
+                  {turn.coordination?.plan && (
+                    <div className="my-3 rounded-lg border border-[#666] p-3 text-sm">
+                      <h3 className="font-semibold">Tarefas deste pedido</h3>
+                      <p className="my-2 text-[#D1D1D1]">{turn.coordination.plan.objective}</p>
+                      <ol className="list-decimal space-y-3 pl-5">
+                        {turn.coordination.plan.tasks.map((task) => {
+                          const progress = turn.coordination?.tasks?.[task.id];
+                          return (
+                            <li key={task.id}>
+                              <p>
+                                {task.title} ·{' '}
+                                {(
+                                  {
+                                    starting: 'Iniciando',
+                                    accepted: 'Revisão aprovada',
+                                    rejected: 'Revisão recusada',
+                                    failed: 'Verificação falhou',
+                                  } as Record<string, string>
+                                )[progress?.state ?? ''] ?? 'Planejada'}
+                              </p>
+                              <p className="break-words text-[#D1D1D1]">{task.paths.join(', ')}</p>
+                              {progress?.route?.target_ref && (
+                                <p>Destino: {progress.route.target_ref}</p>
+                              )}
+                              {progress?.reason && (
+                                <p className="mt-1 text-[#D1D1D1]">{progress.reason}</p>
+                              )}
+                              {progress?.review && (
+                                <p className="mt-1 text-[#D1D1D1]">Revisão: {progress.review}</p>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ol>
+                      {turn.coordination.run_id && turn.coordination.phase && (
+                        <Link
+                          className="mt-3 inline-block min-h-11 py-2 underline"
+                          to={`/chat/${turn.coordination.run_id}`}
+                        >
+                          Ver execução e verificações
+                        </Link>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <p role="status" className="text-sm text-[#D1D1D1]">
+                      {labels[turn.state]}
+                    </p>
+                    {['queued', 'running', 'stopping'].includes(turn.state) && (
+                      <button
+                        className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#666] px-3 text-sm"
+                        disabled={turn.state === 'stopping' || cancelling === turn.id}
+                        onClick={() => void cancel(turn.id)}
+                      >
+                        <Square size={14} aria-hidden="true" />
+                        {turn.state === 'queued'
+                          ? 'Cancelar envio'
+                          : turn.state === 'stopping'
+                            ? 'Interrompendo…'
+                            : 'Parar'}
+                      </button>
+                    )}
+                  </div>
+                  {turn.error && (
+                    <p
+                      role="alert"
+                      className="mt-2 whitespace-pre-wrap break-words text-sm text-[#FCA5A5]"
+                    >
+                      {turn.error}
+                    </p>
+                  )}
+                  {data.tools.some((t) => t.turn_id === turn.id) && (
+                    <details className="chat-activity">
+                      <summary className="w-fit cursor-pointer py-2">Atividade do agente</summary>
+                      {data.tools
+                        .filter((t) => t.turn_id === turn.id)
+                        .map((tool) => (
+                          <div key={tool.seq} className="my-2">
+                            <p>{activityLabel(tool.payload.tool, tool.payload.detail)}</p>
+                            {tool.payload.detail && (
+                              <pre className="whitespace-pre-wrap break-all text-xs">
+                                {tool.payload.detail}
+                              </pre>
+                            )}
+                          </div>
+                        ))}
+                    </details>
+                  )}
+                  {turn.diff && (
+                    <details className="mt-3 text-sm">
+                      <summary className="w-fit cursor-pointer py-2">Revisar alterações</summary>
+                      <p className="my-2 text-[#D1D1D1]">
+                        Alterações preservadas na cópia desta conversa, aguardando revisão.
+                      </p>
+                      <pre className="whitespace-pre-wrap break-all rounded-lg border border-[#666] p-3 text-xs">
+                        {turn.diff}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              </section>
+            ))}
+          </div>
+          <div ref={endRef} />
+        </div>
+      </div>
+      <div className="chat-dock">
+        <div className="chat-dock-inner chat-composer">
+          {active && (
+            <p className="mb-3 text-sm text-[#D1D1D1]">
+              Você pode enviar outra mensagem. Ela será respondida em seguida.
+            </p>
+          )}
+          <AttachmentDropzone
+            sessionId={conversationId}
+            workspaceId={data.project_id}
+            hostId="local"
+            attachments={attachments}
+            onAttachmentsChange={setAttachments}
+            compact
+          >
+            {(attachControl) => (
+              <PromptComposer
+                draft={draft}
+                onDraftChange={setDraft}
+                sessionKey={conversationId}
+                hideModeSelector
+                toolbarStart={
+                  <>
+                    {attachControl}
+                    {data.route_revision !== undefined ? (
+                      <button
+                        className="chat-choice"
+                        type="button"
+                        aria-label={`${data.executor === 'codex' ? 'Codex' : 'Claude Code'} · ${data.route?.target_ref || 'Padrão do agente'}. Trocar modelo ou combo`}
+                        aria-haspopup="dialog"
+                        onClick={() => {
+                          setWorkflowDraft(data.execution_mode ?? 'single');
+                          setAutoDraft(data.auto_route ?? false);
+                          setRouteDraft(
+                            routeSelection(
+                              data.route ?? defaultRoute(data.executor as 'codex' | 'claude'),
+                            ),
+                          );
+                        }}
+                      >
+                        <span>
+                          {data.executor === 'codex' ? 'Codex' : 'Claude Code'} ·{' '}
+                          {data.route?.target_ref || 'Padrão do agente'}
+                        </span>
+                        <ChevronDown size={14} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                  </>
+                }
+                slashCommands={conversationCommands}
+                textareaAriaLabel="Sua mensagem"
+                placeholder="Continue a conversa…"
+                onSubmit={() => void send()}
+                isSubmitting={sending}
+                submitLabel="Enviar"
+                renderAttachControl={null}
+                renderDictationControl={
+                  <details className="text-sm text-[#D1D1D1]">
+                    <summary className="flex min-h-8 cursor-pointer items-center px-2 [@media(pointer:coarse)]:min-h-[44px]">
+                      Ditado por voz
+                    </summary>
+                    <DictationControl
+                      onInsertTranscript={(text) =>
+                        setDraft((current) =>
+                          current.trim() ? `${current.trimEnd()} ${text.trim()}` : text.trim(),
+                        )
+                      }
+                    />
+                  </details>
+                }
+              />
+            )}
+          </AttachmentDropzone>
+          {error && (
+            <div
+              ref={errorRef}
+              tabIndex={-1}
+              role="alert"
+              className="mt-3 rounded-lg border border-[#FCA5A5] p-3 text-sm text-[#FCA5A5]"
+            >
+              {error}
+            </div>
+          )}
+          <p className="mt-2 text-xs text-[var(--text-muted)]">
+            {data.access_mode === 'read-only' ? 'Somente leitura' : 'Edições em cópia isolada'} ·{' '}
+            {data.route?.connection_mode === 'omniroute' ? 'OmniRoute' : 'Conta do agente'} ·{' '}
+            {data.execution_mode === 'swarm' ? 'Coordenação de agentes' : 'Um agente'}
+          </p>
+        </div>
+      </div>
+      <ChatDialog
+        title="Configuração da conversa"
+        open={Boolean(routeDraft)}
+        onOpenChange={(open) => {
+          if (!open && !savingRoute) setRouteDraft(null);
+        }}
+      >
         {routeDraft && (
           <div className="mt-3 rounded-lg border border-[#666] p-3">
             <p className="mb-3 text-sm text-[#D1D1D1]">
               A mesma conversa continua com seus arquivos e histórico. A escolha vale para os
               próximos envios; mensagens já na fila mantêm a configuração anterior.
             </p>
-            <label htmlFor="conversation-agent" className="mb-1 block text-sm">
-              Agente
-            </label>
-            <select
-              id="conversation-agent"
-              className="mb-3 min-h-11 w-full rounded-lg border border-[#666] bg-[#1C1C1C] px-3 text-sm"
-              disabled={savingRoute}
-              value={routeDraft.executor}
-              onChange={(e) => setRouteDraft(defaultRoute(e.target.value as 'codex' | 'claude'))}
-            >
-              <option value="codex">Codex</option>
-              <option value="claude">Claude Code</option>
-            </select>
+            <fieldset className="chat-agent-options">
+              <legend>Agente</legend>
+              {[
+                { id: 'codex', name: 'Codex' },
+                { id: 'claude', name: 'Claude Code' },
+              ].map((agent) => (
+                <label key={agent.id}>
+                  <input
+                    type="radio"
+                    name="conversation-agent"
+                    checked={routeDraft.executor === agent.id}
+                    disabled={savingRoute}
+                    onChange={() => setRouteDraft(defaultRoute(agent.id as 'codex' | 'claude'))}
+                  />
+                  {agent.name}
+                </label>
+              ))}
+            </fieldset>
             <ConversationRoutePicker
               value={routeDraft}
               onChange={setRouteDraft}
@@ -437,207 +670,29 @@ export function ConversationPage({ conversationId }: { conversationId: string })
             </div>
           </div>
         )}
-        {!connected && (
-          <p role="status" className="mt-2 text-sm text-[#D1D1D1]">
-            Reconectando… Suas mensagens estão salvas.
-          </p>
-        )}
-        {data.legacy_run_id && (
-          <Link
-            className="mt-2 inline-block min-h-11 py-2 underline"
-            to={`/chat/${data.legacy_run_id}`}
-          >
-            Ver execução anterior
-          </Link>
-        )}
-      </header>
-      <div className="space-y-6" aria-label="Mensagens da conversa">
-        {data.turns.map((turn) => (
-          <section
-            key={turn.id}
-            data-testid={`conversation-turn-${turn.ordinal}`}
-            className="min-w-0 space-y-3"
-          >
-            <div className="ml-auto max-w-full rounded-2xl border border-[#666] bg-[#282828] px-4 py-3 sm:max-w-[90%]">
-              <h2 className="mb-1 text-sm font-semibold text-[#D1D1D1]">Você</h2>
-              <p className="whitespace-pre-wrap break-words">{turn.content}</p>
-              {turn.attachments.map((a) => (
-                <p className="mt-2 break-words text-sm text-[#D1D1D1]" key={a.attachment_id}>
-                  Anexo: {a.filename}
-                </p>
-              ))}
-            </div>
-            <div className="min-w-0 px-1 py-2">
-              <h2 className="mb-2 text-sm font-semibold text-[#D1D1D1]">
-                {(turn.route?.executor ?? data.executor) === 'codex' ? 'Codex' : 'Claude Code'}
-                {turn.route?.target_ref && <> · {turn.route.target_ref}</>}
-              </h2>
-              {turn.response && (
-                <div
-                  className="whitespace-pre-wrap break-words leading-relaxed"
-                  data-testid="agent-response"
-                >
-                  {turn.response}
-                </div>
-              )}
-              {turn.coordination?.plan && (
-                <div className="my-3 rounded-lg border border-[#666] p-3 text-sm">
-                  <h3 className="font-semibold">Tarefas deste pedido</h3>
-                  <p className="my-2 text-[#D1D1D1]">{turn.coordination.plan.objective}</p>
-                  <ol className="list-decimal space-y-3 pl-5">
-                    {turn.coordination.plan.tasks.map((task) => {
-                      const progress = turn.coordination?.tasks?.[task.id];
-                      return (
-                        <li key={task.id}>
-                          <p>
-                            {task.title} ·{' '}
-                            {(
-                              {
-                                starting: 'Iniciando',
-                                accepted: 'Revisão aprovada',
-                                rejected: 'Revisão recusada',
-                                failed: 'Verificação falhou',
-                              } as Record<string, string>
-                            )[progress?.state ?? ''] ?? 'Planejada'}
-                          </p>
-                          <p className="break-words text-[#D1D1D1]">{task.paths.join(', ')}</p>
-                          {progress?.route?.target_ref && (
-                            <p>Destino: {progress.route.target_ref}</p>
-                          )}
-                          {progress?.reason && (
-                            <p className="mt-1 text-[#D1D1D1]">{progress.reason}</p>
-                          )}
-                          {progress?.review && (
-                            <p className="mt-1 text-[#D1D1D1]">Revisão: {progress.review}</p>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ol>
-                  {turn.coordination.run_id && turn.coordination.phase && (
-                    <Link
-                      className="mt-3 inline-block min-h-11 py-2 underline"
-                      to={`/chat/${turn.coordination.run_id}`}
-                    >
-                      Ver execução e verificações
-                    </Link>
-                  )}
-                </div>
-              )}
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <p role="status" className="text-sm text-[#D1D1D1]">
-                  {labels[turn.state]}
-                </p>
-                {['queued', 'running', 'stopping'].includes(turn.state) && (
-                  <button
-                    className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#666] px-3 text-sm"
-                    disabled={turn.state === 'stopping' || cancelling === turn.id}
-                    onClick={() => void cancel(turn.id)}
-                  >
-                    <Square size={14} aria-hidden="true" />
-                    {turn.state === 'queued'
-                      ? 'Cancelar envio'
-                      : turn.state === 'stopping'
-                        ? 'Interrompendo…'
-                        : 'Parar'}
-                  </button>
-                )}
-              </div>
-              {turn.error && (
-                <p
-                  role="alert"
-                  className="mt-2 whitespace-pre-wrap break-words text-sm text-[#FCA5A5]"
-                >
-                  {turn.error}
-                </p>
-              )}
-              {data.tools.some((t) => t.turn_id === turn.id) && (
-                <details className="mt-3 text-sm text-[#D1D1D1]">
-                  <summary className="w-fit cursor-pointer py-2">Atividade do agente</summary>
-                  {data.tools
-                    .filter((t) => t.turn_id === turn.id)
-                    .map((tool) => (
-                      <div key={tool.seq} className="my-2">
-                        <p>{tool.payload.tool}</p>
-                        {tool.payload.detail && (
-                          <pre className="whitespace-pre-wrap break-all text-xs">
-                            {tool.payload.detail}
-                          </pre>
-                        )}
-                      </div>
-                    ))}
-                </details>
-              )}
-              {turn.diff && (
-                <details className="mt-3 text-sm">
-                  <summary className="w-fit cursor-pointer py-2">Revisar alterações</summary>
-                  <p className="my-2 text-[#D1D1D1]">
-                    Alterações preservadas na cópia desta conversa, aguardando revisão.
-                  </p>
-                  <pre className="whitespace-pre-wrap break-all rounded-lg border border-[#666] p-3 text-xs">
-                    {turn.diff}
-                  </pre>
-                </details>
-              )}
-            </div>
-          </section>
-        ))}
-      </div>
-      <div className="mt-6 border-t border-[#303030] pt-4">
-        {active && (
-          <p className="mb-3 text-sm text-[#D1D1D1]">
-            Você pode enviar outra mensagem. Ela será respondida em seguida.
-          </p>
-        )}
-        <AttachmentDropzone
-          sessionId={conversationId}
-          workspaceId={data.project_id}
-          hostId="local"
-          attachments={attachments}
-          onAttachmentsChange={setAttachments}
-          compact
-        >
-          <PromptComposer
-            draft={draft}
-            onDraftChange={setDraft}
-            sessionKey={conversationId}
-            hideModeSelector
-            slashCommands={conversationCommands}
-            visibleTextareaLabel
-            textareaAriaLabel="Sua mensagem"
-            placeholder="Continue a conversa…"
-            onSubmit={() => void send()}
-            isSubmitting={sending}
-            submitLabel="Enviar"
-            renderAttachControl={null}
-            renderDictationControl={
-              <details className="text-sm text-[#D1D1D1]">
-                <summary className="flex min-h-8 cursor-pointer items-center px-2 [@media(pointer:coarse)]:min-h-[44px]">
-                  Ditado por voz
-                </summary>
-                <DictationControl
-                  onInsertTranscript={(text) =>
-                    setDraft((current) =>
-                      current.trim() ? `${current.trimEnd()} ${text.trim()}` : text.trim(),
-                    )
-                  }
-                />
-              </details>
-            }
-          />
-        </AttachmentDropzone>
-        {error && (
-          <div
-            ref={errorRef}
-            tabIndex={-1}
-            role="alert"
-            className="mt-3 rounded-lg border border-[#FCA5A5] p-3 text-sm text-[#FCA5A5]"
-          >
-            {error}
-          </div>
-        )}
-        <div ref={endRef} />
-      </div>
+      </ChatDialog>
     </div>
+  );
+}
+
+function activityLabel(tool?: string, detail?: string) {
+  try {
+    const value = JSON.parse(detail || '{}');
+    if (value.command) return String(value.command).slice(0, 180);
+    if (value.path) return `${tool || 'Lendo'} ${value.path}`;
+  } catch {
+    /* plain metadata */
+  }
+  return (
+    (
+      {
+        command_execution: 'Executando comando',
+        file_change: 'Atualizando arquivos',
+        web_search: 'Pesquisando',
+        mcp_tool_call: 'Usando ferramenta',
+      } as Record<string, string>
+    )[tool || ''] ||
+    tool ||
+    'Atividade do agente'
   );
 }

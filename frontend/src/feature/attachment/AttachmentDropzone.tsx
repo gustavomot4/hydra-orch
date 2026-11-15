@@ -47,7 +47,7 @@ export interface AttachmentDropzoneProps {
   onConfirmed?: (attachment: AttachmentRef) => void;
   onError?: (error: { filename: string; code: string; message: string }) => void;
   className?: string;
-  children?: ReactNode;
+  children?: ReactNode | ((attachControl: ReactNode) => ReactNode);
 }
 
 function formatUploadError(err: unknown): { code: string; message: string } {
@@ -238,9 +238,7 @@ export function AttachmentDropzone({
         });
 
         const view = attachmentRefToView(created);
-        commitItems((prev) =>
-          prev.map((entry) => (entry.id === itemId ? view : entry)),
-        );
+        commitItems((prev) => prev.map((entry) => (entry.id === itemId ? view : entry)));
         onUploaded?.(created);
       } catch (err) {
         const formatted = formatUploadError(err);
@@ -357,9 +355,7 @@ export function AttachmentDropzone({
         return;
       }
       commitItems((prev) =>
-        prev.map((entry) =>
-          entry.id === item.id ? { ...entry, confirming: true } : entry,
-        ),
+        prev.map((entry) => (entry.id === item.id ? { ...entry, confirming: true } : entry)),
       );
       try {
         const confirmed = await confirmAttachmentTransfer(
@@ -368,16 +364,12 @@ export function AttachmentDropzone({
           item.attachment_id,
         );
         const view = attachmentRefToView(confirmed);
-        commitItems((prev) =>
-          prev.map((entry) => (entry.id === item.id ? view : entry)),
-        );
+        commitItems((prev) => prev.map((entry) => (entry.id === item.id ? view : entry)));
         onConfirmed?.(confirmed);
       } catch (err) {
         const formatted = formatUploadError(err);
         commitItems((prev) =>
-          prev.map((entry) =>
-            entry.id === item.id ? { ...entry, confirming: false } : entry,
-          ),
+          prev.map((entry) => (entry.id === item.id ? { ...entry, confirming: false } : entry)),
         );
         setErrorBanner({
           id: nextLocalId('err'),
@@ -415,6 +407,18 @@ export function AttachmentDropzone({
     [commitItems],
   );
 
+  const attachControl = (
+    <button
+      type="button"
+      aria-label="Anexar arquivo"
+      disabled={disabled}
+      onClick={() => fileInputRef.current?.click()}
+      className="chat-attach-control inline-flex items-center gap-1.5 rounded-lg border border-[#303030] bg-[#202020] px-3 py-1.5 text-xs font-medium text-[#E8E8E8] transition-colors hover:bg-[#282828] disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      <Paperclip aria-hidden="true" className="h-3.5 w-3.5 text-[#969696]" />
+      <span>Anexar arquivo</span>
+    </button>
+  );
   return (
     <div
       data-testid="attachment-dropzone"
@@ -456,29 +460,28 @@ export function AttachmentDropzone({
         className="sr-only"
       />
 
-      {children ? <div className={compact ? 'mb-2' : 'mb-3'}>{children}</div> : null}
+      {children ? (
+        <div className={compact ? 'mb-2' : 'mb-3'}>
+          {typeof children === 'function' ? children(attachControl) : children}
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#303030] bg-[#202020] px-3 py-1.5 text-xs font-medium text-[#E8E8E8] transition-colors hover:bg-[#282828] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Paperclip aria-hidden="true" className="h-3.5 w-3.5 text-[#969696]" />
-            <span>Anexar arquivo</span>
-          </button>
+          {typeof children !== 'function' ? attachControl : null}
 
-          {!compact ? <span className="text-[11px] text-[#969696]">
-            Arraste e solte, cole (Ctrl+V) ou selecione · Máx.{' '}
-            {formatAttachmentSize(maxBytes)}
-          </span> : null}
+          {!compact ? (
+            <span className="text-[11px] text-[#969696]">
+              Arraste e solte, cole (Ctrl+V) ou selecione · Máx. {formatAttachmentSize(maxBytes)}
+            </span>
+          ) : null}
         </div>
 
-        {!compact ? <span className="rounded border border-[#303030] bg-[#141414] px-2 py-0.5 font-mono text-[11px] text-[#969696]">
-          host: {hostId}
-        </span> : null}
+        {!compact ? (
+          <span className="rounded border border-[#303030] bg-[#141414] px-2 py-0.5 font-mono text-[11px] text-[#969696]">
+            host: {hostId}
+          </span>
+        ) : null}
       </div>
 
       {errorBanner ? (

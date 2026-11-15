@@ -41,6 +41,7 @@ export function PromptComposer({
   textareaAriaLabel = 'Descreva a tarefa para o coordenador',
   visibleTextareaLabel = false,
   className = '',
+  toolbarStart,
 }: PromptComposerProps) {
   const effectiveSessionKey =
     sessionKey?.trim() || (selectedProjectId ? `project:${selectedProjectId}` : 'default');
@@ -390,6 +391,7 @@ export function PromptComposer({
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-[#303030] pt-2.5">
           <div className="flex flex-wrap items-center gap-2">
+            {toolbarStart}
             {!hideModeSelector ? (
               <>
                 <label htmlFor={`${listboxId}-mode`} className="sr-only">
@@ -444,6 +446,7 @@ export function PromptComposer({
             ) : null}
             <button
               type="button"
+              aria-label={isSubmitting ? 'Enviando...' : submitLabel}
               disabled={
                 disabled || submitDisabled || isSubmitting || currentDraft.trim().length === 0
               }

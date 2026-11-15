@@ -45,6 +45,7 @@ export function agentLabel(value: string) {
       : value || 'Não informado';
 }
 export function statusMeta(value: string) {
+  if (value === 'planned') return { label: 'Planejado', tone: 'muted', symbol: '◇' };
   if (['completed', 'succeeded', 'accepted', 'passed'].includes(value))
     return { label: 'Concluído', tone: 'success', symbol: '✓' };
   if (['failed', 'rejected', 'timed_out', 'crashed'].includes(value))
@@ -55,6 +56,8 @@ export function statusMeta(value: string) {
     return { label: 'Interrompido', tone: 'muted', symbol: '■' };
   if (['ready_for_review', 'reviewing'].includes(value))
     return { label: 'Em revisão', tone: 'warning', symbol: '◷' };
+  if (['unknown', 'unavailable'].includes(value))
+    return { label: 'Sem estado informado', tone: 'muted', symbol: '?' };
   return { label: value === 'blocked' ? 'Bloqueado' : 'Aguardando', tone: 'warning', symbol: '◷' };
 }
 
@@ -126,8 +129,13 @@ export function graphFromConversation(
         role: 'worker',
         executor: agentLabel(progress?.route?.executor ?? route?.executor ?? ''),
         model: progress?.route?.target_ref || route?.target_ref || 'Padrão do agente',
-        state: progress?.state || 'pending',
-        action: progress?.review || progress?.reason || 'Tarefa registrada no plano',
+        state: progress?.state || 'planned',
+        action:
+          progress?.review ||
+          progress?.reason ||
+          (chat.access_mode === 'read-only'
+            ? 'Plano em leitura; execução não iniciada'
+            : 'Tarefa registrada no plano'),
         messages: [],
         paths: t.paths,
         checks: [],
@@ -135,6 +143,30 @@ export function graphFromConversation(
       });
       graph.edges.push({ id: 'plan-' + t.id, source: 'coordinator', target: t.id, label: 'Plano' });
     });
+  const observed = (chat.agents ?? []).filter((a) => a.turn_id === turn.id);
+  for (const agent of observed) {
+    graph.nodes.push({
+      id: 'cli:' + agent.id,
+      title: agent.title,
+      role: 'worker',
+      executor: agentLabel(agent.executor),
+      model: agent.model,
+      state: agent.state,
+      action: agent.summary,
+      messages: [{ author: 'Subagente da CLI', text: agent.summary }],
+      paths: [],
+      checks: [],
+      conversationId: chat.id,
+    });
+    graph.edges.push({
+      id: 'cli-edge:' + agent.id,
+      source: observed.some((a) => a.id === agent.parent_id)
+        ? 'cli:' + agent.parent_id
+        : 'coordinator',
+      target: 'cli:' + agent.id,
+      label: 'Subagente CLI',
+    });
+  }
   return graph;
 }
 

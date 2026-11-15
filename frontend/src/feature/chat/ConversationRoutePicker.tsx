@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { ConversationRoute, routeSelection } from './conversationTypes';
+import { ChatChoice } from './ChatDialog';
 
 interface Target {
   id: string;
@@ -115,49 +116,42 @@ export function ConversationRoutePicker({
     <div className="mb-4 space-y-3" data-testid="conversation-route-picker">
       <div className="flex flex-wrap gap-3">
         <div className="min-w-0 flex-[1_1_10rem]">
-          <label htmlFor={`${id}-connection`} className="mb-1 block text-sm text-[#D1D1D1]">
-            Conexão
-          </label>
-          <select
-            id={`${id}-connection`}
-            className={field}
-            disabled={disabled || testing}
-            value={value.connection_mode}
-            onChange={(e) =>
-              update({
-                ...value,
-                connection_mode: e.target.value as ConversationRoute['connection_mode'],
-                target_kind: 'model',
-                target_ref: '',
-              })
-            }
-          >
-            <option value="direct">Conta do agente</option>
-            <option value="omniroute">OmniRoute</option>
-          </select>
+          <span className="mb-1 block text-sm text-[#D1D1D1]">Conexão</span>
+          <div className="chat-agent-options">
+            {[
+              { id: 'direct', name: 'Conta do agente' },
+              { id: 'omniroute', name: 'OmniRoute' },
+            ].map((option) => (
+              <label key={option.id}>
+                <input
+                  type="radio"
+                  name={`${id}-connection`}
+                  checked={value.connection_mode === option.id}
+                  disabled={disabled || testing}
+                  onChange={() =>
+                    update({
+                      ...value,
+                      connection_mode: option.id as ConversationRoute['connection_mode'],
+                      target_kind: 'model',
+                      target_ref: '',
+                    })
+                  }
+                />
+                {option.name}
+              </label>
+            ))}
+          </div>
         </div>
         <div className="min-w-0 flex-[2_1_12rem]">
           {value.connection_mode === 'direct' ? (
             <>
-              <label htmlFor={`${id}-model`} className="mb-1 block text-sm text-[#D1D1D1]">
-                Modelo
-              </label>
-              <select
-                id={`${id}-model`}
-                className={field}
+              <ChatChoice
+                label="Modelo"
                 value={value.target_ref}
+                options={[{ id: '', name: 'Padrão do agente' }, ...(catalog?.direct_models ?? [])]}
                 disabled={disabled || testing}
-                onChange={(e) =>
-                  update({ ...value, target_ref: e.target.value, target_kind: 'model' })
-                }
-              >
-                <option value="">Padrão do agente</option>
-                {(catalog?.direct_models ?? []).map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(id) => update({ ...value, target_ref: id, target_kind: 'model' })}
+              />
             </>
           ) : (
             <>
@@ -175,8 +169,8 @@ export function ConversationRoutePicker({
                   </span>
                 </Dialog.Trigger>
                 <Dialog.Portal>
-                  <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
-                  <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[85dvh] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl border border-[#666] bg-[#1C1C1C] p-4 text-[#E8E8E8]">
+                  <Dialog.Overlay className="chat-catalog-overlay" />
+                  <Dialog.Content className="chat-dialog chat-catalog">
                     <Dialog.Title className="text-lg font-semibold">
                       Escolher modelo ou combo
                     </Dialog.Title>

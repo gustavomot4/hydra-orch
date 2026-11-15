@@ -198,8 +198,9 @@ describe('conversation route choices', () => {
     );
     mount(<ConversationPage conversationId={state.id} />);
     await screen.findByText('Decisão registrada.');
-    await user.click(screen.getByRole('button', { name: 'Trocar modelo ou combo' }));
-    await user.selectOptions(await screen.findByLabelText('Modelo'), 'model-b');
+    await user.click(screen.getByRole('button', { name: /Trocar modelo ou combo/ }));
+    await user.click(await screen.findByRole('button', { name: /^Modelo:/ }));
+    await user.click(screen.getByRole('button', { name: 'Modelo B' }));
     await user.click(screen.getByRole('radio', { name: 'Coordenar tarefas com agentes' }));
     await user.click(screen.getByRole('checkbox', { name: /Escolher entre combos/ }));
     await user.click(screen.getByRole('button', { name: 'Usar nos próximos envios' }));

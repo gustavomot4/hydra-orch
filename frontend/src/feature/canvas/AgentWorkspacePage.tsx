@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useLayoutStore } from '@/store/layoutStore';
+import { useLiveInvalidation } from '@/hook/useLiveInvalidation';
 import { ConversationSnapshot } from '@/feature/chat/conversationTypes';
 import { RunDetailSnapshot } from '@/feature/chat/chatTypes';
 import { AgentCanvas } from './AgentCanvas';
@@ -93,6 +94,19 @@ export function AgentWorkspacePage() {
   const runId = kind === 'runs' ? id : turn?.coordination?.run_id;
   // Read-only planning has a plan but no RunService execution to fetch.
   const hasRun = Boolean(runId && (kind === 'runs' || turn?.coordination?.phase));
+  const live = useLiveInvalidation(
+    id && kind === 'chats'
+      ? `/v1/control-plane/conversations/${encodeURIComponent(id)}/events`
+      : null,
+    [
+      ['canvas-conversation', id],
+      ['canvas-run', runId],
+    ],
+  );
+  const runLive = useLiveInvalidation(
+    hasRun ? `/v1/control-plane/runs/${encodeURIComponent(runId!)}/events` : null,
+    [['canvas-run', runId]],
+  );
   const run = useQuery({
     queryKey: ['canvas-run', runId],
     queryFn: ({ signal }) =>
@@ -147,6 +161,9 @@ export function AgentWorkspacePage() {
         </Link>
       </header>
       <div className="canvas-toolbar">
+        <span className="canvas-live" role="status">
+          {live || runLive ? 'Ao vivo' : 'Atualização automática'}
+        </span>
         <details ref={picker} className="canvas-work-picker">
           <summary>{title || 'Escolher pedido'}</summary>
           <div className="canvas-work-options">

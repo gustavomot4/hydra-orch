@@ -53,6 +53,18 @@ Cards e linhas usam os registros existentes: plano, dependências, resultados e 
 
 O painel lê mensagens da conversa, resultados e mensagens de agente disponíveis no log de uma tentativa encerrada. Não transmite mensagens diretas a um worker em execução nem representa as linhas como conversas arbitrárias entre agentes. Ausência de verificações, alterações ou mensagens é informada explicitamente. Esta tela acompanha o trabalho; não muda o processo de execução nem certifica a escolha do melhor modelo.
 
+### Arrastar, acompanhar ao vivo e continuar o chat
+
+Arraste pelo **corpo do card** para mudar sua posição. Um clique abre os detalhes; mover o mouse mais de 5px durante o pressionamento inicia o arrasto. A alça do canto continua disponível para mouse e teclado. Atualizações de estado e entrada de novos cards preservam a organização manual.
+
+O mapa recebe eventos da conversa e da execução. **Ao vivo** indica stream conectado; na reconexão, o último mapa permanece e a consulta automática serve de recuperação. Um agente criado pela própria CLI entra quando seu protocolo informa identidade e estado; os detalhes identificam essa origem. Chamadas de shell e texto afirmando que houve delegação não criam agentes. O acompanhamento não habilita novas ferramentas: as restrições da conexão continuam valendo.
+
+Em **Somente leitura**, o coordenador pode produzir um plano sem executar os workers. Esses cards aparecem como **Planejado**, com a indicação de que a execução não começou. Para executar o plano pelo coordenador, inicie um pedido com coordenação e permita edições em uma cópia isolada de um projeto Git.
+
+No chat, o seletor com **agente e modelo atual** fica junto do campo de mensagem. Clique nele para trocar agente, conexão, modelo ou combo dos próximos envios, mantendo o histórico. A parte das mensagens rola enquanto o compositor permanece acessível. Em janelas com até 480px de altura, a tela volta ao fluxo completo para não encobrir conteúdo. Anexos e voz ficam no próprio compositor; no celular, os controles são compactos.
+
+Em Novo chat, clique no nome da **Pasta** para buscar por nome ou caminho. **Adicionar pasta** abre a escolha do Windows ou a entrada de caminho. O seletor junto do compositor e **Opções da conversa** abrem a mesma configuração de agente, conexão, destino, coordenação e acesso. Sugestões apenas preenchem o rascunho; não enviam um pedido automaticamente.
+
 ## Pastas sem Git
 
 O cadastro do Novo chat aceita pastas comuns e repositórios ainda sem commit. O Hydra não executa `git init` para aceitá-las. Mantém uma cópia de trabalho e uma base para comparar alterações, preservando os arquivos originais.
@@ -98,3 +110,13 @@ No canvas, a jornada cobre seleção de agente, detalhes, zoom, pan, movimento p
 O verificador completo do kit sobre bundle de produção registrou **zero falhas** nas três superfícies: Novo chat (2 avisos), Conversa (2) e Área de trabalho (3). Os avisos comuns são áreas móveis herdadas entre 24 e 44px e primeira parada de Tab depois do foco programático. No canvas, o aviso adicional agrupa indicadores preenchidos de seleção (destino, origem e modo de visualização) como se fossem ações concorrentes; eles conservam preenchimento discreto, enquanto a ação principal usa laranja sólido. A checagem de texto sobre imagem é inconclusiva para o fundo pontilhado; textos ficam sobre cards opacos, inspecionados nas capturas. Bordas de controles têm contraste de 3,25:1 contra o hover mais claro; texto principal e botão laranja passam os pares do documento visual.
 
 As páginas inteiras de desktop/celular e a prancha de simulações foram inspecionadas. Leitor de tela real e testes com pessoas continuam pendentes; a árvore semântica automatizada não substitui esses testes. Relatórios e imagens ficam em `ws/b_output/conversation/kit_ready/` e `ws/b_output/canvas/`, ignorados pelo Git. A interface compilada localmente está pronta; use **Parar → Iniciar** no controle quando puder interromper o trabalho atual para carregar também o backend atualizado.
+
+### Rodada de conversa e atualização por eventos — 15/11/2026
+
+Passaram **60 testes de frontend**, **9 jornadas Playwright**, **25 testes Python** de conversa, coordenação e observação, TypeScript, lint dos módulos alterados e build de produção. O subconjunto de cinco testes do protocolo/subagentes foi repetido após os ajustes. O navegador verificou arrasto pelo corpo do card, preservação da seleção, troca A→B→A na mesma conversa, Markdown e compositor acessível após rolar um histórico longo, no desktop e no celular. Um evento controlado acrescentou um subagente ao mapa com a consulta periódica ainda pendente (limite de asserção: 1,8s). Os testes do subprocesso confirmam que frames reais do parser viram observações, persistem e entram no replay. Isso não mede delegação ou qualidade de provedores reais.
+
+O seletor de combos dentro da configuração foi exercitado em uma repetição da jornada: abertura sobre o diálogo pai, busca sem acentos, escolha e fechamento sem disparar inferência. A jornada essencial com pasta e agente já selecionados exige escrever e **Enviar** (ou Enter); para outra pasta, são duas ações, abrir a busca e escolher. A troca de modelo exige abrir a configuração, abrir a busca de modelo, escolher e confirmar para os próximos envios. Nenhuma mensagem precisa ser recriada para a troca.
+
+Verificador do kit no bundle de produção: **Novo chat: 0 falhas/2 avisos; Conversa: 0/3; Área de trabalho: 0/3**. Permanecem os avisos de primeira parada de Tab depois do foco programático e alvos herdados da navegação menores que 44px. Na conversa, a linha compacta de acesso/conexão/modo gera o aviso de metadados separados por pontos; foi mantida porque permite conferir a configuração efetiva junto do envio. No canvas, o aviso de ações concorrentes refere-se a seleções de navegação, origem e modo. As ações novas do compositor têm alvos de 44px no celular. A leitura de contraste sobre o fundo pontilhado permanece inconclusiva para o motor; cards têm fundo opaco.
+
+Foram inspecionados desktop/celular, árvore semântica e prancha de alto contraste/simulações; teclado, Esc e retorno do foco foram exercitados no diálogo da conversa. Leitor de tela real e teste com pessoas continuam não verificados. O build mantém o aviso de chunk acima de 500KB; esta rodada não redesenhou o carregamento de módulos. A instância pessoal em uso foi preservada. Para carregar o novo adaptador de eventos, use **Parar → Iniciar** pelo controle e recarregue a página.

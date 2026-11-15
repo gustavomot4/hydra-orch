@@ -58,6 +58,16 @@ Dados vêm das conversas e execuções persistidas. Relações mostram delegaç�
 - Mostrar ação e último evento, sem gráficos ou porcentagens não observados.
 - Foco visível, contraste mínimo AA, alternativa ao arrasto, redução de movimento e modo de alto contraste são parte da implementação.
 
-## Verificação
+## Conversa e início — correção de 15/11/2026
+
+Conversa tem cabeçalho compacto, histórico com rolagem e compositor sempre disponível na parte inferior da área útil. Modelo, combo e modo ficam junto do compositor, com diálogo acessível para alterar a configuração dos próximos envios. Em altura até 480px, a composição inteira volta ao fluxo da página. Mensagens do usuário usam superfície cinza discreta e largura pelo conteúdo; respostas do agente têm leitura editorial sem caixa, com Markdown seguro, títulos, subtítulos, listas, tabelas e código. Atividade aparece em cinza claro e detalhes recolhíveis, separada da resposta.
+
+Novo chat apresenta o compositor primeiro. Pasta é escolhida em diálogo com busca e caminhos para distinguir nomes; adicionar pasta é uma ação explícita, sem acordeão. Agente, conexão e modelo usam controles compactos com a seleção atual visível; opções avançadas abrem um diálogo. As sugestões viram linhas leves com ícone e ação, sem balões contornados. A direção segue o pedido explícito de familiaridade com Codex e Claude Code; não é uma nova escolha de marca.
+
+O arrasto funciona no corpo do card, preservando clique para abrir detalhes e alça com setas para teclado. Eventos autenticados atualizam o mapa sem aguardar o polling de recuperação. Subagentes nativos são registros observados do protocolo da CLI, não execuções gerenciadas pelo RunService; mostrar essa origem nos detalhes. Não inferir delegação pela resposta textual nem habilitar ferramentas ou permissões novas para preencher o mapa.
+
+Referências primárias consultadas para interação e eventos: [Claude Code interativo](https://code.claude.com/docs/en/interactive-mode), [seleção de modelo](https://code.claude.com/docs/en/model-config), [eventos Codex exec](https://github.com/openai/codex/blob/main/codex-rs/exec/src/exec_events.rs) e [mensagens de tarefas Claude](https://code.claude.com/docs/en/agent-sdk/typescript#sdktaskstartedmessage). As escolhas de composição são adaptação ao Hydra, não uma alegação de equivalência entre os produtos.
+
+## Evidência da implementação
 
 Registrar provas e limites da rodada no manual Windows e nos artefatos locais ignorados em `ws/b_output/`. Capturas com dados fictícios, sem contas, prompts ou projetos do operador. Verificador automatizado não substitui leitor de tela nem teste com pessoas.

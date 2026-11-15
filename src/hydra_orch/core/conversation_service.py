@@ -235,6 +235,12 @@ class ConversationService:
                 events = await (await db.execute("SELECT * FROM conversation_events WHERE conversation_id=? AND type LIKE 'tool.%' ORDER BY seq DESC LIMIT 50", (cid,))).fetchall()
                 conv["turns"] = [self._public_turn(dict(t)) for t in turns]
                 conv["tools"] = [{**dict(e), "payload": json.loads(e["payload_json"])} for e in reversed(events)]
+                agent_rows = await (await db.execute("SELECT turn_id,payload_json FROM conversation_events WHERE conversation_id=? AND type='agent.observed' ORDER BY seq DESC LIMIT 1000", (cid,))).fetchall()
+                agents = {}
+                for event in reversed(agent_rows):
+                    payload = json.loads(event['payload_json'])
+                    agents[(event['turn_id'], payload['id'])] = {**payload, 'turn_id': event['turn_id']}
+                conv['agents'] = list(agents.values())
                 return conv
 
     @staticmethod

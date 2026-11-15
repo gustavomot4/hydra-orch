@@ -3,6 +3,7 @@ import { ShieldAlert, ShieldCheck } from 'lucide-react';
 import { isSafeMarkdownHref, sanitizeMarkdownText } from './artifactApi';
 
 export interface MarkdownSafeViewProps {
+  bare?: boolean;
   markdown: string;
   scriptStripped?: boolean;
   redacted?: boolean;
@@ -92,7 +93,7 @@ function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
   return parts;
 }
 
-function renderMarkdownBlocks(markdown: string): ReactNode[] {
+function renderMarkdownBlocks(markdown: string, headingOffset = 0): ReactNode[] {
   const lines = markdown.replace(/\r\n/g, '\n').split('\n');
   const blocks: ReactNode[] = [];
   let idx = 0;
@@ -148,7 +149,7 @@ function renderMarkdownBlocks(markdown: string): ReactNode[] {
     // Headings
     const headingMatch = /^(#{1,6})\s+(.*)$/.exec(line);
     if (headingMatch) {
-      const level = headingMatch[1].length;
+      const level = Math.min(6, headingMatch[1].length + headingOffset);
       const content = renderInlineMarkdown(headingMatch[2], `h-${blockKey}`);
       const sizeClass =
         level === 1
@@ -213,7 +214,10 @@ function renderMarkdownBlocks(markdown: string): ReactNode[] {
         idx += 1;
       }
       blocks.push(
-        <ol key={`block-${blockKey}`} className="list-decimal space-y-1 pl-5 text-sm text-[#E8E8E8]">
+        <ol
+          key={`block-${blockKey}`}
+          className="list-decimal space-y-1 pl-5 text-sm text-[#E8E8E8]"
+        >
           {items.map((item, itemIdx) => (
             <li key={itemIdx}>{renderInlineMarkdown(item, `ol-${blockKey}-${itemIdx}`)}</li>
           ))}
@@ -240,7 +244,10 @@ function renderMarkdownBlocks(markdown: string): ReactNode[] {
         idx += 1;
       }
       blocks.push(
-        <div key={`block-${blockKey}`} className="overflow-x-auto rounded-lg border border-[#303030]">
+        <div
+          key={`block-${blockKey}`}
+          className="overflow-x-auto rounded-lg border border-[#303030]"
+        >
           <table className="w-full border-collapse text-left text-xs">
             <thead className="bg-[#181818] text-[#E8E8E8]">
               <tr>
@@ -304,18 +311,16 @@ export function MarkdownSafeView({
   scriptStripped = false,
   redacted = false,
   className = '',
+  bare = false,
 }: MarkdownSafeViewProps) {
-  const { sanitized, strippedOnClient } = useMemo(
-    () => sanitizeMarkdownText(markdown),
-    [markdown],
-  );
-  const blocks = useMemo(() => renderMarkdownBlocks(sanitized), [sanitized]);
+  const { sanitized, strippedOnClient } = useMemo(() => sanitizeMarkdownText(markdown), [markdown]);
+  const blocks = useMemo(() => renderMarkdownBlocks(sanitized, bare ? 1 : 0), [sanitized, bare]);
   const anyScriptStripped = scriptStripped || strippedOnClient;
 
   return (
     <div
       data-testid="markdown-safe-view"
-      className={`space-y-3 rounded-xl border border-[#303030] bg-[#202020] p-4 ${className}`}
+      className={`${bare ? 'chat-markdown' : 'space-y-3 rounded-xl border border-[#303030] bg-[#202020] p-4'} ${className}`}
     >
       {anyScriptStripped || redacted ? (
         <div className="flex flex-wrap items-center gap-2 border-b border-[#303030] pb-2.5 text-[11px]">

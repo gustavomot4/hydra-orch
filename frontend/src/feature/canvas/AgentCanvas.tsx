@@ -87,10 +87,15 @@ export function AgentCanvas({
   const viewRef = useRef(view);
   viewRef.current = view;
   const drag = useRef<{ id?: string; x: number; y: number; start: Point } | null>(null);
+  const suppressClick = useRef(false);
   const [dragging, setDragging] = useState(false);
   const identity = graph.nodes.map((n) => n.id).join('|');
   useEffect(() => {
-    setPositions(restore(workId, nodesRef.current));
+    setPositions((previous) => {
+      const next = restore(workId, nodesRef.current);
+      for (const id of Object.keys(next)) if (previous[id]) next[id] = previous[id];
+      return next;
+    });
   }, [workId, identity]); // Preserve manual positions across status updates.
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -178,7 +183,7 @@ export function AgentCanvas({
     const restored = restoreView(workId);
     if (restored) setView(restored);
     else fitRef.current();
-  }, [workId, identity]);
+  }, [workId]);
   const moveNode = (id: string, x: number, y: number) =>
     setPositions((old) => ({
       ...old,
@@ -218,6 +223,13 @@ export function AgentCanvas({
         onPointerMove={(event) => {
           const moving = drag.current;
           if (!moving) return;
+          if (
+            Math.hypot(event.clientX - moving.x, event.clientY - moving.y) < 5 &&
+            !suppressClick.current
+          )
+            return;
+          suppressClick.current = true;
+          setDragging(true);
           if (moving.id)
             moveNode(
               moving.id,
@@ -237,6 +249,7 @@ export function AgentCanvas({
         }}
         onPointerCancel={() => {
           drag.current = null;
+          suppressClick.current = false;
           setDragging(false);
         }}
         onKeyDown={(event) => {
@@ -363,7 +376,25 @@ export function AgentCanvas({
                 <button
                   className="agent-node-open"
                   aria-pressed={node.id === selected}
-                  onClick={() => onSelect(node.id)}
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return;
+                    event.stopPropagation();
+                    suppressClick.current = false;
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    drag.current = {
+                      id: node.id,
+                      x: event.clientX,
+                      y: event.clientY,
+                      start: position,
+                    };
+                  }}
+                  onClick={() => {
+                    if (suppressClick.current) {
+                      suppressClick.current = false;
+                      return;
+                    }
+                    onSelect(node.id);
+                  }}
                   onFocus={() => {
                     const width = stage.current?.clientWidth || 800,
                       height = stage.current?.clientHeight || 600;
