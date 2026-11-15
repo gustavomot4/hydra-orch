@@ -117,6 +117,7 @@ export interface BackendAttemptResult {
   changed_files?: string[];
   checks?: BackendCheckResult[];
   failures?: BackendFailureDetail[];
+  review?: { actor: string; decision: string; reason: string } | null;
 }
 
 export interface BackendTaskAttempt {

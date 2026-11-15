@@ -9,6 +9,7 @@ import { AttachmentDropzone, AttachmentItemView } from '@/feature/attachment';
 import { AutomationsPage } from '@/feature/automation';
 import { ChatTimelinePage } from '@/feature/chat';
 import { ConversationPage } from '@/feature/chat/ConversationPage';
+import { AgentWorkspacePage } from '@/feature/canvas/AgentWorkspacePage';
 import { PromptComposer, SlashCommandItem } from '@/feature/composer';
 import { ComputerUsePanel } from '@/feature/computer_use';
 import { DevicePanel } from '@/feature/device';
@@ -121,6 +122,14 @@ export function HydraShell() {
         kind: 'settings',
         title: 'Configurações e perfil',
         route: '/configuracoes',
+        closable: true,
+      });
+    } else if (path === '/agentes') {
+      openTab({
+        id: 'tab:canvas',
+        kind: 'canvas',
+        title: 'Área de trabalho',
+        route: '/agentes',
         closable: true,
       });
     } else if (path === '/workspace') {
@@ -486,6 +495,8 @@ export function HydraShell() {
               defaultCwd={activeProjectRoot}
             />
           );
+        case 'canvas':
+          return <AgentWorkspacePage />;
         case 'workspace':
           return (
             <WorkspaceWorkbenchPage
@@ -617,6 +628,7 @@ export function HydraShell() {
       <Route path="/chat/:id" element={shellContent} />
       <Route path="/terminal" element={shellContent} />
       <Route path="/workspace" element={shellContent} />
+      <Route path="/agentes" element={shellContent} />
       <Route path="/recursos" element={shellContent} />
       <Route path="/automacoes" element={shellContent} />
       <Route path="/dispositivos" element={shellContent} />

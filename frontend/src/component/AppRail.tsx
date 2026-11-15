@@ -1,5 +1,6 @@
 import {
   Blocks,
+  Network,
   Clock,
   FolderGit2,
   Gauge,
@@ -26,6 +27,7 @@ interface RailNavItem {
 
 const RAIL_NAV_ITEMS: RailNavItem[] = [
   { id: 'tab:new-chat', label: 'Novo chat', route: '/', kind: 'new_chat', Icon: MessageSquarePlus },
+  { id: 'tab:canvas', label: 'Área de trabalho', route: '/agentes', kind: 'canvas', Icon: Network },
   { id: 'tab:search', label: 'Busca global', route: '/busca', kind: 'search', Icon: Search },
   {
     id: 'tab:workspaces',
@@ -102,7 +104,7 @@ export function AppRail({ activeRoute, onNavigate, onSearch, children }: AppRail
   const buttonClass = (active: boolean) =>
     `flex min-h-9 w-full items-center gap-3 rounded-lg px-2 py-1 text-left text-sm focus-visible:outline-offset-0 [@media(pointer:coarse)]:min-h-[44px] ${
       expanded ? 'justify-start' : 'justify-center'
-    } ${active ? 'bg-[#282828] font-semibold text-[#E8E8E8] ring-1 ring-inset ring-[var(--accent)]' : 'text-[#B4B4B4] hover:bg-[#282828] hover:text-[#E8E8E8]'}`;
+    } ${active ? 'bg-[var(--accent-soft)] font-semibold text-[var(--accent)] ring-1 ring-inset ring-[var(--accent)]' : 'text-[#B4B4B4] hover:bg-[#282828] hover:text-[#E8E8E8]'}`;
   const renderNavItem = ({ id, label, route, kind, Icon }: RailNavItem) => {
     const active = activeRoute === route;
     return (
@@ -154,7 +156,7 @@ export function AppRail({ activeRoute, onNavigate, onSearch, children }: AppRail
           first.focus();
         }
       }}
-      className={`flex h-full flex-col bg-[#1C1C1C] ${
+      className={`hydra-navigation flex h-full flex-col bg-[#1C1C1C] ${
         mobileDrawerOpen
           ? 'fixed inset-y-0 left-0 z-50 w-80 max-w-[85vw] border-r border-[#303030] md:static md:w-auto md:max-w-none'
           : ''
@@ -179,7 +181,7 @@ export function AppRail({ activeRoute, onNavigate, onSearch, children }: AppRail
             <svg
               aria-hidden="true"
               viewBox="0 0 20 20"
-              className="h-4 w-4 shrink-0"
+              className="h-4 w-4 shrink-0 text-[var(--accent)]"
               fill="none"
               stroke="currentColor"
               strokeWidth="1.75"

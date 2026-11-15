@@ -10,6 +10,7 @@ export type TabKind =
   | 'chat'
   | 'terminal'
   | 'workspace'
+  | 'canvas'
   | 'resources'
   | 'automations'
   | 'device'

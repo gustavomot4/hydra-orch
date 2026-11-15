@@ -375,6 +375,12 @@ export function ConversationPage({ conversationId }: { conversationId: string })
             Trocar modelo ou combo
           </button>
         )}
+        <Link
+          className="ml-2 mt-2 inline-flex min-h-11 items-center rounded-lg border border-[#666] px-3 text-sm"
+          to={`/agentes?chat=${encodeURIComponent(conversationId)}`}
+        >
+          Ver agentes
+        </Link>
         {routeDraft && (
           <div className="mt-3 rounded-lg border border-[#666] p-3">
             <p className="mb-3 text-sm text-[#D1D1D1]">

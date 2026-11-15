@@ -85,6 +85,8 @@ async def test_conversation_coordinates_real_workers_checks_review_and_isolated_
     assert 'a.py' in turn['diff'] and 'b.py' in turn['diff']
     run_id = turn['coordination']['run_id']
     assert (await service.store.get_run(run_id))['status']=='succeeded'
+    detail=await service.runs.get_run_detail(run_id)
+    assert all(task['current_attempt']['result']['review']['actor'].startswith('agent:') for task in detail['tasks'])
     from hydra_orch import server
     monkeypatch.setattr(server,'get_run_service',lambda:service.runs)
     artifacts=await service.store.get_artifacts(run_id)

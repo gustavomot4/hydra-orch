@@ -23,6 +23,6 @@ def allow_bootstrap(request):
 
 def public_frontend(request):
     path = request.url.path
-    ui_routes = {"chat", "terminal", "workspace", "recursos", "automacoes", "dispositivos", "computador", "consumo", "configuracoes", "busca"}
+    ui_routes = {"chat", "agentes", "terminal", "workspace", "recursos", "automacoes", "dispositivos", "computador", "consumo", "configuracoes", "busca"}
     return (loopback_request(request) and request.method in {"GET", "HEAD"}
             and (path == "/" or path.startswith("/assets/") or path.strip("/").split("/")[0] in ui_routes))

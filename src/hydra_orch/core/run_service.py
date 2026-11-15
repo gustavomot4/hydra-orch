@@ -1534,6 +1534,7 @@ class RunService:
                         "changed_files": list(res.changed_files),
                         "checks": [c.model_dump(mode="json") for c in res.checks_executed],
                         "failures": [f.model_dump(mode="json") for f in res.failures],
+                        "review": res.review.model_dump(mode="json") if res.review else None,
                     }
                 attempt_dicts.append(
                     {

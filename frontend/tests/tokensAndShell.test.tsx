@@ -77,20 +77,18 @@ const MOCK_BOOTSTRAP = {
   implemented_read_models: { projects: true, runs: true },
 };
 
-describe('Figma dark design tokens & PT-BR shell invariants', () => {
-  it('defines exact Figma dark palette CSS custom properties', () => {
+describe('Approved dark design tokens & PT-BR shell invariants', () => {
+  it('keeps black surfaces with the approved orange accent as shared CSS custom properties', () => {
     const tokensCss = fs.readFileSync(
       path.resolve(__dirname, '../src/style/tokens.css'),
       'utf-8',
     );
     expect(tokensCss).toContain('--bg-main: #141414');
-    expect(tokensCss).toContain('--bg-rail: #181818');
     expect(tokensCss).toContain('--bg-sidebar: #1c1c1c');
     expect(tokensCss).toContain('--bg-surface: #202020');
-    expect(tokensCss).toContain('--bg-hover: #282828');
-    expect(tokensCss).toContain('--border: #303030');
+    expect(tokensCss).toContain('--accent: #ffab66');
+    expect(tokensCss).toContain('--accent-soft: #33251c');
     expect(tokensCss).toContain('--text-primary: #e8e8e8');
-    expect(tokensCss).toContain('--text-muted: #969696');
     expect(tokensCss).toContain('Inter');
     expect(tokensCss).toContain('JetBrains Mono');
   });

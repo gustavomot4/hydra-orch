@@ -32,11 +32,26 @@ Validação: testes com serviço de fixture real em porta livre, segunda partida
 | --- | --- |
 | **Pasta** | Onde estão os arquivos do projeto. Pode ter Git ou ser uma pasta comum. |
 | **Conversa** | Seu pedido, as respostas e a continuidade daquele trabalho. Uma pasta pode ter várias conversas. |
-| **Organização avançada** | Hosts, workspaces, agentes e execuções antigas. Não é necessário abrir essa estrutura para conversar. |
+| **Área de trabalho** | Canvas ou lista para acompanhar os agentes de uma conversa ou execução. |
+| **Estrutura técnica** | Hosts, workspaces, agentes e execuções antigas. Não é necessário abrir essa estrutura para conversar. |
 
 Escolha uma pasta, escreva uma mensagem e clique em **Enviar**. Para adicionar outra pelo executável, abra **Adicionar pasta → Selecionar pasta** e escolha no diálogo do Windows. Também é possível informar o caminho e clicar em **Usar esta pasta**. Clicar em uma pasta da barra lateral abre Novo chat com ela selecionada. A busca encontra pastas e pesquisa os títulos das conversas em todo o histórico, inclusive fora da página atual. A área **Alterações** reúne os resultados para revisão.
 
 O acesso começa em leitura. As opções permitem editar uma cópia isolada. Para reabrir um trabalho, clique no título em **Conversas**. A conversa mantém contexto; não é preciso criar outra sessão ou abrir um terminal a cada mensagem. O terminal restaura o processo já aberto quando você sai e volta à tela.
+
+## Acompanhar agentes na Área de trabalho
+
+1. Envie seu pedido pelo **Novo chat**. Para distribuir tarefas, habilite **Opções da conversa → Coordenar tarefas com agentes** antes de enviar.
+2. Abra **Ver agentes** no cabeçalho da conversa, ou **Área de trabalho** na navegação lateral. O seletor superior permite escolher outra conversa ou uma execução anterior; conversas têm busca em todo o histórico e execuções têm busca na página atual.
+3. Arraste o fundo para navegar e use a roda do mouse ou os botões de zoom para aproximar. **Enquadrar** mostra todos os cards; **Organizar** restaura a distribuição inicial. A alça no canto do card permite movê-lo. Posições e enquadramento são guardados neste navegador por trabalho.
+4. Clique em um card para abrir **Conversa**, **Atividade** e **Alterações**. No celular, a lista aparece primeiro e os detalhes ficam abaixo. **Lista** também está disponível no desktop para acompanhar sem arrasto.
+5. Use **Abrir conversa** para continuar o pedido no chat. Uma execução antiga sem conversa oferece o vínculo para a execução completa.
+
+Com foco no canvas, as setas navegam, `+`/`-` alteram o zoom e `Home` enquadra. Na alça do card, as setas movem o agente. A geometria e os textos do mapa crescem juntos quando a fonte do navegador aumenta; o restante da página se reorganiza.
+
+Cards e linhas usam os registros existentes: plano, dependências, resultados e revisão persistida. Uma conversa individual mostra seu agente, sem inventar um swarm. Estados têm texto e símbolo além da cor. A base visual continua preta; laranja destaca ações e seleção, conforme a correção do dono.
+
+O painel lê mensagens da conversa, resultados e mensagens de agente disponíveis no log de uma tentativa encerrada. Não transmite mensagens diretas a um worker em execução nem representa as linhas como conversas arbitrárias entre agentes. Ausência de verificações, alterações ou mensagens é informada explicitamente. Esta tela acompanha o trabalho; não muda o processo de execução nem certifica a escolha do melhor modelo.
 
 ## Pastas sem Git
 
@@ -73,3 +88,13 @@ A pasta comum foi exercitada com dois pedidos reais ao Codex autenticado, manten
 Na rodada final de 14/11/2026, passaram 49 testes de frontend, a checagem TypeScript, 22 testes de conversa/pasta/desktop e 4 testes selecionados do servidor. As 5 jornadas Playwright passaram, incluindo cadastro de pasta comum, dois turnos de conversa, recarga durante execução, histórico, cancelamento e reconexão do terminal por WebSocket. O executável foi recompilado e repetiu o teste de iniciar/parar preservando uma porta ocupada. A instância de uso também abriu com acesso automático e a rota de conversas presente, preservando o servidor anterior.
 
 O verificador do kit, em bundle de produção com dados fictícios, registrou zero falhas em Novo chat e Conversa. Restam 3 avisos em cada tela: controles móveis entre 24 e 44 px, fonte Inter mantida para preservar a interface aprovada e a primeira parada de Tab após o foco programático da navegação. O verificador foi repetido com um adaptador local que aguarda o formulário pronto antes de medir cada tamanho; as capturas da rodada anterior incluíam um estado de carregamento no celular. As capturas e relatórios ficam apenas na saída local de verificação. Leitor de tela real e teste com pessoas não foram executados. O seletor de pastas tem testes de API e de cancelamento; a escolha manual no diálogo nativo ainda precisa ser exercitada pelo operador.
+
+### Rodada do canvas e da paleta — 15/11/2026
+
+A composição A foi implementada com preto predominante e detalhes laranja, incorporando a calibração posterior do dono. Passaram 59 testes de frontend e 8 jornadas Playwright no backend isolado, incluindo canvas, conversa, troca de modelos, coordenação, pasta comum e terminal. Também passaram TypeScript, lint do módulo novo, build de produção e 18 testes Python de coordenação/desktop. A recarga de `/agentes` no servidor desktop foi conferida novamente por um teste específico.
+
+No canvas, a jornada cobre seleção de agente, detalhes, zoom, pan, movimento por teclado, persistência local e recarga; inclui fonte em 200%, lista móvel e axe sem violações sérias/críticas WCAG A/AA. Os processos de teste são controlados: isso comprova a integração local da tela, sem medir velocidade ou qualidade de provedores reais e sem iniciar inferência paga.
+
+O verificador completo do kit sobre bundle de produção registrou **zero falhas** nas três superfícies: Novo chat (2 avisos), Conversa (2) e Área de trabalho (3). Os avisos comuns são áreas móveis herdadas entre 24 e 44px e primeira parada de Tab depois do foco programático. No canvas, o aviso adicional agrupa indicadores preenchidos de seleção (destino, origem e modo de visualização) como se fossem ações concorrentes; eles conservam preenchimento discreto, enquanto a ação principal usa laranja sólido. A checagem de texto sobre imagem é inconclusiva para o fundo pontilhado; textos ficam sobre cards opacos, inspecionados nas capturas. Bordas de controles têm contraste de 3,25:1 contra o hover mais claro; texto principal e botão laranja passam os pares do documento visual.
+
+As páginas inteiras de desktop/celular e a prancha de simulações foram inspecionadas. Leitor de tela real e testes com pessoas continuam pendentes; a árvore semântica automatizada não substitui esses testes. Relatórios e imagens ficam em `ws/b_output/conversation/kit_ready/` e `ws/b_output/canvas/`, ignorados pelo Git. A interface compilada localmente está pronta; use **Parar → Iniciar** no controle quando puder interromper o trabalho atual para carregar também o backend atualizado.

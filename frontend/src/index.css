@@ -2,6 +2,51 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Bridge the existing shared surface utilities to the approved dark palette.
+   This keeps older screens on the same tokens while components are migrated. */
+.bg-\[\#141414\] {
+  background-color: var(--bg-main);
+}
+.bg-\[\#181818\] {
+  background-color: var(--bg-rail);
+}
+.bg-\[\#1C1C1C\] {
+  background-color: var(--bg-sidebar);
+}
+.bg-\[\#202020\] {
+  background-color: var(--bg-surface);
+}
+.bg-\[\#282828\] {
+  background-color: var(--bg-hover);
+}
+.border-\[\#303030\],
+.border-\[\#666\] {
+  border-color: var(--border);
+}
+.text-\[\#E8E8E8\] {
+  color: var(--text-primary);
+}
+.text-\[\#D1D1D1\],
+.text-\[\#969696\],
+.text-\[\#B4B4B4\] {
+  color: var(--text-muted);
+}
+.bg-\[\#E8E8E8\] {
+  background-color: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+}
+.text-\[\#181818\] {
+  color: var(--btn-primary-text);
+}
+@media (hover: hover) and (pointer: fine) {
+  .hover\:bg-\[\#282828\]:hover {
+    background-color: var(--bg-hover);
+  }
+  .hover\:bg-white:hover {
+    background-color: var(--accent-hover);
+  }
+}
+
 @layer base {
   html,
   body,

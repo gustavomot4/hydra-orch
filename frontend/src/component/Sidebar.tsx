@@ -143,7 +143,7 @@ export function Sidebar({ onSelectTreeNode, ...navigation }: SidebarProps) {
           )}
           <details className="mt-3 border-t border-[#303030] pt-2 text-sm text-[#D1D1D1]">
             <summary className="flex min-h-11 cursor-pointer items-center px-2">
-              Organização avançada
+              Estrutura técnica
             </summary>
             <WorkspaceTree
               nodes={tree}

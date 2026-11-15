@@ -109,6 +109,97 @@ async function runAxeWcagAA(page: Page, contextLabel: string): Promise<void> {
 }
 
 test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Responsividade)', () => {
+  test('navigates the real agent canvas, inspects tasks and preserves layout', async ({ page }) => {
+    await loginControlPlane(page);
+    await page
+      .getByRole('navigation', { name: 'Navegação principal' })
+      .getByRole('button', { name: 'Área de trabalho', exact: true })
+      .click();
+    await expect(page.getByTestId('agent-workspace-page')).toBeVisible();
+    await page.goto('/agentes?execucao=run-e2e-swarm');
+    const canvas = page.getByTestId('canvas-viewport');
+    await expect(canvas).toBeVisible();
+    await expect(page.getByTestId('agent-node-task-wave0')).toBeVisible();
+    await page.getByTestId('agent-node-task-wave1').locator('.agent-node-open').click();
+    const details = page.getByTestId('agent-inspector');
+    await expect(
+      details.getByRole('heading', { name: 'Executar verificação integrada' }),
+    ).toBeVisible();
+    await details.getByRole('button', { name: 'Atividade', exact: true }).click();
+    await expect(details.getByText('Nenhuma verificação executada registrada.')).toBeVisible();
+    const scale = Number(await canvas.getAttribute('data-scale'));
+    await page.getByRole('button', { name: 'Aumentar zoom' }).click();
+    await expect
+      .poll(async () => Number(await canvas.getAttribute('data-scale')))
+      .toBeGreaterThan(scale);
+    const world = page.locator('.agent-map-world');
+    const before = await world.getAttribute('style');
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.move(box.x + 16, box.y + 16);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 75, box.y + 55, { steps: 5 });
+    await page.mouse.up();
+    await expect(world).not.toHaveAttribute('style', before!);
+    const move = page.getByRole('button', {
+      name: 'Mover Executar verificação integrada. Use as setas.',
+    });
+    const node = page.getByTestId('agent-node-task-wave1'),
+      position = await node.evaluate((e) => (e as HTMLElement).style.left);
+    await move.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => node.evaluate((e) => (e as HTMLElement).style.left)).not.toBe(position);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.keys(localStorage).some((k) => k === 'hydra:canvas:runs:run-e2e-swarm'),
+        ),
+      )
+      .toBe(true);
+    await page.getByRole('button', { name: 'Enquadrar', exact: true }).click();
+    await runAxeWcagAA(page, 'canvas com detalhes');
+    fs.mkdirSync('../ws/b_output/canvas', { recursive: true });
+    await page.screenshot({
+      path: '../ws/b_output/canvas/implemented_desktop.png',
+      fullPage: true,
+    });
+    const originalHeight = (await node.boundingBox())!.height;
+    await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
+    await expect
+      .poll(async () => (await node.boundingBox())!.height)
+      .toBeGreaterThan(originalHeight * 1.9);
+    expect(await node.locator('strong').evaluate((e) => e.scrollHeight <= e.clientHeight + 2)).toBe(
+      true,
+    );
+    await page.evaluate(() => (document.documentElement.style.fontSize = ''));
+    await page.getByRole('button', { name: 'Lista', exact: true }).click();
+    await page.setViewportSize({ width: 375, height: 812 });
+    await expect(page.locator('.agent-list')).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+      .toBe(true);
+    await runAxeWcagAA(page, 'lista de agentes no celular');
+    await page.reload();
+    await expect(page.locator('.agent-list')).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Área de trabalho', exact: true }),
+    ).toBeInViewport();
+    await page.screenshot({ path: '../ws/b_output/canvas/implemented_mobile.png', fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+      .toBe(true);
+    await page.evaluate(() => (document.documentElement.style.fontSize = ''));
+    await page.emulateMedia({ forcedColors: 'active' });
+    await page.screenshot({
+      path: '../ws/b_output/canvas/implemented_contrast.png',
+      fullPage: true,
+    });
+    await page.emulateMedia({ forcedColors: 'none' });
+    await page.reload();
+    await expect(page.getByTestId('agent-node-task-wave1')).toBeVisible();
+    await expect(page).toHaveURL(/execucao=run-e2e-swarm/);
+  });
   test('registers an ordinary folder and starts its conversation without Git', async ({
     page,
     request,

@@ -12,6 +12,10 @@ A escolha entre propostas também entra, porque vira calibração do gosto:
 
 <!-- kit-frontend:correcoes -->
 
+- 2026-11-15 | calibração de cor | “exagerou no laranja, o principal é preto ainda” | preto e cinza neutro dominam fundo, sidebar e cards; laranja aparece só em ações, foco, seleção e pequenos detalhes, sem fundos marrons nem degradê amplo | tokens, navegação e canvas
+
+- 2026-11-15 | escolha e cor | “gostei mais da versão a ... cores da versão c ... utilize mais das cores no sistema, esta muito preto” | construir a mesa livre com detalhe lateral da A; adotar laranja/cobre da C em ações, seleção, navegação e superfícies quentes, com estados distintos e legíveis | canvas, casca e tokens compartilhados
+
 - 2026-11-15 | organização avançada | “ainda estou confuso ... area de trabalho infinita ... cards os agentes trabalhando ... linhas ... clicar no card e mostra o chat” | estudar canvas navegável com cards e relações observáveis, detalhe por seleção e alternativa em lista; preservar a base visual atual; apresentar imagens antes da implementação | propostas visuais pendentes de escolha
 
 - 2026-11-14 | navegação e início | “complicado de entender” e “tem que procurar bastante e ler bastante para saber o que fazer” | mostrar a tarefa principal na primeira dobra, com o projeto selecionado junto do campo; adiar detalhes técnicos para quando forem necessários | registrado para as propostas

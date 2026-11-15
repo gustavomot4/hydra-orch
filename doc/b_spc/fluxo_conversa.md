@@ -71,3 +71,11 @@ O roteamento automático é opt-in, conserva executor/conexão e considera apena
 Eventos `coordinator.plan`, `coordinator.task` e `coordinator.run` alimentam o progresso do mesmo chat e o vínculo para execução/verificações. Cancelamento interrompe a coordenação e suas árvores próprias; não encerra o daemon OmniRoute. Reinício não reenvia automaticamente operações incertas. Retomada automática de coordenação interrompida e reparo autônomo continuam fora desta versão; os resultados preservados permitem inspeção e novo pedido explícito.
 
 Evidência: [testes de rota/contexto](../../tests/test_conversation_route.py) e [coordenação com processos reais controlados](../../tests/test_conversation_coordinator.py). Estes últimos comprovam mecanismos locais, sem certificar desempenho ou qualidade de provedores reais.
+
+## Visualização espacial dos agentes
+
+`/agentes?chat=<id>` acompanha o turno ativo ou o último turno de uma conversa; `/agentes?execucao=<id>` permite inspecionar uma execução existente. O botão **Ver agentes** preserva o vínculo com a conversa. O canvas e a lista leem snapshots das APIs atuais, sem disparar agentes, verificações ou provedores. As posições e o enquadramento ficam no navegador por trabalho e não alteram o plano persistido.
+
+O modelo visual só acrescenta workers encontrados no plano ou na execução; linhas mostram plano, dependências, resultados e revisão registrados. `GET /runs/{id}` expõe também `current_attempt.result.review`, opcional e nulo quando ausente, com a decisão persistida. O detalhe consulta artefatos da tentativa encerrada para extrair mensagens de agente; saída de ferramentas não é convertida em resposta do assistente. Não há chat direto com worker, barramento novo entre agentes ou streaming de stdout do worker nesta entrega. A continuação permanece no chat canônico.
+
+Implementação: [Área de trabalho](../../frontend/src/feature/canvas/AgentWorkspacePage.tsx), [adaptação dos registros](../../frontend/src/feature/canvas/canvasModel.ts) e [testes de interação e fidelidade](../../frontend/tests/agentCanvas.test.tsx). Jornada de uso: [manual Windows](../j_manual/iniciar_windows.md#acompanhar-agentes-na-área-de-trabalho).

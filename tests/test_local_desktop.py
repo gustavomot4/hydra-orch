@@ -35,6 +35,10 @@ async def test_same_origin_desktop_bootstrap_keeps_api_protected(desktop):
         assert 'name="hydra-desktop"' in page.text
         assert TOKEN not in page.text
         assert page.headers["x-frame-options"] == "DENY"
+        canvas = await client.get("/agentes?execucao=run-test")
+        assert canvas.status_code == 200
+        assert 'name="hydra-desktop"' in canvas.text
+        assert TOKEN not in canvas.text
         assert (await client.get("/assets/main.js")).status_code == 200
         assert (await client.get("/assets/missing.js")).status_code == 404
         assert (await client.get("/config.yaml")).status_code != 200
