@@ -12,6 +12,10 @@ A escolha entre propostas também entra, porque vira calibração do gosto:
 
 <!-- kit-frontend:correcoes -->
 
+- 2026-11-15 | densidade e espaço | “sistema apertado”, “tudo ... muito grande”, “aumentar ou diminuir ... ocultar ou mostrar” | propor uma composição de trabalho compacta, tamanhos independentes de interface/texto/editor, painéis ajustáveis e seções recolhíveis; preservar preto predominante e legibilidade | estudo visual antes do planejamento e implementação
+- 2026-11-15 | hierarquia e listas extensas | “conversas, pastas ... deveria poder ocultar”, “separados pelo seu pai”, “lista imensas ... modelos” | agrupar trabalho pelo projeto/pasta pai, expandir filhos sob demanda e limitar prévias de catálogos com abertura de lista pesquisável e paginada | propostas de sidebar, seleção de trabalho e cotas
+- 2026-11-15 | compositor, pastas e catálogo | “tire essas opções rápidas”, “tab ... próximo passo provável”, “setas ... últimos prompts”, “abrir o explorador”, “combos ... disponíveis ... demorando” | remover atalhos de prompts da proposta; prever sugestão discreta aceita por Tab e histórico com setas sem quebrar edição; priorizar seletor nativo de pasta; investigar latência do catálogo sem disparar inferência | estudo visual e diagnóstico, sem alterar produto nesta etapa
+
 - 2026-11-15 | cards e atualização | “podermos arrastar ele de um lado para o outro”, “deveria aparecer na hora nos cards” | arrastar pelo corpo do card, distinguir clique de movimento, atualizar por eventos e representar subagentes somente quando observados no protocolo | canvas, eventos e snapshots
 - 2026-11-15 | conversa e início | “mudar modelo ... fica preso em cima”, “texto deveria ter estilização melhor”, “balão ... muito feio”, “dropdown ... ruins” | manter compositor e configuração acessíveis no rodapé; resposta em Markdown, atividade discreta em cinza, mensagem do usuário compacta; substituir formulário inicial por contexto junto do compositor e busca de pastas; seguir interação familiar de Codex e Claude Code, mantendo o preto | Novo chat e Conversa
 
