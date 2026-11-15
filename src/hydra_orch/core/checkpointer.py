@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 import sqlite3
 import time
@@ -678,8 +679,12 @@ class ExecutionStore:
                 (run_spec.project_id, run_spec.repo_root, proj_name),
             )
         else:
+            isolated_chat = False
+            if run_spec.integration_policy == 'agent_review_in_isolation' and (Path(run_spec.repo_root) / '.git').is_file():
+                roots = await (await db.execute('SELECT workspace_path FROM conversations WHERE project_id=? AND workspace_path IS NOT NULL', (run_spec.project_id,))).fetchall()
+                isolated_chat = any(os.path.normcase(str(Path(r[0]).resolve())) == os.path.normcase(str(Path(run_spec.repo_root).resolve())) for r in roots)
             for prow in proj_rows:
-                if prow["id"] != run_spec.project_id or prow["canonical_root"] != run_spec.repo_root:
+                if prow["id"] != run_spec.project_id or (prow["canonical_root"] != run_spec.repo_root and not isolated_chat):
                     raise StorageIntegrityError(
                         f"Project conflict: ({run_spec.project_id}, {run_spec.repo_root}) conflicts with "
                         f"({prow['id']}, {prow['canonical_root']})"

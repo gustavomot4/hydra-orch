@@ -129,6 +129,32 @@ Reviewer = Callable[[TaskResult], Awaitable[Optional[ReviewDecision]]]
 HandoffReconciler = Callable[[HandoffCheckpoint], Awaitable[bool]]
 
 
+async def consolidate_stage(runs: RunService, run: RunSpec, results, extra_checks=()):
+    """Verified intermediate consolidation; never changes the operator checkout."""
+    store = runs.store
+    digest = hashlib.sha256(','.join(r.result_id for r in results).encode()).hexdigest()[:16]
+    stage_id = f'stage_{run.run_id}_{digest}'
+    async with store._connect() as db:
+        old = await (await db.execute('SELECT * FROM integrations WHERE id=?', (stage_id,))).fetchone()
+        bases = tuple(r[0] for r in await (await db.execute("SELECT result_sha FROM integrations WHERE run_id=? AND status='integrated'", (run.run_id,))).fetchall())
+    if old is not None:
+        if old['status'] != 'integrated':
+            raise ContractViolation('stage_failed', 'Failed consolidation requires explicit repair')
+        return old['result_sha']
+    task_ids = {(await store.get_attempt(r.attempt_id)).task_id for r in results}
+    checks = tuple(c for t in run.tasks if t.task_id in task_ids for c in t.acceptance_criteria) + tuple(extra_checks)
+    check_runner = runs._get_check_runner(run.repo_root)
+    async def check(path, sha, specs):
+        return await check_runner.run_checks(run_id=run.run_id, attempt_id=None, workspace_path=path,
+            tested_sha=sha, checks=specs, scope_prefix=stage_id)
+    outcome = await runs._get_git_workspace(run.repo_root).integrate_results(run_id=run.run_id,
+        expected_base_sha=run.base_sha, results=results, integration_id=stage_id,
+        verified_base_shas=bases, post_merge_checks=checks, check_runner=check)
+    if outcome.status != IntegrationStatus.INTEGRATED:
+        raise ContractViolation('stage_failed', 'Consolidated checks or merge failed; evidence preserved')
+    return outcome.result_sha
+
+
 class Orchestrator:
     def __init__(self, runs: RunService, profiles: ProfileService, routes: RouteSelector):
         if runs.store is not profiles.store or routes.store is not runs.store or routes.agents is not profiles.agents:
@@ -308,28 +334,7 @@ class Orchestrator:
         raise ContractViolation('max_attempts_exceeded', 'Task attempt budget exhausted')
 
     async def _stage(self, plan, results, extra_checks=()):
-        """Verified intermediate consolidation; never changes the operator checkout."""
-        digest = hashlib.sha256(','.join(r.result_id for r in results).encode()).hexdigest()[:16]
-        stage_id = f'stage_{plan.run.run_id}_{digest}'
-        async with self.store._connect() as db:
-            old = await (await db.execute('SELECT * FROM integrations WHERE id=?', (stage_id,))).fetchone()
-            bases = tuple(r[0] for r in await (await db.execute("SELECT result_sha FROM integrations WHERE run_id=? AND status='integrated'", (plan.run.run_id,))).fetchall())
-        if old is not None:
-            if old['status'] != 'integrated':
-                raise ContractViolation('stage_failed', 'Failed consolidation requires explicit repair')
-            return old['result_sha']
-        task_ids = {(await self.store.get_attempt(r.attempt_id)).task_id for r in results}
-        checks = tuple(c for t in plan.run.tasks if t.task_id in task_ids for c in t.acceptance_criteria) + tuple(extra_checks)
-        check_runner = self.runs._get_check_runner(plan.run.repo_root)
-        async def check(path, sha, specs):
-            return await check_runner.run_checks(run_id=plan.run.run_id, attempt_id=None, workspace_path=path,
-                tested_sha=sha, checks=specs, scope_prefix=stage_id)
-        outcome = await self.runs._get_git_workspace(plan.run.repo_root).integrate_results(run_id=plan.run.run_id,
-            expected_base_sha=plan.run.base_sha, results=results, integration_id=stage_id,
-            verified_base_shas=bases, post_merge_checks=checks, check_runner=check)
-        if outcome.status != IntegrationStatus.INTEGRATED:
-            raise ContractViolation('stage_failed', 'Consolidated checks or merge failed; evidence preserved')
-        return outcome.result_sha
+        return await consolidate_stage(self.runs, plan.run, results, extra_checks)
 
     async def execute(self, plan: OrchestrationPlan, *, principal_id: str, reviewer: Optional[Reviewer] = None,
                       handoff_reconciler: Optional[HandoffReconciler] = None, integrate: bool = False) -> OrchestrationReport:

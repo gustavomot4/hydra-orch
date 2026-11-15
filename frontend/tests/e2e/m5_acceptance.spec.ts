@@ -166,6 +166,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await page.keyboard.type('teste-pty');
     await page.keyboard.press('Enter');
     await expect(terminal.getByText('ECHO:codex:teste-pty', { exact: true })).toBeVisible();
+    console.log(`Entrada e eco visíveis em ${Date.now() - typed} ms`);
     const sessionId = await terminal.getAttribute('data-session-id');
     await page
       .getByRole('navigation', { name: 'Navegação principal' })
@@ -177,7 +178,6 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
       .click();
     await expect(terminal).toHaveAttribute('data-session-id', sessionId!);
     await expect(terminal.getByText('ECHO:codex:teste-pty', { exact: true })).toBeVisible();
-    console.log(`Entrada e eco visíveis em ${Date.now() - typed} ms`);
     const initialXterm = await terminal.locator('.xterm').elementHandle();
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(terminal.getByText('ECHO:codex:teste-pty', { exact: true })).toBeVisible();
@@ -199,6 +199,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     const composer = page.getByLabel('Sua mensagem');
     await expect(page.getByLabel('Pasta', { exact: true })).toContainText('hydra-e2e-repo');
     await composer.fill(taskObjective);
+    await expect(composer).toHaveValue(taskObjective);
     const creation = page.waitForResponse(
       (response) =>
         response.url().endsWith('/v1/control-plane/conversations') &&
@@ -227,7 +228,14 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     ).toContainText('Segundo, inicie');
     await expect(page.getByText('Resposta concluída', { exact: true })).toBeVisible();
     await page.getByLabel('Sua mensagem').fill('Agora detalhe o segundo passo');
+    const secondSend = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/conversations/${createdId}/messages`) &&
+        response.request().method() === 'POST',
+    );
     await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+    const secondReply = await secondSend;
+    expect(secondReply.ok(), await secondReply.text()).toBe(true);
     await expect(
       page.getByTestId('conversation-turn-2').getByTestId('agent-response'),
     ).toContainText('Segundo passo detalhado');
@@ -258,6 +266,93 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     ).toBeVisible();
     await page.getByRole('button', { name: 'Parar', exact: true }).click();
     await expect(page.getByText('Interrompido', { exact: true })).toBeVisible();
+  });
+
+  test('changes models A B A in the same durable chat and keeps turn attribution', async ({
+    page,
+  }) => {
+    await loginControlPlane(page);
+    await page.getByLabel('Modelo', { exact: true }).selectOption('model-a');
+    await page.getByLabel('Sua mensagem').fill('Decisão antiga: preservar o README');
+    await expect(page.getByLabel('Sua mensagem')).toHaveValue('Decisão antiga: preservar o README');
+    await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+    await expect(
+      page.getByTestId('conversation-turn-1').getByText('Resposta concluída', { exact: true }),
+    ).toBeVisible();
+    const url = page.url();
+    for (const [index, model] of ['model-b', 'model-a'].entries()) {
+      await page.getByRole('button', { name: 'Trocar modelo ou combo' }).click();
+      await page.getByLabel('Modelo', { exact: true }).selectOption(model);
+      await page.getByRole('button', { name: 'Usar nos próximos envios' }).click();
+      await expect(page.getByRole('button', { name: 'Cancelar troca' })).toBeHidden();
+      await page
+        .getByLabel('Sua mensagem')
+        .fill(`Continue a partir do histórico, etapa ${index + 2}`);
+      const acceptance = page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/messages') && response.request().method() === 'POST',
+      );
+      await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+      const accepted = await acceptance;
+      expect(accepted.ok(), await accepted.text()).toBe(true);
+      await expect(
+        page.getByTestId(`conversation-turn-${index + 2}`).getByTestId('agent-response'),
+      ).toBeVisible();
+      await expect(
+        page
+          .getByTestId(`conversation-turn-${index + 2}`)
+          .getByText('Resposta concluída', { exact: true }),
+      ).toBeVisible();
+      expect(page.url()).toBe(url);
+    }
+    await page.reload();
+    await expect(
+      page.getByTestId('conversation-turn-1').getByRole('heading', { name: 'Codex · model-a' }),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId('conversation-turn-2').getByRole('heading', { name: 'Codex · model-b' }),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId('conversation-turn-3').getByRole('heading', { name: 'Codex · model-a' }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('Decisão antiga: preservar o README', { exact: true }).last(),
+    ).toBeVisible();
+  });
+
+  test('audits and saves coordination options for the next sends', async ({ page }) => {
+    await loginControlPlane(page);
+    await page.getByLabel('Sua mensagem').fill('Preparar opções de trabalho');
+    await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+    await expect(
+      page.getByTestId('conversation-turn-1').getByText('Resposta concluída', { exact: true }),
+    ).toBeVisible();
+    const url = page.url();
+    await page.getByRole('button', { name: 'Trocar modelo ou combo' }).click();
+    await page.getByRole('radio', { name: 'Coordenar tarefas com agentes' }).check();
+    await page.getByRole('checkbox', { name: /Escolher entre combos/ }).check();
+    await runAxeWcagAA(page, 'opções de execução');
+    await checkConversationLayout(page, 'route_workflow');
+    await page.screenshot({
+      path: '../ws/b_output/conversation/route_workflow_desktop.png',
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.screenshot({
+      path: '../ws/b_output/conversation/route_workflow_mobile.png',
+      fullPage: true,
+    });
+    await page.getByRole('button', { name: 'Usar nos próximos envios' }).click();
+    await expect(page.getByRole('button', { name: 'Cancelar troca' })).toBeHidden();
+    const response = await page.request.get(
+      url.replace(/\/chat\//, '/v1/control-plane/conversations/'),
+      { headers: { Authorization: `Bearer ${E2E_TOKEN}` } },
+    );
+    expect(await response.json()).toMatchObject({
+      execution_mode: 'swarm',
+      auto_route: true,
+      route_revision: 1,
+    });
   });
 
   test('executes full 10-step E2E scenario against isolated FastAPI backend with test executors', async ({

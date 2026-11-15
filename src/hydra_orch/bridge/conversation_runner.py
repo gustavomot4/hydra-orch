@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import time
+from contextlib import ExitStack
 from typing import Awaitable, Callable
 
 from hydra_orch.bridge.worker_runner import filter_worker_env, cancel_process_tree
@@ -32,7 +34,7 @@ class ConversationRunner:
         def check():
             try:
                 command = [executable, "login", "status"] if driver == "codex" else [executable, "auth", "status"]
-                result = subprocess.run(command, capture_output=True, timeout=8, env=filter_worker_env(),
+                result = subprocess.run(command, capture_output=True, timeout=8, env=filter_worker_env(), stdin=subprocess.DEVNULL,
                                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 if driver == "claude":
                     return result.returncode == 0 and json.loads(result.stdout).get("loggedIn", False)
@@ -59,48 +61,116 @@ class ConversationRunner:
             if not await cancel_process_tree(process.pid):
                 raise ContractViolation("conversation_process_active", "O agente ainda está encerrando. Aguarde antes de continuar.")
 
-    async def run(self, turn: dict, conversation: dict, prompt: str, cwd: Path, emit: Emit):
-        driver = conversation["executor"]
-        executable = shutil.which(driver)
-        if not executable:
-            raise ContractViolation("agent_unavailable", f"Instale {driver} e conecte sua conta antes de enviar novamente.")
-        session = conversation.get("native_session_id")
-        if driver == "codex":
-            args = [executable]
-            if await asyncio.to_thread(_bundled_codex_needs_no_daemon, executable):
-                args += ["--no-daemon"]
-            args += ["--cd", str(cwd), "--ask-for-approval", "never", "exec"]
-            if conversation.get("workspace_kind") == "folder" and not session:
-                args += ["--skip-git-repo-check"]
-            # exec resume has a distinct CLI contract; sandbox is a global option.
-            if session:
-                args[1:1] = ["--sandbox", conversation["access_mode"]]
-                args += ["resume"]
-                if conversation.get("workspace_kind") == "folder":
+    async def invocation(self, conversation: dict, cwd: Path):
+        """Build a scoped CLI invocation; caller must close the returned transport.
+
+        Also used by the canonical WorkerRunner for coordinated task attempts.
+        """
+        transport = ExitStack()
+        try:
+            driver = conversation["executor"]
+            executable = shutil.which(driver)
+            if not executable:
+                raise ContractViolation("agent_unavailable", f"Instale {driver} e conecte sua conta antes de enviar novamente.")
+            session = conversation.get("native_session_id")
+            route = conversation.get('route') or {}
+            target = route.get('target_ref', '')
+            allowed_env = {}
+            gateway_args = []
+            observed = {}
+            if route.get('connection_mode') == 'omniroute':
+                base_url = conversation['_gateway_base_url']
+                token = conversation['_gateway_token']
+                if not token:
+                    raise ContractViolation('gateway_credential_missing', 'Configure a credencial do OmniRoute no backend.')
+                if driver == 'codex':
+                    from hydra_orch.bridge.codex_catalog import gateway_catalog
+                    from hydra_orch.bridge.omniroute_transport import codex_transport
+                    import hashlib
+                    state_root = Path(conversation.get('_agent_state_dir') or cwd.parent / '.hydra_agent_state' / hashlib.sha256(str(cwd).encode()).hexdigest()[:24])
+                    home = state_root / 'codex_home'
+                    if home.is_symlink() or state_root.is_symlink():
+                        raise ContractViolation('context_path_escape', 'O diretório do agente não é seguro.')
+                    catalog = await asyncio.to_thread(gateway_catalog, executable, target, home)
+                    base_url, token, observed = transport.enter_context(codex_transport(base_url, token, target))
+                    provider = {'name': 'OmniRoute', 'base_url': base_url, 'env_key': 'OMNIROUTE_API_KEY',
+                                'wire_api': 'responses', 'requires_openai_auth': False}
+                    inline = '{' + ','.join(f'{k}={json.dumps(v)}' for k, v in provider.items()) + '}'
+                    gateway_args = ['-c', 'model_provider="hydra_omni"', '-c', 'model_providers.hydra_omni=' + inline,
+                                    '-c', 'model_catalog_json=' + json.dumps(str(catalog).replace('\\', '/')),
+                                    '-c', 'web_search="disabled"', '-c', 'features.incremental_tools=false',
+                                    '-c', 'features.apps=false', '-c', 'features.goals=false', '-c', 'features.multi_agent=false']
+                    if os.name == 'nt':
+                        # An isolated CODEX_HOME must still select the supported Windows
+                        # sandbox implementation; --sandbox remains the user's access mode.
+                        gateway_args += ['-c', 'windows.sandbox="unelevated"']
+                    allowed_env.update(OMNIROUTE_API_KEY=token, CODEX_HOME=str(home))
+                else:
+                    allowed_env.update(ANTHROPIC_BASE_URL=base_url.removesuffix('/v1'), ANTHROPIC_AUTH_TOKEN=token,
+                                       ANTHROPIC_MODEL=target, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1')
+            if driver == "codex":
+                args = [executable]
+                if await asyncio.to_thread(_bundled_codex_needs_no_daemon, executable):
+                    args += ["--no-daemon"]
+                args += gateway_args
+                args += ["--cd", str(cwd), "--ask-for-approval", "never", "exec"]
+                if conversation.get("workspace_kind") == "folder" and not session:
                     args += ["--skip-git-repo-check"]
-                args += ["--json", session, "-"]
+                # exec resume has a distinct CLI contract; sandbox is a global option.
+                if session:
+                    args[1:1] = ["--sandbox", conversation["access_mode"]]
+                    args += ["resume"]
+                    if conversation.get("workspace_kind") == "folder":
+                        args += ["--skip-git-repo-check"]
+                    args += ["--json", session, "-"]
+                else:
+                    args += ["--sandbox", conversation["access_mode"], "--json", "-"]
+                if target:
+                    args += ['--model', target]
+            elif driver == "claude":
+                args = [executable, "--print", "--verbose", "--output-format", "stream-json",
+                        "--include-partial-messages", "--permission-mode", "dontAsk",
+                        "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+                # Explicit tool allowlist prevents writes in read-only chats.
+                args += ["--tools", "Read,Glob,Grep" if conversation["access_mode"] == "read-only" else "Read,Glob,Grep,Edit,Write,Bash"]
+                if conversation["access_mode"] == "workspace-write":
+                    args += ["--allowedTools", "Read,Glob,Grep,Edit,Write"]
+                if session:
+                    args += ["--resume", session]
+                if target:
+                    args += ['--model', target]
             else:
-                args += ["--sandbox", conversation["access_mode"], "--json", "-"]
-        elif driver == "claude":
-            args = [executable, "--print", "--verbose", "--output-format", "stream-json",
-                    "--include-partial-messages", "--permission-mode", "dontAsk",
-                    "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
-            # Explicit tool allowlist prevents writes in read-only chats.
-            args += ["--tools", "Read,Glob,Grep" if conversation["access_mode"] == "read-only" else "Read,Glob,Grep,Edit,Write,Bash"]
-            if conversation["access_mode"] == "workspace-write":
-                args += ["--allowedTools", "Read,Glob,Grep,Edit,Write"]
-            if session:
-                args += ["--resume", session]
-        else:
-            raise ContractViolation("agent_unavailable", "Este agente ainda não suporta conversa. Escolha Codex ou Claude Code.")
-        folder_env = {"GIT_CEILING_DIRECTORIES": str(cwd.parent)} if conversation.get("workspace_kind") == "folder" else None
-        kwargs = {"cwd": str(cwd), "env": filter_worker_env(allowed_env=folder_env), "stdin": asyncio.subprocess.PIPE,
+                raise ContractViolation("agent_unavailable", "Este agente ainda não suporta conversa. Escolha Codex ou Claude Code.")
+            if conversation.get("workspace_kind") == "folder":
+                allowed_env['GIT_CEILING_DIRECTORIES'] = str(cwd.parent)
+            return args, filter_worker_env(allowed_env=allowed_env), transport, observed
+        except BaseException:
+            await asyncio.to_thread(transport.close)
+            raise
+
+    async def run(self, turn: dict, conversation: dict, prompt: str, cwd: Path, emit: Emit):
+        started = time.monotonic()
+        metrics = {'first_text_seconds': None, 'tool_events': 0, 'usage_status': 'unknown'}
+        original_emit = emit
+        async def emit(kind, payload):
+            if kind == 'text.delta' and metrics['first_text_seconds'] is None:
+                metrics['first_text_seconds'] = round(time.monotonic() - started, 3)
+            if kind == 'tool.completed':
+                metrics['tool_events'] += 1
+            await original_emit(kind, payload)
+        driver = conversation["executor"]
+        args, environment, transport, observed = await self.invocation(conversation, cwd)
+        kwargs = {"cwd": str(cwd), "env": environment, "stdin": asyncio.subprocess.PIPE,
                   "stdout": asyncio.subprocess.PIPE, "stderr": asyncio.subprocess.PIPE, "limit": 2**20}
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         else:
             kwargs["start_new_session"] = True
-        process = await asyncio.create_subprocess_exec(*args, **kwargs)
+        try:
+            process = await asyncio.create_subprocess_exec(*args, **kwargs)
+        except BaseException:
+            await asyncio.to_thread(transport.close)
+            raise
         self.processes[turn["id"]] = process
         stderr = bytearray()
         text_seen = False
@@ -131,6 +201,10 @@ class ConversationRunner:
                         if native_id:
                             await emit("session.started", {"session_id": native_id})
                     if driver == "codex":
+                        if kind == 'turn.completed' and isinstance(event.get('usage'), dict):
+                            usage = {k: v for k, v in event['usage'].items() if k in {'input_tokens', 'cached_input_tokens', 'output_tokens'} and isinstance(v, int) and v >= 0}
+                            if usage:
+                                metrics.update(usage=usage, usage_status='observed', usage_source='codex_cli')
                         if kind == "item.completed":
                             item = event.get("item", {})
                             if item.get("type") == "agent_message":
@@ -174,8 +248,17 @@ class ConversationRunner:
             if not text_seen:
                 raise ContractViolation("agent_empty_response", "O agente encerrou sem uma resposta. Confira sua conexão e tente novamente.")
         finally:
+            await asyncio.to_thread(transport.close)
             if process.returncode is None:
                 await cancel_process_tree(process.pid)
             errors_task.cancel()
             await asyncio.gather(errors_task, return_exceptions=True)
             self.processes.pop(turn["id"], None)
+            metrics['duration_seconds'] = round(time.monotonic() - started, 3)
+            if observed.get('models'):
+                metrics['models'] = observed['models']
+                metrics['model_source'] = observed['source']
+            # Metrics must never mask cancellation or the original process failure.
+            from contextlib import suppress
+            with suppress(Exception):
+                await emit('execution.metrics', metrics)

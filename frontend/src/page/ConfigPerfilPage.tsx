@@ -11,15 +11,12 @@ import {
   Trash2,
 } from 'lucide-react';
 import { StatusBadge } from '@/component/StatusBadge';
+import { ConversationConnectionSettings } from '@/feature/chat/ConversationConnectionSettings';
 import { useCapabilities } from '@/hook/useCapabilities';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useAuthStore } from '@/store/authStore';
 import { DensityMode, useLayoutStore } from '@/store/layoutStore';
-import {
-  ControlPlaneApiError,
-  Preference,
-  TokenMetadata,
-} from '@/type/controlPlane';
+import { ControlPlaneApiError, Preference, TokenMetadata } from '@/type/controlPlane';
 
 const KEYBOARD_SHORTCUTS = [
   { keys: 'Ctrl + B', description: 'Recolher ou expandir barra lateral' },
@@ -224,7 +221,8 @@ export function ConfigPerfilPage() {
         <div>
           <h1 className="text-xl font-semibold text-[#E8E8E8]">Configurações e perfil</h1>
           <p className="text-xs text-[#969696]">
-            Preferências versionadas, acessibilidade WCAG AA, metadados de acesso e capacidades do host.
+            Preferências versionadas, acessibilidade WCAG AA, metadados de acesso e capacidades do
+            host.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -239,6 +237,8 @@ export function ConfigPerfilPage() {
           </button>
         </div>
       </header>
+
+      <ConversationConnectionSettings />
 
       <section
         aria-labelledby="pref-section-title"
@@ -295,7 +295,7 @@ export function ConfigPerfilPage() {
                 checked={reducedMotion}
                 onChange={(e) => setReducedMotion(e.target.checked)}
                 aria-label="Reduzir movimento"
-                className="h-4 w-4 accent-[#3B82F6]"
+                className="h-8 w-8 shrink-0 accent-[#3B82F6]"
               />
             </label>
 
@@ -313,7 +313,7 @@ export function ConfigPerfilPage() {
                 checked={keyboardHintsVisible}
                 onChange={(e) => setKeyboardHintsVisible(e.target.checked)}
                 aria-label="Exibir dicas de atalhos de teclado"
-                className="h-4 w-4 accent-[#3B82F6]"
+                className="h-8 w-8 shrink-0 accent-[#3B82F6]"
               />
             </label>
           </div>
@@ -411,7 +411,8 @@ export function ConfigPerfilPage() {
         <div className="mt-4 space-y-2">
           {tokensQuery.data && !tokensQuery.data.supported && combinedTokens.length === 0 ? (
             <p className="text-xs text-[#969696]">
-              Listagem remota de tokens não exposta nesta instância; tokens emitidos nesta sessão aparecerão aqui apenas por metadados não secretos.
+              Listagem remota de tokens não exposta nesta instância; tokens emitidos nesta sessão
+              aparecerão aqui apenas por metadados não secretos.
             </p>
           ) : combinedTokens.length === 0 ? (
             <p className="text-xs text-[#969696]">Nenhum metadado de token registrado.</p>
@@ -517,10 +518,30 @@ export function ConfigPerfilPage() {
                           .filter(Boolean)
                           .join(' · ') || null,
                       ],
-                      ['attachments', 'Anexos', host.capabilities.attachments.status, host.capabilities.attachments.reason],
-                      ['quickopen', 'Busca global', host.capabilities.quickopen.status, host.capabilities.quickopen.reason],
-                      ['preview', 'Preview seguro', host.capabilities.preview.status, host.capabilities.preview.reason],
-                      ['scheduler', 'Automações', host.capabilities.scheduler.status, host.capabilities.scheduler.reason],
+                      [
+                        'attachments',
+                        'Anexos',
+                        host.capabilities.attachments.status,
+                        host.capabilities.attachments.reason,
+                      ],
+                      [
+                        'quickopen',
+                        'Busca global',
+                        host.capabilities.quickopen.status,
+                        host.capabilities.quickopen.reason,
+                      ],
+                      [
+                        'preview',
+                        'Preview seguro',
+                        host.capabilities.preview.status,
+                        host.capabilities.preview.reason,
+                      ],
+                      [
+                        'scheduler',
+                        'Automações',
+                        host.capabilities.scheduler.status,
+                        host.capabilities.scheduler.reason,
+                      ],
                       [
                         'dictation_stt',
                         'Ditado STT',

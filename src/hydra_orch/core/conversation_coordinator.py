@@ -1,0 +1,341 @@
+"""Repository-specific planning and two-wave tasks over the canonical RunService.
+
+The CLI remains the tool executor. Patches, checks, reviews and consolidation use
+the same durable execution service as manually supplied plans. All integration
+targets a registered conversation worktree, never the original checkout.
+"""
+from __future__ import annotations
+
+import asyncio
+from contextlib import suppress
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import shutil
+import sys
+from typing import Literal
+import uuid
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from hydra_orch.core.conversation_route import ConversationRoute
+from hydra_orch.core.folder_workspace import files
+from hydra_orch.core.run_service import RunService
+from hydra_orch.engine.orchestration import consolidate_stage, _state_hash
+from hydra_orch.engine.decomposer import LOCKED_DEPENDENCY_MANIFESTS
+from hydra_orch.model import BudgetPolicy, CheckSpec, ContractViolation, IntegrationStatus, RunSpec, TaskSpec, TaskStatus
+
+FORBIDDEN = ('.git', '.git/**', '.orchestrator/**', '.env*', '**/.env*', 'node_modules/**', '**/node_modules/**')
+
+
+def source_path(value):
+    path = PurePosixPath(value)
+    if (value in {'', '.', '..'} or '\\' in value or ':' in value or any(ord(c) < 32 for c in value)
+            or any(p.startswith('-') for p in path.parts)
+            or path.is_absolute() or any(p in {'..', '.git', '.orchestrator', 'node_modules'} or p.lower().startswith('.env') for p in path.parts)
+            or any(c in value for c in '*?[') or str(path) != value):
+        raise ValueError('Use a literal relative source-file path, outside runtime and credentials')
+    return value
+
+
+class PlannedTask(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    id: str = Field(pattern=r'^[a-z][a-z0-9_-]{0,39}$')
+    title: str = Field(min_length=3, max_length=120)
+    objective: str = Field(min_length=10, max_length=6000)
+    category: Literal['code', 'tests', 'docs', 'review', 'planning'] = 'code'
+    paths: list[str] = Field(min_length=1, max_length=40)
+    check_kind: Literal['pytest', 'python_compile', 'node_test', 'typescript']
+    check_paths: list[str] = Field(min_length=1, max_length=20)
+    check_cwd: str = '.'
+    dependencies: list[str] = Field(default_factory=list, max_length=1)
+
+    @field_validator('paths', 'check_paths')
+    @classmethod
+    def safe_paths(cls, values):
+        if len(set(values)) != len(values):
+            raise ValueError('Duplicate paths')
+        return [source_path(v) for v in values]
+
+    @field_validator('check_cwd')
+    @classmethod
+    def safe_cwd(cls, value):
+        return value if value == '.' else source_path(value)
+
+
+class CoordinatorPlan(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    objective: str = Field(min_length=3, max_length=2000)
+    foundation_id: str | None = None
+    tasks: list[PlannedTask] = Field(min_length=1, max_length=4)
+
+    @model_validator(mode='after')
+    def two_waves(self):
+        ids = {t.id for t in self.tasks}
+        if len(ids) != len(self.tasks) or self.foundation_id is not None and self.foundation_id not in ids:
+            raise ValueError('Tasks require unique IDs and a valid foundation')
+        workers = [t for t in self.tasks if t.id != self.foundation_id]
+        for task in self.tasks:
+            expected = [self.foundation_id] if self.foundation_id and task.id != self.foundation_id else []
+            if task.dependencies != expected:
+                raise ValueError('Use only independent tasks or one foundation followed by independent workers')
+        owners = {}
+        for task in workers:
+            for path in task.paths:
+                key = path.casefold() if os.name == 'nt' else path
+                if key in owners:
+                    raise ValueError(f'Parallel file ownership overlaps: {path}')
+                owners[key] = task.id
+        if self.foundation_id and len(self.tasks) < 2:
+            raise ValueError('A single task does not need a foundation wave')
+        if self.foundation_id:
+            foundation = next(t for t in self.tasks if t.id == self.foundation_id)
+            reserved = {p.casefold() if os.name == 'nt' else p for p in foundation.paths}
+            if reserved.intersection(owners):
+                raise ValueError('Foundation contracts cannot be changed by Wave 1 workers')
+        return self
+
+
+class AgentReview(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    decision: Literal['accepted', 'rejected']
+    reason: str = Field(min_length=10, max_length=3000)
+
+
+def parse_structured(text, schema):
+    value = text.strip()
+    if value.startswith('```'):
+        value = value[value.find('\n')+1:]
+        if value.rstrip().endswith('```'):
+            value = value.rstrip()[:-3].strip()
+    # A full JSON object is mandatory. Prose or a tool-looking XML fragment cannot
+    # become an executable plan or a review decision.
+    return schema.model_validate_json(value)
+
+
+class ConversationCoordinator:
+    def __init__(self, runs, runner, routes=None):
+        self.runs, self.runner, self.routes, self.store = runs, runner, routes, runs.store
+        self.active = {}
+
+    async def _structured(self, job_id, conv, cwd, prompt, schema, emit):
+        texts = []
+        child = {**conv, 'native_session_id': None, 'access_mode': 'read-only'}
+        async def event(kind, payload):
+            if kind == 'text.delta':
+                texts.append(payload['text'])
+            elif kind.startswith('tool.'):
+                await emit(kind, payload)
+            elif kind == 'process.started':
+                await emit('coordinator.process', {'job_id': job_id, 'pid': payload['pid']})
+        try:
+            await asyncio.wait_for(self.runner.run({'id': job_id}, child, prompt, cwd, event), 180)
+            # Codex emits complete agent messages; Claude can emit partial text.
+            candidates = [''.join(texts)]
+            if child['executor'] == 'codex' and texts:
+                candidates.insert(0, texts[-1])
+            for text in candidates:
+                try:
+                    return parse_structured(text, schema)
+                except ValueError:
+                    pass
+            raise ContractViolation('coordinator_plan_invalid', 'O agente não retornou um plano ou revisão estruturados válidos. Nenhuma ferramenta de worker foi iniciada a partir desse texto.')
+        finally:
+            await self.runner.cancel(job_id)
+
+    async def plan(self, turn, conv, prompt, cwd, emit):
+        inventory = [p.as_posix() for p in files(cwd)]
+        if len(inventory) > 10000:
+            raise ContractViolation('coordinator_plan_invalid', 'O projeto ultrapassa o limite de arquivos desta versão do coordenador.')
+        request = (prompt + '\n\nVocê é o planejador. Leia os arquivos relevantes usando ferramentas de leitura. '
+                   'Não edite arquivos, não faça commit e não execute workers. Gere de uma a quatro tarefas específicas ao pedido e ao repositório. '
+                   'Uma tarefa pequena deve ter uma tarefa, sem frentes genéricas. Use somente arquivos literais, novos ou existentes. '
+                   'Se contratos compartilhados precisarem mudar, use uma fundação compilável e faça as outras tarefas dependerem apenas dela. '
+                   'Caso contrário, tarefas independentes não têm dependências. Workers paralelos não compartilham arquivos. '
+                   'Cada tarefa precisa de verificação executável apropriada. python_compile comprova apenas sintaxe; prefira pytest ou node_test para comportamento. '
+                   'Não proponha comandos livres. Responda SOMENTE um objeto JSON conforme este schema:\n' + json.dumps(CoordinatorPlan.model_json_schema(), ensure_ascii=False)
+                   + '\nArquivos disponíveis:\n' + '\n'.join(inventory))
+        await emit('coordinator.phase', {'phase': 'planning', 'message': 'Analisando o pedido e os arquivos para dividir o trabalho.'})
+        return await self._structured(turn['id'] + '-plan', conv, cwd, request, CoordinatorPlan, emit)
+
+    async def select(self, task, conv):
+        root = {k: conv['route'][k] for k in ('executor', 'connection_mode', 'target_kind', 'target_ref')}
+        if not conv.get('auto_route') or root['connection_mode'] == 'direct' or self.routes is None:
+            return root, 'Seleção explícita da conversa; não há medição comparativa de qualidade para substituir esta escolha.'
+        catalog = await self.routes.catalog(root['executor'])
+        labels = {'planning': ('planej', 'reason'), 'docs': ('docs', 'document'), 'review': ('review', 'revis'),
+                  'tests': ('test', 'dev'), 'code': ('dev', 'code', 'program')}
+        candidates = [c for c in catalog['combos'] if c['compatibility'] == 'verified']
+        matches = [c for c in candidates if any(k in c['name'].casefold() for k in labels[task.category])]
+        if not matches:
+            return root, 'Não há outra combinação testada com perfil adequado; mantida a seleção atual.'
+        # The role is inferred from an operator-created combo name, not advertised
+        # as a benchmark or a claim about the globally best model.
+        durations = {}
+        for c in matches:
+            selected = {**root, 'target_kind': 'combo', 'target_ref': c['name']}
+            info = await self.routes.validate(selected)
+            durations[c['name']] = (info.get('evidence') or {}).get('seconds', float('inf'))
+        chosen = min(matches, key=lambda c: (durations[c['name']], c['name']))
+        return {**root, 'target_kind': 'combo', 'target_ref': chosen['name']}, 'Perfil inferido do nome do combo e tempo observado no teste de ferramentas; qualidade por tarefa ainda não medida.'
+
+    @staticmethod
+    def checks(task):
+        if task.check_kind == 'pytest':
+            command = (sys.executable, '-m', 'pytest', '-q', *task.check_paths)
+        elif task.check_kind == 'python_compile':
+            if any(not p.endswith('.py') for p in task.check_paths):
+                raise ContractViolation('coordinator_plan_invalid', 'A verificação de sintaxe exige arquivos Python explícitos.')
+            command = (sys.executable, '-m', 'compileall', '-q', *task.check_paths)
+        elif task.check_kind == 'node_test':
+            node = shutil.which('node')
+            if not node:
+                raise ContractViolation('agent_unavailable', 'Node não está instalado para verificar esta tarefa.')
+            command = (node, '--test', *task.check_paths)
+        else:
+            node = shutil.which('node')
+            if not node:
+                raise ContractViolation('agent_unavailable', 'Node não está instalado para verificar esta tarefa.')
+            command = (node, 'node_modules/typescript/bin/tsc', '--noEmit')
+        return (CheckSpec(check_id='check-' + task.id, command=command, cwd=task.check_cwd,
+                          description='Verificação ' + task.check_kind),)
+
+    @staticmethod
+    def checkpoint(runs, cwd):
+        ws = runs.git_workspace
+        names = ws._run_git(['diff', '--name-only', '-z', 'HEAD'], cwd=cwd).stdout.split('\0')
+        names += ws._run_git(['ls-files', '--others', '--exclude-standard', '-z'], cwd=cwd).stdout.split('\0')
+        selected = []
+        for name in sorted(set(n for n in names if n)):
+            if name.startswith('.orchestrator/'):
+                continue
+            try:
+                source_path(name)
+            except ValueError as exc:
+                raise ContractViolation('scope_violation', 'Há alterações fora dos arquivos de projeto permitidos. A cópia foi preservada para revisão.') from exc
+            selected.append(name)
+        if selected:
+            result = ws._run_git(['add', '--', *selected], cwd=cwd)
+            if result.returncode:
+                raise ContractViolation('coordinator_plan_invalid', 'Não foi possível preparar a base da cópia isolada.')
+            result = ws._run_git(['-c','user.name=Hydra','-c','user.email=hydra@localhost','commit','-m','chore: checkpoint isolated conversation before coordination'], cwd=cwd)
+            if result.returncode:
+                raise ContractViolation('coordinator_plan_invalid', 'Não foi possível registrar a base da cópia isolada.')
+        return ws.resolve_commit_sha('HEAD', cwd=cwd)
+
+    async def execute(self, turn, conv, prompt, cwd, emit):
+        """One optional foundation, then independent workers, bounded and reviewed."""
+        run_id = 'cr-' + uuid.uuid4().hex[:10]
+        plan = await self.plan(turn, conv, prompt, cwd, emit)
+        await emit('coordinator.plan', {'plan': plan.model_dump(), 'run_id': run_id})
+        if conv['access_mode'] != 'workspace-write':
+            await emit('text.delta', {'text': 'Plano preparado em modo de leitura:\n' + '\n'.join(f'{i}. {t.title}: {t.objective}' for i,t in enumerate(plan.tasks,1)) + '\nPara executar as alterações, permita edições em uma cópia isolada.'})
+            return
+        if conv.get('workspace_kind') != 'git' or not (cwd / '.git').is_file():
+            raise ContractViolation('coordinator_git_required', 'O plano foi preservado. A execução paralela desta versão exige uma cópia Git; pastas comuns continuam disponíveis no trabalho individual.')
+        runs = RunService(cwd, store=self.store, runtime_dir=self.runs.runtime_dir / 'c' / hashlib.sha256(turn['id'].encode()).hexdigest()[:10])
+        base = await asyncio.to_thread(self.checkpoint, runs, cwd)
+        before = await asyncio.to_thread(_state_hash, cwd, base)
+        task_ids = {t.id: run_id + '-' + str(i) for i, t in enumerate(plan.tasks)}
+        specs = tuple(TaskSpec(task_id=task_ids[t.id],run_id=run_id,objective=t.title+'\n'+t.objective,
+                     allowed_paths=tuple(t.paths),acceptance_criteria=self.checks(t),
+                     dependencies=tuple(task_ids[d] for d in t.dependencies),assigned_executor=conv['executor'],
+                     timeout_seconds=300,max_repair_attempts=0) for t in plan.tasks)
+        spec = RunSpec(run_id=run_id,project_id=conv['project_id'],objective=plan.objective,repo_root=str(cwd),
+                       base_sha=base,base_branch=runs.git_workspace._run_git(['branch','--show-current'],cwd=cwd).stdout.strip(),
+                       tasks=specs,orchestration_mode='swarm' if len(specs)>1 else 'relay',
+                       integration_policy='agent_review_in_isolation',idempotency_key=turn['id'],
+                       budget_policy=BudgetPolicy(max_parallel_worktrees=2,max_attempts=len(specs),max_wall_seconds=900))
+        await runs.submit_run(spec)
+        # Admission is serialized before dispatch; parallel workers must not race
+        # the queued -> running revision transition.
+        await runs._ensure_run_running(run_id)
+        await emit('coordinator.run', {'run_id': run_id, 'phase': 'running'})
+        accepted = []
+        semaphore = asyncio.Semaphore(2)
+
+        async def worker(task, execution_base):
+            route, reason = await self.select(task, conv)
+            if self.routes:
+                checked = await self.routes.validate(route, refresh=True)
+                route = {**route, 'fingerprint': checked['fingerprint']}
+            child = {**conv,'route': route,'native_session_id': None,
+                     '_agent_state_dir': str(runs.runtime_dir / 'agent' / task.id)}
+            await emit('coordinator.task', {'task_id':task.id,'title':task.title,'state':'starting','route':route,'reason':reason})
+            async with semaphore:
+                args, env, transport, _ = await self.runner.invocation(child, Path('.'))
+                try:
+                    outcome = await runs.execute_task_attempt(run_id, task_ids[task.id], execution_base_sha=execution_base,
+                        model=route['target_ref'] or 'native-default', custom_command=args, allowed_env=env,
+                        prompt=task.objective+'\nTrabalhe somente nos arquivos: '+', '.join(task.paths)+
+                        '\nNão altere outros arquivos, não faça commit, push ou integração. A execução será verificada independentemente.\nContexto do pedido:\n'+prompt,
+                        forbidden_paths=FORBIDDEN + (tuple(LOCKED_DEPENDENCY_MANIFESTS) + tuple('**/'+p for p in LOCKED_DEPENDENCY_MANIFESTS)
+                            if plan.foundation_id and task.id != plan.foundation_id else ()))
+                finally:
+                    await asyncio.to_thread(transport.close)
+                result = outcome.result
+                if result.task_status != TaskStatus.READY_FOR_REVIEW:
+                    await emit('coordinator.task', {'task_id':task.id,'title':task.title,'state':'failed','summary':result.summary})
+                    raise ContractViolation('coordinator_worker_failed', f'A tarefa {task.title} não passou pelas verificações. A execução {run_id} foi preservada para revisão.')
+                review = await self._structured(turn['id']+'-review-'+task.id, child, Path(outcome.attempt.workspace_path),
+                    'Revise as alterações desta tarefa e os resultados de verificação. Não edite nem execute commits. '
+                    'Use leitura para conferir o código quando necessário. Retorne somente JSON com decision accepted/rejected e reason.\n'
+                    +json.dumps({'objective':task.objective,'allowed_paths':task.paths,'result':result.model_dump(mode='json')},ensure_ascii=False),AgentReview,emit)
+                reviewed = await runs.review_task_result(run_id,result.result_id,actor='agent:'+route['executor'],
+                    decision=review.decision,reason=review.reason,expected_revision=1)
+                await emit('coordinator.task', {'task_id':task.id,'title':task.title,'state':reviewed.task_status.value,'route':route,'review':review.reason})
+                if reviewed.task_status != TaskStatus.ACCEPTED:
+                    raise ContractViolation('coordinator_review_rejected', f'A revisão de agente não aceitou {task.title}. Os resultados foram preservados, sem aplicar ao projeto original.')
+                return reviewed
+
+        async def run_workers():
+            execution_base = base
+            if plan.foundation_id:
+                foundation = next(t for t in plan.tasks if t.id==plan.foundation_id)
+                accepted.append(await worker(foundation,base))
+                execution_base = await consolidate_stage(runs,spec,accepted)
+            tasks = [asyncio.create_task(worker(t,execution_base)) for t in plan.tasks if t.id!=plan.foundation_id]
+            try:
+                results = await asyncio.gather(*tasks,return_exceptions=True)
+                failures = [r for r in results if isinstance(r,BaseException)]
+                if failures:
+                    raise failures[0]
+                accepted.extend(results)
+            finally:
+                for task in tasks:
+                    if not task.done():task.cancel()
+                await asyncio.gather(*tasks,return_exceptions=True)
+            integrated = await runs.integrate_run(run_id,cleanup_on_success=False)
+            if integrated.status != IntegrationStatus.INTEGRATED:
+                raise ContractViolation('coordinator_integration_failed','A consolidação não passou nas verificações. As cópias e resultados foram preservados.')
+            if await asyncio.to_thread(_state_hash,cwd,base) != before:
+                raise ContractViolation('coordinator_workspace_changed','A cópia da conversa mudou durante o trabalho. Os resultados foram preservados sem sobrescrever essas alterações.')
+            result = await asyncio.to_thread(runs.git_workspace._run_git,['merge','--ff-only',integrated.result_sha],cwd=cwd)
+            if result.returncode:
+                raise ContractViolation('coordinator_integration_failed','Não foi possível aplicar a consolidação à cópia da conversa. O projeto original permanece preservado.')
+            await emit('coordinator.run', {'run_id':run_id,'phase':'completed','result_sha':integrated.result_sha})
+            await emit('text.delta', {'text': 'Trabalho coordenado concluído na cópia isolada.\n'+ '\n'.join('- '+t.title for t in plan.tasks)
+                       +'\nAs verificações e a revisão de agente passaram. Revise o diff antes de integrar ao projeto original.'})
+        self.active[turn['id']] = asyncio.current_task()
+        try:
+            await asyncio.wait_for(run_workers(),900)
+        except BaseException:
+            with suppress(Exception):
+                await runs.cancel_run(run_id)
+            with suppress(Exception):
+                await emit('coordinator.run', {'run_id':run_id,'phase':'stopped','message':'Execução interrompida ou bloqueada; resultados preservados.'})
+            raise
+        finally:
+            self.active.pop(turn['id'],None)
+            for attempt in list(runs.worker_runner._active_attempts):
+                await runs.worker_runner.cancel(attempt)
+
+    async def run(self, turn, conv, prompt, cwd, emit):
+        self.active[turn['id']] = asyncio.current_task()
+        try:
+            await asyncio.wait_for(self.execute(turn,conv,prompt,cwd,emit), 1200)
+        except asyncio.TimeoutError as exc:
+            raise ContractViolation('coordinator_timeout','A coordenação atingiu seu limite de tempo. Os resultados foram preservados para revisão.') from exc
+        finally:
+            self.active.pop(turn['id'],None)

@@ -102,3 +102,35 @@ Na suíte completa padrão (`python -m pytest tests -q`), [../../tests/test_omni
 
 - **Zero inferência paga automatizada:** `tests/test_omniroute_live.py` valida exclusivamente leitura de catálogo (`/v1/models`), saúde (`/api/health`), quotas (`/api/usage/quota` e `/api/usage/provider-limits`), provedores (`/api/providers`) e endpoints FastAPI `/v1/quota` e `/v1/control-plane/omniroute/inventory`. Nenhuma chamada `/v1/chat/completions` é disparada.
 - **Provedores sem telemetria:** provedores sem endpoint de cota suportado ou com credencial expirada continuam reportando `status: "unknown"` e `remaining_percent: null` até nova autenticação e medição válida.
+
+## 7. Conversa por modelo/combo — execução de 14–15/11/2026
+
+Esta seção amplia a validação somente leitura anterior. Houve inferência explicitamente autorizada para provar ferramentas e continuidade; o teste de catálogo acima continua sem inferência.
+
+O catálogo local do OmniRoute `3.8.52` mostrou dez combos e 2.306 modelos naquele instante. Os nomes incluem `dev-agent`, `dev-rapido`, `planejamento`, `review`, `docs`, `rapido`, `free-agent`, `free-chat`, `contexto-longo` e `dev-agent-gpt`. Quantidade e disponibilidade podem mudar. A resposta do Hydra não expõe definições brutas, contas ou labels internos.
+
+Prova real: Codex `0.169.0-alpha.11.1` com combo **dev-rapido** leu um conteúdo aleatório desconhecido no prompt, escreveu outro arquivo com o mesmo fato e, em um segundo turno nativo, recuperou esse fato sem reler. O teste completo durou **66,17 s**; registro UTC `2026-11-15T00:46:05Z` (14/11 às 21:46 em São Paulo). Ele comprova a rota e upstream observados naquele teste, sem certificar individualmente os fallbacks não exercitados. Um teste de leitura anterior, com o mesmo perfil de ferramentas, durou cerca de 8,1 s.
+
+Foi necessário um perfil privado do Codex e um transporte Responses restrito a ferramentas de função suportadas. Sem isso, o upstream chegou a devolver texto com aparência de comando e nenhuma execução de ferramenta; esse retorno foi considerado falha. O adaptador não interpreta esse texto como ação. No Windows, o perfil conserva o sandbox solicitado e seleciona a implementação `unelevated`; não usa `danger-full-access` para certificar a rota.
+
+Limites reais encontrados:
+
+- Uma rota Codex via gateway recebeu 429 por limiar de contas configurado. Isso não comprova indisponibilidade da conta direta do agente.
+- Testes de `review` e de um modelo Claude excederam o tempo limite. Os destinos permaneceram não verificados. Nenhum fallback direto foi aplicado pelo Hydra.
+- A prova real A→B→A não foi concluída devido à indisponibilidade upstream. Continuidade A→B→A, fila imutável, revisão concorrente, cancelamento e reconstrução com referências têm testes controlados separados.
+- Claude Code `2.1.222`: protocolo implementado, mas sem prova real autenticada de ferramentas/continuidade nesta entrega. Combos mistos ficam bloqueados para esse executor.
+- Não foi feito benchmark comparativo de qualidade ou custo dos agentes. Tempo de certificação inclui duas chamadas e não deve ser apresentado como tempo habitual de resposta.
+
+Para usar: em **Configurações e perfil → Conexão OmniRoute**, habilite o endereço da API e use **Salvar conexão → Testar conexão salva**. Este último só consulta metadados. A credencial é resolvida no backend pelo ambiente, sem campo de senha na interface. Em **Novo chat**, escolha agente, conexão OmniRoute e procure seu modelo/combo. **Testar combinação** executa a prova explícita de ferramentas, podendo consumir provedor. Apenas prova vigente libera o envio. A troca no cabeçalho vale para os próximos envios da mesma conversa.
+
+Em **Opções da conversa**, a coordenação é opt-in; em leitura ela só prepara o plano. Para executar tarefas, selecione uma pasta Git e permita edições na cópia isolada. Pastas sem Git continuam funcionando com um agente. O roteamento automático de workers usa combos já testados, dentro da conexão/agente escolhidos, e informa a regra; não anuncia seleção universal do melhor LLM. Ver [contrato de coordenação](../b_spc/fluxo_conversa.md).
+
+Validação local final: 39 testes de conversa/rotas/pastas/desktop; 38 de API, seletor e motores; mais 18 testes de coordenação/rotas incluindo cancelamento de worker e leitura dos logs pela API. As contagens possuem sobreposição e não devem ser somadas como testes distintos. A coordenação usou subprocessos, verificações e worktrees reais com CLI controlada, sem certificar um swarm de provedores reais.
+
+O launcher existente foi exercitado em runtime isolado: autenticação automática sem digitar token, cadastro de pasta comum, preservação de porta ocupada, encerramento do backend próprio e liberação da porta. Os terminais já abertos nas instâncias antigas foram preservados. Na fixture de terminal WebSocket, o eco medido foi de 113 ms e a inicialização de 4.077 ms sob carga de testes; isso não mede o arranque real do Claude Code.
+
+O verificador completo do kit encontrou zero falhas e três avisos em Novo chat e Conversa: áreas de toque da navegação, fonte existente e posição inicial de Tab após foco programático. Configurações ficou com zero falhas e cinco avisos, relativos a textos pequenos, áreas de toque, cartões aninhados, fonte e monoespaçada existentes. Três checkboxes abaixo do piso de 24 px foram ampliados e a verificação repetida. Foram exercitados tamanhos de tela, fonte a 200%, contraste forçado e axe; leitor de tela real e testes com pessoas não foram executados. Evidências locais e capturas permanecem fora do Git em `ws/b_output/`.
+
+As consultas de versão/login fecham sua entrada padrão, evitando herdar o pipe aberto do launcher no Windows. Um teste abre esse pipe deliberadamente e exige retorno do probe. Na interface, o aceite durável libera o compositor antes da atualização do snapshot; leituras canceladas recebem `AbortSignal`. O primeiro projeto carregado preserva um pedido já digitado, enquanto trocas posteriores conservam rascunhos independentes. Essas regressões têm testes próprios.
+
+Na rodada final, os sete cenários Playwright passaram em 1,9 minuto, incluindo pasta sem Git, terminal WebSocket, conversa/reload/cancelamento, troca A→B→A, opções de coordenação, cenário integrado e ditado controlado. Houve uma suíte completa de 52 testes de frontend aprovada e, após acrescentar a regressão do primeiro rascunho, sete testes focados de compositor/rotas passaram. Os nove testes de rota passaram após o ajuste de stdin. Estes resultados não substituem a validação de provedores reais descrita acima.

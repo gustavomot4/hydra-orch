@@ -35,6 +35,7 @@ from hydra_orch.core.router import HydraRouter
 from hydra_orch.core.run_service import RunService
 from hydra_orch.core.session_service import SessionService, SessionState
 from hydra_orch.core.conversation_service import ConversationService
+from hydra_orch.core.conversation_route import ConversationRoute, ConversationRoutes
 from hydra_orch.core.metrics import MetricsService, MetricScope
 from hydra_orch.core.hitl import HITLService, HitlKind, HitlRequest
 from hydra_orch.core.agent_registry import AgentRegistry
@@ -153,6 +154,14 @@ async def startup_event() -> None:
     validate_cors_origins(app.state.cors_allow_origins)
     await router.ensure_gateway()
     await router.checkpointer.initialize()
+    settings = await get_conversation_routes().settings()
+    config.omniroute.base_url = settings['base_url']
+    config.omniroute.enabled = settings['enabled']
+    config.omniroute.quota_api_url = settings['base_url'].removesuffix('/v1') + '/api/usage/quota'
+    if settings['version']:
+        config.omniroute.connection_mode = 'optional' if settings['enabled'] else 'disabled'
+    elif not settings['enabled']:
+        config.omniroute.connection_mode = 'disabled'
     if ssh_manager:
         ssh_manager.start_tunnel()
     logger.info("Hydra Orchestrator server started successfully.")
@@ -285,19 +294,52 @@ class ConversationMessagePayload(BaseModel):
     expected_last_seq: int = Field(default=0, ge=0)
     draft_session_id: Optional[str] = None
     attachment_ids: List[str] = Field(default_factory=list, max_length=10)
+    expected_route_revision: Optional[int] = Field(default=None, ge=0)
 
 
 class ConversationCreatePayload(ConversationMessagePayload):
     project_id: str
     executor: Literal["codex", "claude"] = "codex"
     access_mode: Literal["read-only", "workspace-write"] = "read-only"
+    route: Optional[ConversationRoute] = None
+    execution_mode: Literal['single', 'swarm'] = 'single'
+    auto_route: bool = False
+
+
+class ConversationRouteChange(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    route: ConversationRoute
+    expected_revision: int = Field(ge=0)
+    idempotency_key: str = Field(min_length=16, max_length=100)
+    execution_mode: Optional[Literal['single', 'swarm']] = None
+    auto_route: Optional[bool] = None
+
+
+class ConversationConnectionSettings(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    base_url: str = Field(min_length=1, max_length=500)
+    enabled: bool
+    expected_version: int = Field(ge=0)
+    idempotency_key: str = Field(min_length=16, max_length=100)
+
+
+def get_conversation_routes():
+    service = getattr(app.state, 'conversation_routes', None)
+    runs = get_run_service()
+    if service is None or service.store is not runs.store:
+        gateway = OmniRouteClient(base_url=config.omniroute.base_url, quota_api_url=config.omniroute.quota_api_url,
+                                  api_key_env=config.omniroute.api_key_env, enabled=not config.is_direct_mode,
+                                  transport=getattr(app.state, 'omniroute_transport', None))
+        service = ConversationRoutes(runs.store, gateway)
+        app.state.conversation_routes = service
+    return service
 
 
 def get_conversation_service() -> ConversationService:
     service = getattr(app.state, "conversation_service", None)
     runs = get_run_service()
     if service is None or service.runs is not runs:
-        service = ConversationService(runs, attachments=get_attachment_service())
+        service = ConversationService(runs, attachments=get_attachment_service(), routes=get_conversation_routes())
         app.state.conversation_service = service
     return service
 
@@ -311,8 +353,44 @@ async def conversation_agents():
 async def create_conversation(payload: ConversationCreatePayload):
     service = get_conversation_service()
     await service.start()
-    data = payload.model_dump(exclude={"expected_last_seq"})
+    data = payload.model_dump(exclude={"expected_last_seq", "expected_route_revision"})
     return await service.create(**data)
+
+
+@app.get('/v1/control-plane/omniroute/combos')
+async def conversation_route_catalog(executor: Literal['codex', 'claude'] = 'codex', refresh: bool = False,
+                                     connection_mode: Literal['direct', 'omniroute'] = 'omniroute'):
+    return await get_conversation_routes().catalog(executor, refresh, connection_mode == 'omniroute')
+
+
+@app.post('/v1/control-plane/conversation-routes/verify')
+async def certify_conversation_route(payload: ConversationRoute):
+    return await get_conversation_routes().certify(payload.model_dump(), get_conversation_service().runner, get_run_service().runtime_dir)
+
+
+@app.post('/v1/control-plane/conversation-routes/describe')
+async def describe_conversation_route(payload: ConversationRoute):
+    return await get_conversation_routes().describe(payload.model_dump())
+
+
+@app.get('/v1/control-plane/conversation-routes/connection')
+async def get_conversation_connection():
+    return await get_conversation_routes().settings()
+
+
+@app.put('/v1/control-plane/conversation-routes/connection')
+async def update_conversation_connection(payload: ConversationConnectionSettings):
+    value = await get_conversation_routes().save_settings(**payload.model_dump())
+    config.omniroute.enabled = value['enabled']
+    config.omniroute.connection_mode = 'optional' if value['enabled'] else 'disabled'
+    config.omniroute.base_url = value['base_url']
+    config.omniroute.quota_api_url = value['base_url'].removesuffix('/v1') + '/api/usage/quota'
+    return value
+
+
+@app.patch('/v1/control-plane/conversations/{conversation_id}/route')
+async def change_conversation_route(conversation_id: str, payload: ConversationRouteChange):
+    return await get_conversation_service().change_route(conversation_id, **payload.model_dump())
 
 
 @app.get("/v1/control-plane/conversations")
@@ -2959,15 +3037,26 @@ async def get_run_artifact_content_endpoint(
         raise ContractViolation("resource_not_found", f"Artifact '{artifact_id}' not found in run '{run_id}'")
 
     candidates: List[Path] = []
-    if run_rec.get("repo_root"):
-        candidates.append(Path(str(run_rec["repo_root"])))
+    candidates.append(Path(run_rec['spec'].repo_root))
     if svc.repo_root not in candidates:
         candidates.append(svc.repo_root)
+    locations = [(base, target.relative_path) for base in candidates]
+    if run_rec['spec'].integration_policy == 'agent_review_in_isolation' and target.relative_path.startswith('.orchestrator/'):
+        await svc._assert_isolated_agent_review(run_id)
+        async with svc.store._connect() as db:
+            row = await (await db.execute("SELECT id FROM conversation_turns WHERE json_extract(coordination_json,'$.run_id')=?", (run_id,))).fetchone()
+        if row:
+            # This directory is derived from a registered turn, never accepted
+            # from the API or from an artifact's untrusted path.
+            import hashlib
+            runtime = svc.runtime_dir / 'c' / hashlib.sha256(row['id'].encode()).hexdigest()[:10]
+            if runtime.resolve().is_relative_to(svc.runtime_dir.resolve()):
+                locations.append((runtime, target.relative_path.removeprefix('.orchestrator/')))
 
     last_not_found: Optional[ContractViolation] = None
-    for base_dir in candidates:
+    for base_dir, relative_path in locations:
         try:
-            preview = read_safe_preview(base_dir, target.relative_path, max_bytes=max_bytes)
+            preview = read_safe_preview(base_dir, relative_path, max_bytes=max_bytes)
             preview["artifact_id"] = target.artifact_id
             preview["run_id"] = target.run_id
             return preview
@@ -3111,6 +3200,11 @@ async def optimistic_lock_handler(request: Request, exc: OptimisticLockError) ->
 @app.exception_handler(ContractViolation)
 async def contract_violation_handler(request: Request, exc: ContractViolation) -> JSONResponse:
     conflict_codes = {
+        'route_unverified', 'route_unsupported', 'route_changed', 'gateway_unavailable', 'gateway_credential_missing',
+        'route_certification_failed',
+        'coordinator_plan_invalid', 'coordinator_git_required', 'coordinator_worker_failed',
+        'coordinator_review_rejected', 'coordinator_integration_failed', 'coordinator_workspace_changed',
+        'coordinator_timeout', 'review_policy_invalid',
         "conversation_queue_full",
         "conversation_process_active",
         "agent_unavailable",

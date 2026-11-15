@@ -1,12 +1,4 @@
-import {
-  ChangeEvent,
-  KeyboardEvent,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { ChangeEvent, KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Mic, Paperclip, Send } from 'lucide-react';
 import {
   clearComposerDraft,
@@ -65,6 +57,7 @@ export function PromptComposer({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const prevSessionKeyRef = useRef<string>(effectiveSessionKey);
+  const previousProjectRef = useRef(selectedProjectId);
   const didHydrateMountRef = useRef<boolean>(false);
   const listboxId = useId();
 
@@ -82,8 +75,19 @@ export function PromptComposer({
     }
 
     if (prevSessionKeyRef.current !== effectiveSessionKey) {
+      // The initial project can arrive after the user has begun typing. Carry
+      // that unassigned draft forward; explicit project switches still restore
+      // the separate draft belonging to the selected project.
+      const assigningFirstProject = !previousProjectRef.current && Boolean(selectedProjectId);
+      const restored =
+        assigningFirstProject && currentDraft.trim()
+          ? currentDraft
+          : loadComposerDraft(effectiveSessionKey);
+      if (assigningFirstProject && currentDraft.trim()) {
+        saveComposerDraft(effectiveSessionKey, currentDraft);
+        clearComposerDraft(prevSessionKeyRef.current);
+      }
       prevSessionKeyRef.current = effectiveSessionKey;
-      const restored = loadComposerDraft(effectiveSessionKey);
       setInternalDraft(restored);
       setActiveIndex(0);
       setDismissedAtPos(null);
@@ -91,7 +95,15 @@ export function PromptComposer({
         onDraftChange(restored);
       }
     }
-  }, [effectiveSessionKey, isControlled, controlledDraft, onDraftChange]);
+    previousProjectRef.current = selectedProjectId;
+  }, [
+    effectiveSessionKey,
+    isControlled,
+    controlledDraft,
+    onDraftChange,
+    selectedProjectId,
+    currentDraft,
+  ]);
 
   useEffect(() => {
     if (isControlled && prevSessionKeyRef.current === effectiveSessionKey) {
@@ -171,8 +183,7 @@ export function PromptComposer({
     }
     return allCommands.filter(
       (cmd) =>
-        cmd.command.slice(1).toLowerCase().includes(q) ||
-        cmd.label.toLowerCase().includes(q),
+        cmd.command.slice(1).toLowerCase().includes(q) || cmd.label.toLowerCase().includes(q),
     );
   }, [trigger, allCommands]);
 
@@ -185,7 +196,9 @@ export function PromptComposer({
       ? filteredCommands.length
       : 0;
   const safeActiveIndex =
-    activeOptionCount > 0 ? ((activeIndex % activeOptionCount) + activeOptionCount) % activeOptionCount : 0;
+    activeOptionCount > 0
+      ? ((activeIndex % activeOptionCount) + activeOptionCount) % activeOptionCount
+      : 0;
 
   const handleSelectMention = (item: MentionItem) => {
     if (!trigger) {
@@ -336,7 +349,10 @@ export function PromptComposer({
           </div>
         ) : null}
 
-        <label htmlFor={`${listboxId}-textarea`} className={visibleTextareaLabel ? 'mb-1 block text-sm font-semibold' : 'sr-only'}>
+        <label
+          htmlFor={`${listboxId}-textarea`}
+          className={visibleTextareaLabel ? 'mb-1 block text-sm font-semibold' : 'sr-only'}
+        >
           {textareaAriaLabel}
         </label>
         <textarea
@@ -387,7 +403,9 @@ export function PromptComposer({
                   className="min-h-9 rounded-lg border border-[#666] bg-[#141414] px-2.5 py-1 text-sm text-[#E8E8E8] [@media(pointer:coarse)]:min-h-[44px]"
                 >
                   {Object.entries(ORCHESTRATION_MODE_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
                   ))}
                 </select>
               </>
@@ -426,7 +444,9 @@ export function PromptComposer({
             ) : null}
             <button
               type="button"
-              disabled={disabled || submitDisabled || isSubmitting || currentDraft.trim().length === 0}
+              disabled={
+                disabled || submitDisabled || isSubmitting || currentDraft.trim().length === 0
+              }
               onClick={triggerSubmit}
               className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-3.5 py-1.5 text-sm font-semibold text-[#181818] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 [@media(pointer:coarse)]:min-h-[44px]"
             >

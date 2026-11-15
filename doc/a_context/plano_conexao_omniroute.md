@@ -90,7 +90,7 @@ Aplicar o [kit de frontend](../../.agents/skills/kit-frontend/SKILL.md), os padr
 - Distinguir fallback configurado dentro do combo de troca de conexão pelo Hydra. Não acrescentar novos destinos pagos, chamadas paralelas ou retries após efeitos de ferramentas sem política explícita e evidência.
 - O launcher mantém entrada automática no Hydra. Deve propagar apenas a configuração necessária ao backend e informar se o gateway está disponível. Preservar a regra de parar somente processos que iniciou; não iniciar, atualizar ou parar o OmniRoute existente para habilitar esta tela.
 
-### API proposta, sem implementação nesta tarefa
+### API prevista no planejamento original
 
 | Superfície | Alteração prevista |
 | --- | --- |
@@ -178,7 +178,7 @@ Assim, há um motor de execução de planos explícitos e componentes de roteame
 | CO02 | Selecionar agente/modelo ou combo por tarefa dentro das opções permitidas pelo usuário. | Usar capacidades, tipo de tarefa, contexto, qualidade medida, custo/latência e disponibilidade; explicar a escolha e sua proveniência. Permitir escolha manual. Sem telemetria confiável, declarar a regra usada em vez de afirmar melhor LLM. |
 | CO03 | Ligar a conversa ao coordenador e certificar workers reais, handoffs, revisão e integração. | Eventos e resultados por tarefa na mesma conversa, contexto comum com versões e fronteiras de arquivos, cancelamento e retomada, testes e revisão antes de integrar. Primeiro respeitar o contrato atual de duas ondas; não prometer DAG arbitrário nem rotas de gateway antes de adaptar e validar esses contratos. |
 
-Esses recortes dependem da rota/contexto de OR02–OR05 e expandem a etapa 5 do plano de conversa. Permanecem propostos, com necessidade de detalhar tarefas e contratos próprios antes da implementação; não são capacidades anunciadas como prontas.
+Esses recortes dependem da rota/contexto de OR02–OR05 e expandem a etapa 5 do plano de conversa. Foram propostos separadamente no planejamento original; a execução posterior está delimitada no registro de 15/11/2026 ao final deste arquivo e no contrato de conversa.
 
 Encerrar com manual atualizado, versões testadas, limites conhecidos, revisão do diff, validações e commit/push conforme `AGENTS.md`. Não incluir segredos, banco, logs, transcrições, capturas ou bundles no commit.
 
@@ -190,4 +190,12 @@ Encerrar com manual atualizado, versões testadas, limites conhecidos, revisão 
 - [Codex: configuração de provedores](https://learn.chatgpt.com/docs/config-file/config-advanced) e [integração como plataforma](https://developers.openai.com/blog/codex-as-a-platform).
 - [Claude Code: gateways](https://code.claude.com/docs/en/llm-gateway) e [compatibilidade de protocolo](https://code.claude.com/docs/en/llm-gateway-protocol). Fontes oficiais consultadas na discussão de 14/11/2026; conferir novamente diante de mudança de versão.
 
-Esta tarefa produz apenas o plano e seus vínculos na documentação. Não liga o OmniRoute, altera combos, cria migração, troca a conexão de conversas nem executa provedores para validar a proposta.
+O planejamento original foi documental. A execução autorizada posteriormente acrescentou os contratos, migrações, adaptadores, interface e coordenação descritos em [fluxo de conversa](../b_spc/fluxo_conversa.md). A evidência corrente e os limites de validação real estão em [validação OmniRoute](../j_manual/omniroute_validacao_real.md). As tabelas de aceite acima continuam como referência: implementação e teste controlado não substituem a prova real exigida para cada combinação.
+
+## Execução do plano — 15/11/2026
+
+- OR01–OR03: catálogo sanitizado, definições aninhadas, compatibilidade, contexto independente, migrações `0005/0006`, troca com revisão/idempotência e snapshot por envio implementados.
+- OR04–OR05: adaptadores Codex/Claude configurados por invocação. Codex com `dev-rapido` comprovou leitura, edição e continuidade nativa. Claude/gateway, todos os fallbacks de combos e A→B→A entre provedores reais continuam sem comprovação. A interface bloqueia destinos sem certificado vigente.
+- OR06–OR07: seleção e busca em Novo chat, troca na conversa e conexão persistida em Configurações; launcher existente preserva autenticação automática e propriedade de processos. Não altera combos do OmniRoute.
+- OR08: métricas observadas por turno, testes de mecanismos e navegador; disponibilidade upstream impediu o comparativo real completo. Nenhum vencedor de qualidade foi declarado.
+- CO01–CO03: coordenação opt-in com plano específico validado, até quatro tarefas, até dois workers, fundação opcional, revisão de agente, verificações e consolidação somente na cópia da conversa. Roteamento opt-in por perfil do nome/latência de combos testados, sem alegar melhor modelo. Validado com processos/worktrees reais e executor controlado; swarm com provedores reais e retomada automática após interrupção permanecem pendentes.

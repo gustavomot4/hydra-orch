@@ -1081,7 +1081,9 @@ class RunService:
         expected_task_revision: Optional[int] = None,
         correlation_id: Optional[str] = None,
     ) -> TaskResult:
-        """Apply an explicit operator review decision ('accepted' or 'rejected') with optimistic concurrency."""
+        """Apply an explicit review; delegated agent review is limited to a chat copy."""
+        if actor.startswith('agent:'):
+            await self._assert_isolated_agent_review(run_id)
         result = await self.store.get_result(result_id)
         if result is None or result.run_id != run_id:
             raise StorageIntegrityError(f"Result '{result_id}' not found in run '{run_id}'")
@@ -1111,6 +1113,19 @@ class RunService:
         await self._reconcile_run_status_after_task(run_id, correlation_id=correlation_id)
         return reviewed
 
+    async def _assert_isolated_agent_review(self, run_id):
+        record = await self.store.get_run(run_id)
+        if record is None or record['spec'].integration_policy != 'agent_review_in_isolation':
+            raise ContractViolation('review_policy_invalid', 'A revisão de agente não foi autorizada para esta execução.')
+        spec = record['spec']
+        root = Path(spec.repo_root).resolve()
+        if not (root / '.git').is_file():
+            raise ContractViolation('review_policy_invalid', 'A revisão automática exige a worktree isolada de uma conversa.')
+        async with self.store._connect() as db:
+            rows = await (await db.execute('SELECT workspace_path FROM conversations WHERE project_id=? AND workspace_path IS NOT NULL', (spec.project_id,))).fetchall()
+        if not any(os.path.normcase(str(Path(r[0]).resolve())) == os.path.normcase(str(root)) for r in rows):
+            raise ContractViolation('review_policy_invalid', 'A execução não pertence a uma cópia de conversa registrada.')
+
     async def integrate_run(
         self,
         run_id: str,
@@ -1130,6 +1145,8 @@ class RunService:
         run_spec: RunSpec = run_rec["spec"]
 
         accepted_results: List[TaskResult] = []
+        if run_spec.integration_policy == 'agent_review_in_isolation':
+            await self._assert_isolated_agent_review(run_id)
         combined_checks: List[CheckSpec] = []
         seen_checks: set[Tuple[str, Tuple[str, ...], Optional[str]]] = set()
 

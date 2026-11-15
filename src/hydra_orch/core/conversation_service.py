@@ -13,6 +13,8 @@ from hydra_orch.bridge.conversation_runner import ConversationRunner
 from hydra_orch.bridge.worker_runner import is_process_alive
 from hydra_orch.core.checkpointer import IdempotencyConflictError, OptimisticLockError
 from hydra_orch.core.redaction import redact, redact_text
+from hydra_orch.core.conversation_route import ConversationRoute, route_from
+from hydra_orch.core.conversation_context import prepare_context
 from hydra_orch.model import ContractViolation
 
 
@@ -21,11 +23,13 @@ def new_id(prefix):
 
 
 class ConversationService:
-    def __init__(self, run_service, *, runner=None, attachments=None):
+    def __init__(self, run_service, *, runner=None, attachments=None, routes=None):
         self.runs = run_service
         self.store = run_service.store
         self.runner = runner or ConversationRunner()
         self.attachments = attachments
+        self.routes = routes
+        self.coordinator = None
         self.owner = new_id("consumer")
         self.worker = None
         self.active = {}
@@ -75,7 +79,7 @@ class ConversationService:
         return refs
 
     async def create(self, *, project_id, executor, content, idempotency_key, access_mode="read-only",
-                     draft_session_id=None, attachment_ids=()):
+                     draft_session_id=None, attachment_ids=(), route=None, execution_mode='single', auto_route=False):
         await self.store.initialize()
         project = await self.runs.get_project(project_id)
         if not project:
@@ -85,8 +89,20 @@ class ConversationService:
         if access_mode not in {"read-only", "workspace-write"}:
             raise ContractViolation("invalid_access_mode", "Escolha o acesso ao projeto.")
         self._validate(content, idempotency_key)
+        if execution_mode not in {'single', 'swarm'} or not isinstance(auto_route, bool):
+            raise ContractViolation('route_invalid', 'Escolha um modo de trabalho válido.')
+        selection = ConversationRoute.model_validate(route or {'executor': executor}).checked().model_dump()
+        if selection['executor'] != executor:
+            raise ContractViolation('route_invalid', 'A configuração precisa usar o mesmo agente escolhido.')
         request_hash = self.store.compute_request_hash({"project": project_id, "executor": executor,
-            "content": content, "access": access_mode, "draft": draft_session_id, "attachments": list(attachment_ids)})
+            "content": content, "access": access_mode, "draft": draft_session_id, "attachments": list(attachment_ids),
+            **({'route': selection} if route is not None else {}),
+            **({'execution_mode': execution_mode, 'auto_route': auto_route} if execution_mode != 'single' or auto_route else {})})
+        async with self.store._connect() as db:
+            previous = await (await db.execute('SELECT * FROM conversation_commands WHERE idempotency_key=?', (idempotency_key,))).fetchone()
+            if previous and previous['request_hash'] == request_hash:
+                return {'conversation_id': previous['conversation_id'], 'created': False}
+        selected = await self._validate_route(selection)
         async with self.store._connect() as db:
             async with self.store._transaction(db):
                 previous = await (await db.execute("SELECT * FROM conversation_commands WHERE idempotency_key=?", (idempotency_key,))).fetchone()
@@ -96,9 +112,9 @@ class ConversationService:
                     return {"conversation_id": previous["conversation_id"], "created": False}
                 cid = new_id("conversation")
                 refs = await asyncio.to_thread(self._promote, cid, project_id, draft_session_id, attachment_ids)
-                await db.execute("INSERT INTO conversations(id,project_id,title,executor,access_mode) VALUES(?,?,?,?,?)",
-                                 (cid, project_id, content.strip()[:90], executor, access_mode))
-                await self._insert_turn(db, cid, content, idempotency_key, request_hash, refs)
+                await db.execute("INSERT INTO conversations(id,project_id,title,executor,access_mode,route_json,execution_mode,auto_route) VALUES(?,?,?,?,?,?,?,?)",
+                                 (cid, project_id, content.strip()[:90], executor, access_mode, json.dumps(selected), execution_mode, int(auto_route)))
+                await self._insert_turn(db, cid, content, idempotency_key, request_hash, refs, selected, 0, execution_mode, auto_route)
                 await db.execute("INSERT INTO conversation_commands VALUES(?,?,?)", (idempotency_key, request_hash, cid))
         return {"conversation_id": cid, "created": True}
 
@@ -109,19 +125,67 @@ class ConversationService:
         if not isinstance(key, str) or not 16 <= len(key) <= 100:
             raise ContractViolation("message_invalid", "O envio precisa de uma chave de identificação válida.")
 
-    async def _insert_turn(self, db, cid, content, key, request_hash, attachments):
+    async def _validate_route(self, route, refresh=False):
+        if self.routes:
+            info = await self.routes.validate(route, refresh=refresh)
+            return {k: info[k] for k in ('executor', 'connection_mode', 'target_kind', 'target_ref', 'fingerprint', 'cli_version', 'protocol', 'compatibility') if k in info}
+        value = ConversationRoute.model_validate(route).checked().model_dump()
+        if value['connection_mode'] != 'direct':
+            raise ContractViolation('gateway_unavailable', 'A conexão OmniRoute não está configurada.')
+        return value
+
+    async def change_route(self, cid, *, route, expected_revision, idempotency_key, execution_mode=None, auto_route=None):
+        self._validate('Configuração', idempotency_key)
+        await self.store.initialize()
+        selection = ConversationRoute.model_validate(route).checked().model_dump()
+        if execution_mode is not None and execution_mode not in {'single', 'swarm'}:
+            raise ContractViolation('route_invalid', 'Escolha um modo de trabalho válido.')
+        request_hash = self.store.compute_request_hash({'route': selection, 'revision': expected_revision,
+            **({'execution_mode': execution_mode} if execution_mode is not None else {}), **({'auto_route':auto_route} if auto_route is not None else {})})
+        async with self.store._connect() as db:
+            old = await (await db.execute('SELECT * FROM conversation_route_commands WHERE conversation_id=? AND idempotency_key=?', (cid, idempotency_key))).fetchone()
+            if old:
+                if old['request_hash'] != request_hash:
+                    raise IdempotencyConflictError('Esta mudança já foi usada para outra configuração.')
+                return json.loads(old['response_json'])
+        selected = await self._validate_route(selection, refresh=True)
+        async with self.store._connect() as db:
+            async with self.store._transaction(db):
+                old = await (await db.execute('SELECT * FROM conversation_route_commands WHERE conversation_id=? AND idempotency_key=?', (cid, idempotency_key))).fetchone()
+                if old:
+                    if old['request_hash'] != request_hash:
+                        raise IdempotencyConflictError('Esta mudança já foi usada para outra configuração.')
+                    return json.loads(old['response_json'])
+                conv = await self._conversation(db, cid)
+                if conv['route_revision'] != expected_revision:
+                    raise OptimisticLockError('A configuração mudou em outra janela. Atualize e tente novamente.')
+                revision = expected_revision + 1
+                # Capture the original attribution before changing a legacy chat's
+                # executor. An older backend may have persisted turns without a route.
+                await db.execute("UPDATE conversation_turns SET route_json=? WHERE conversation_id=? AND route_json='{}'",
+                                 (json.dumps(ConversationRoute(executor=conv['executor']).model_dump()), cid))
+                await db.execute('UPDATE conversations SET route_json=?,route_revision=?,executor=?,native_session_id=NULL,execution_mode=?,auto_route=? WHERE id=?',
+                                 (json.dumps(selected), revision, selected['executor'], execution_mode or conv['execution_mode'],
+                                  int(auto_route) if auto_route is not None else conv['auto_route'], cid))
+                await self._event(db, cid, None, 'conversation.route.updated', {'route': selected, 'revision': revision})
+                result = {'route': selected, 'route_revision': revision}
+                await db.execute('INSERT INTO conversation_route_commands VALUES(?,?,?,?)', (cid, idempotency_key, request_hash, json.dumps(result)))
+                return result
+
+    async def _insert_turn(self, db, cid, content, key, request_hash, attachments, route=None, revision=0, execution_mode='single', auto_route=False):
         ordinal = (await (await db.execute("SELECT COALESCE(MAX(ordinal),0)+1 FROM conversation_turns WHERE conversation_id=?", (cid,))).fetchone())[0]
         tid = new_id("turn")
-        await db.execute("""INSERT INTO conversation_turns(id,conversation_id,ordinal,idempotency_key,request_hash,content,attachment_json)
-                           VALUES(?,?,?,?,?,?,?)""", (tid, cid, ordinal, key, request_hash, redact_text(content), json.dumps(attachments)))
+        await db.execute("""INSERT INTO conversation_turns(id,conversation_id,ordinal,idempotency_key,request_hash,content,attachment_json,route_json,route_revision,execution_mode,auto_route)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (tid, cid, ordinal, key, request_hash, redact_text(content), json.dumps(attachments), json.dumps(route or {}), revision, execution_mode, int(auto_route)))
         seq = await self._event(db, cid, tid, "turn.queued", {"content": content, "ordinal": ordinal})
         return {"conversation_id": cid, "turn_id": tid, "seq": seq}
 
-    async def send(self, cid, *, content, idempotency_key, expected_last_seq, draft_session_id=None, attachment_ids=()):
+    async def send(self, cid, *, content, idempotency_key, expected_last_seq, draft_session_id=None, attachment_ids=(), expected_route_revision=None):
         self._validate(content, idempotency_key)
         await self.store.initialize()
         request_hash = self.store.compute_request_hash({"content": content, "seq": expected_last_seq,
-            "draft": draft_session_id, "attachments": list(attachment_ids)})
+            "draft": draft_session_id, "attachments": list(attachment_ids),
+            **({'route_revision': expected_route_revision} if expected_route_revision is not None else {})})
         async with self.store._connect() as db:
             async with self.store._transaction(db):
                 conv = await self._conversation(db, cid)
@@ -130,6 +194,10 @@ class ConversationService:
                     if prior["request_hash"] != request_hash:
                         raise IdempotencyConflictError("Este envio já foi usado para outra mensagem.")
                     return {"conversation_id": cid, "turn_id": prior["id"], "seq": conv["last_seq"]}
+                selected_route = route_from(conv)
+                if ((expected_route_revision is None and (conv['route_revision'] != 0 or selected_route['target_ref'] or selected_route['connection_mode'] != 'direct'))
+                        or expected_route_revision is not None and expected_route_revision != conv['route_revision']):
+                    raise OptimisticLockError('A configuração da conversa mudou. Atualize antes de enviar; sua mensagem foi preservada.')
                 latest_message = (await (await db.execute("SELECT COALESCE(MAX(seq),0) FROM conversation_events WHERE conversation_id=? AND type='turn.queued'", (cid,))).fetchone())[0]
                 # Streaming output must not make the composer stale. Only a newer user send conflicts.
                 if expected_last_seq > conv["last_seq"] or latest_message > expected_last_seq:
@@ -138,7 +206,7 @@ class ConversationService:
                 if pending >= 10:
                     raise ContractViolation("conversation_queue_full", "Aguarde as mensagens pendentes antes de enviar outra.")
                 refs = await asyncio.to_thread(self._promote, cid, conv["project_id"], draft_session_id, attachment_ids)
-                return await self._insert_turn(db, cid, content, idempotency_key, request_hash, refs)
+                return await self._insert_turn(db, cid, content, idempotency_key, request_hash, refs, route_from(conv), conv['route_revision'], conv['execution_mode'], bool(conv['auto_route']))
 
     async def list(self, project_id=None, offset=0, limit=30, q=None):
         await self.store.initialize()
@@ -161,6 +229,8 @@ class ConversationService:
         async with self.store._connect() as db:
             async with self.store._transaction(db):
                 conv = await self._conversation(db, cid)
+                conv['route'] = route_from(conv)
+                conv['auto_route'] = bool(conv['auto_route'])
                 turns = await (await db.execute("SELECT * FROM conversation_turns WHERE conversation_id=? ORDER BY ordinal", (cid,))).fetchall()
                 events = await (await db.execute("SELECT * FROM conversation_events WHERE conversation_id=? AND type LIKE 'tool.%' ORDER BY seq DESC LIMIT 50", (cid,))).fetchall()
                 conv["turns"] = [self._public_turn(dict(t)) for t in turns]
@@ -172,6 +242,10 @@ class ConversationService:
         for key in ("lease_owner", "lease_until", "process_pid", "request_hash", "idempotency_key"):
             turn.pop(key, None)
         turn["attachments"] = json.loads(turn.pop("attachment_json"))
+        turn['route'] = json.loads(turn.pop('route_json', '{}'))
+        turn['context_checkpoint'] = json.loads(turn.pop('context_checkpoint_json', '{}'))
+        turn['coordination'] = json.loads(turn.pop('coordination_json', '{}'))
+        turn['auto_route'] = bool(turn['auto_route'])
         return turn
 
     async def events(self, cid, after=0):
@@ -258,9 +332,20 @@ class ConversationService:
                     text = redact_text(payload["text"])
                     await db.execute("UPDATE conversation_turns SET response=response || ? WHERE id=?", (text, tid))
                 elif kind == "session.started":
-                    await db.execute("UPDATE conversations SET native_session_id=? WHERE id=?", (payload["session_id"], cid))
+                    await db.execute('UPDATE conversation_turns SET native_session_id=? WHERE id=?', (payload['session_id'], tid))
+                    await db.execute("UPDATE conversations SET native_session_id=? WHERE id=? AND route_revision=?", (payload["session_id"], cid, turn['route_revision']))
                 elif kind == "process.started":
                     await db.execute("UPDATE conversation_turns SET process_pid=? WHERE id=?", (payload["pid"], tid))
+                elif kind == 'execution.metrics':
+                    await db.execute("UPDATE conversation_turns SET context_checkpoint_json=json_set(context_checkpoint_json,'$.execution',json(?)) WHERE id=?",
+                                     (json.dumps(redact(payload)), tid))
+                elif kind.startswith('coordinator.'):
+                    if kind == 'coordinator.plan':
+                        await db.execute("UPDATE conversation_turns SET coordination_json=json_set(coordination_json,'$.plan',json(?),'$.run_id',?) WHERE id=?", (json.dumps(redact(payload['plan'])),payload['run_id'],tid))
+                    elif kind == 'coordinator.run':
+                        await db.execute("UPDATE conversation_turns SET coordination_json=json_set(coordination_json,'$.phase',?,'$.run_id',?) WHERE id=?", (payload['phase'],payload['run_id'],tid))
+                    elif kind == 'coordinator.task':
+                        await db.execute("UPDATE conversation_turns SET coordination_json=json_set(coordination_json,?,json(?)) WHERE id=?", ('$.tasks.'+payload['task_id'],json.dumps(redact(payload)),tid))
                 await self._event(db, cid, tid, kind, payload)
         if kind == "process.started" and row["state"] == "stopping":
             raise ContractViolation("turn_cancelled", "A execução foi interrompida antes do envio ao agente.")
@@ -270,11 +355,17 @@ class ConversationService:
             async with self.store._connect() as db:
                 row = await (await db.execute("SELECT state,lease_owner FROM conversation_turns WHERE id=?", (tid,))).fetchone()
                 if row["lease_owner"] != self.owner:
-                    await self.runner.cancel(tid)
+                    if self.coordinator and tid in self.coordinator.active:
+                        self.coordinator.active[tid].cancel()
+                    else:
+                        await self.runner.cancel(tid)
                     return
                 await db.execute("UPDATE conversation_turns SET lease_until=? WHERE id=? AND lease_owner=?", (time.time()+60, tid, self.owner))
                 if row["state"] == "stopping":
-                    await self.runner.cancel(tid)
+                    if self.coordinator and tid in self.coordinator.active:
+                        self.coordinator.active[tid].cancel()
+                    else:
+                        await self.runner.cancel(tid)
             await asyncio.sleep(.5)
 
     async def _workspace(self, conv):
@@ -321,14 +412,9 @@ class ConversationService:
                 attachment_lines.append(f"{ref['filename']}: {target}")
         preamble = "Responda em português. Trabalhe somente nesta pasta isolada. Não faça commit, push ou integração. "
         preamble += "O modo desta conversa é " + conv["access_mode"] + ".\n"
+        history, checkpoint = prepare_context(conv, turns, turn, cwd)
+        conv['_context_checkpoint'] = checkpoint
         if not conv.get("native_session_id"):
-            transcript = []
-            for item in turns:
-                if item["ordinal"] < turn["ordinal"] and (item["state"] == "completed" or item["response"]):
-                    transcript.append(f"Usuário: {item['content']}\nAssistente: {item['response']}")
-            history = "\n\n".join(transcript)
-            if len(history) > 120000:
-                raise ContractViolation("context_limit", "Esta conversa atingiu o limite de contexto. Abra um novo chat para continuar.")
             preamble += "Histórico da conversa:\n" + history + "\n\n"
         return preamble + "Pedido atual:\n" + turn["content"] + ("\nAnexos disponíveis para leitura:\n" + "\n".join(attachment_lines) if refs else "")
 
@@ -338,11 +424,45 @@ class ConversationService:
         state, error, diff = "completed", None, ""
         try:
             conv = await self.snapshot(cid)
+            stored_turn = next(t for t in conv['turns'] if t['id'] == tid)
+            selection = stored_turn['route'] or ConversationRoute(executor=conv['executor']).model_dump()
+            conv['executor'] = selection['executor']
+            conv['route'] = selection
+            conv['execution_mode'] = stored_turn['execution_mode']
+            conv['auto_route'] = stored_turn['auto_route']
+            agent_state = self.runs.runtime_dir / 'conversation_agent' / cid
+            if not agent_state.resolve().is_relative_to(self.runs.runtime_dir.resolve()):
+                raise ContractViolation('context_path_escape', 'O diretório do agente não é válido.')
+            conv['_agent_state_dir'] = str(agent_state)
+            previous = [t for t in conv['turns'] if t['ordinal'] < turn['ordinal']]
+            last = previous[-1] if previous else None
+            native = last.get('native_session_id') if last and last.get('route') == selection and last.get('execution_mode') == 'single' and stored_turn['execution_mode'] == 'single' else None
+            conv['native_session_id'] = native
+            if selection.get('connection_mode') == 'omniroute':
+                checked = await self._validate_route({k: selection[k] for k in ('executor', 'connection_mode', 'target_kind', 'target_ref')}, refresh=True)
+                if checked.get('fingerprint') != selection.get('fingerprint'):
+                    raise ContractViolation('route_changed', 'O combo mudou após o envio. Revise a configuração e envie novamente; o histórico foi preservado.')
+                conv['_gateway_base_url'] = self.routes.gateway.base_url
+                conv['_gateway_token'] = self.routes.gateway._resolve_api_key()
             ws, cwd = await self._workspace(conv)
+            async with self.store._connect() as db:
+                rows = await (await db.execute("""SELECT e.turn_id,e.seq,e.type,e.payload_json FROM conversation_events e
+                    JOIN conversation_turns t ON t.id=e.turn_id
+                    WHERE e.conversation_id=? AND t.ordinal<? AND e.type LIKE 'tool.%' ORDER BY e.seq""", (cid, turn['ordinal']))).fetchall()
+                conv['_context_tools'] = {}
+                for row in rows:
+                    conv['_context_tools'].setdefault(row['turn_id'], []).append({'seq': row['seq'], 'type': row['type'], 'payload': json.loads(row['payload_json'])})
             prompt = await asyncio.to_thread(self._prepare_prompt, conv, conv["turns"], turn, cwd)
             async with self.store._connect() as db:
-                await db.execute("UPDATE conversation_turns SET context_strategy=? WHERE id=?", ("native" if conv.get("native_session_id") else "transcript", tid))
-            await self.runner.run(turn, conv, prompt, cwd, lambda kind, payload: self._emit(turn, kind, payload))
+                await db.execute("UPDATE conversation_turns SET context_strategy=?,context_checkpoint_json=? WHERE id=?", ("native" if conv.get("native_session_id") else "referenced_history", json.dumps(conv['_context_checkpoint']), tid))
+            emit = lambda kind, payload: self._emit(turn, kind, payload)
+            if stored_turn['execution_mode'] == 'swarm':
+                if self.coordinator is None:
+                    from hydra_orch.core.conversation_coordinator import ConversationCoordinator
+                    self.coordinator = ConversationCoordinator(self.runs, self.runner, self.routes)
+                await self.coordinator.run(turn, conv, prompt, cwd, emit)
+            else:
+                await self.runner.run(turn, conv, prompt, cwd, emit)
             if ws is None:
                 from hydra_orch.core.folder_workspace import diff as folder_diff
                 diff = await asyncio.to_thread(folder_diff, cwd.parent / "base", cwd)
@@ -355,7 +475,7 @@ class ConversationService:
             diff = redact_text(result.stdout)[:200000]
             untracked = await asyncio.to_thread(ws._run_git, ["ls-files", "--others", "--exclude-standard"], cwd=cwd)
             for name in untracked.stdout.splitlines():
-                if name.startswith(".orchestrator/chat_attachment/"):
+                if name.startswith((".orchestrator/chat_attachment/", ".orchestrator/chat_context/")):
                     continue
                 path = (cwd / name).resolve()
                 if path.is_relative_to(cwd.resolve()) and path.is_file() and path.stat().st_size <= 100000:

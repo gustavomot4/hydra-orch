@@ -28,11 +28,11 @@ A posse dura 60 segundos e é renovada durante a execução. Turnos com posse ex
 
 Uma worktree Git por conversa é mantida entre turnos e parte do HEAD do projeto ao iniciar a conversa. Alterações locais não commitadas no checkout original não são copiadas. Pastas sem Git usam cópias de base/trabalho, sem inicializar repositório, com exclusão de caches, links e `.env*`, até 10 mil arquivos ou 256 MB. O caminho e a base ficam persistidos. A conversa em leitura continua isolada do checkout original.
 
-O primeiro turno utiliza o histórico persistido. `thread.started` do Codex e `system/init` do Claude confirmam a identidade nativa, usada por `exec resume` / `--resume` nos próximos turnos. Histórico reconstruído tem limite explícito de 120 mil caracteres, sem truncamento silencioso. Mensagens pendentes canceladas não entram nesse histórico.
+O primeiro turno utiliza o histórico persistido. `thread.started` do Codex e `system/init` do Claude confirmam a identidade nativa, usada por `exec resume` / `--resume` somente em turnos consecutivos com configuração compatível. A mudança A→B→A abre um segmento novo em A para incorporar B. O pacote inicial tem orçamento de 56 mil caracteres; o histórico completo permanece em arquivos por turno e índice com hashes em `.orchestrator/chat_context/`, consultáveis por leitura. Mensagens pendentes canceladas não entram nesse histórico.
 
 Anexos são validados pelo serviço existente e copiados para o escopo durável da conversa na confirmação. O executor recebe os caminhos das cópias verificadas, dentro da worktree. Falha mantém o rascunho. Diffs de arquivos rastreados e arquivos novos de até 100 KB são persistidos, com limite total de 200 mil caracteres, para consulta em Revisar alterações. As cópias operacionais dos anexos ficam fora do diff apresentado. Arquivos binários e conteúdo acima desses limites exigem inspeção na worktree preservada.
 
-Uma resposta textual pode concluir sem patch. Exibir um diff significa alterações para revisão; não representa testes aprovados, integração, commit ou push do projeto atendido pelo agente. O serviço de conversa não integra automaticamente essas alterações.
+Uma resposta textual pode concluir sem patch. Exibir um diff significa alterações para revisão; não representa testes aprovados, integração, commit ou push do projeto atendido pelo agente. O serviço de conversa não aplica automaticamente essas alterações ao checkout original.
 
 ## Protocolos e limites desta entrega
 
@@ -41,7 +41,33 @@ Uma resposta textual pode concluir sem patch. Exibir um diff significa alteraç�
 - Confirmado nesta máquina: Codex `0.169.0-alpha.11.1`, autenticado via ChatGPT, leu um README e respondeu a dois pedidos encadeados pelo serviço. Claude Code `2.1.222` instalado, sem login; o parser foi validado com subprocesso controlado. A validação real de Claude permanece pendente de login.
 - Navegador: jornada com FastAPI e subprocesso controlado, duas mensagens, recarga durante execução, retorno pelo histórico, cancelamento e verificações de layout/axe. A prova autenticada do Codex foi feita pelo serviço, separada da prova de navegador.
 - Verificador completo do kit sobre bundle de produção: Novo chat com zero falhas e três avisos; conversa com zero falhas e dois avisos. Os avisos registram áreas de toque da navegação entre 24 e 44 px, a fonte existente e a posição inicial de Tab após foco programático. Leitor de tela real e testes com pessoas não foram executados.
-- Aprovações interativas de ferramentas, integração/revisão decisória de patches e distribuição pelo coordenador com políticas de rota/orçamento continuam como expansão do fluxo. Os motores de orquestração existentes permanecem com seus contratos próprios; escolher um agente no chat não anuncia execução de swarm.
+- Aprovações interativas de ferramentas e aplicação automática ao projeto original continuam fora do fluxo. A distribuição pelo coordenador é opt-in e tem o contrato abaixo; escolher um agente por si só mantém a execução individual.
 - O [executável Windows](../j_manual/iniciar_windows.md) serve a interface e a API na mesma origem e gerencia a credencial local. O modo manual continua protegido por Bearer; o bootstrap automático é restrito ao modo desktop e à origem local correspondente.
 
 Implementação: [ConversationService](../../src/hydra_orch/core/conversation_service.py), [ConversationRunner](../../src/hydra_orch/bridge/conversation_runner.py), [ConversationPage](../../frontend/src/feature/chat/ConversationPage.tsx). Testes: [contratos e recuperação](../../tests/test_conversation.py), [jornada no navegador](../../frontend/tests/e2e/m5_acceptance.spec.ts).
+
+## Seleção por envio e conexão OmniRoute
+
+As migrações aditivas `0005` e `0006` preservam o histórico, iniciam conversas antigas como diretas/individuais e recusam rollback destrutivo com dados dependentes. A conversa mantém a seleção atual; cada turno guarda rota, revisão, modo de trabalho e opção de roteamento automático. Um envio na fila nunca assume uma escolha posterior.
+
+`PATCH /conversations/{id}/route` exige `route`, `expected_revision` e `idempotency_key`. Aceita também `execution_mode` (`single`/`swarm`) e `auto_route`. Não dispara agentes. A continuação envia `expected_route_revision`; revisão ausente só é aceita no modo direto legado sem alvo explícito. Conflitos preservam o rascunho. Mudanças de agente, conexão ou alvo conservam a mesma conversa e diretório.
+
+`route` contém `executor` (`codex`/`claude`), `connection_mode` (`direct`/`omniroute`), `target_kind` (`model`/`combo`) e `target_ref`. A validação acrescenta fingerprint da definição relevante e versão da CLI. O Hydra revalida esse fingerprint antes da execução; o OmniRoute não oferece aqui uma revisão congelada durante uma chamada. Modelo efetivo e uso só aparecem quando reportados pelo protocolo.
+
+O catálogo `GET /omniroute/combos` devolve nomes/identidades sanitizados e compatibilidade por agente. Não altera combos nem envia inferência. Combos aninhados são resolvidos; ciclos, destinos auxiliares ou desconhecidos e estratégias não suportadas ficam bloqueados. Claude exige destinos exclusivamente Claude. `POST /conversation-routes/verify` é um teste explícito que pode consumir provedor: leitura de fato desconhecido, edição e continuidade nativa. A certificação vale para definição/CLI/perfil testados e não prova todos os fallbacks possíveis. Falha mantém o alvo bloqueado, sem conexão direta substituta.
+
+`GET/PUT /conversation-routes/connection` persiste somente endereço e habilitação, com versão esperada/idempotência. Credencial vem do ambiente do backend, nunca do snapshot, argumento ou SQLite. No Codex por gateway, um transporte local autenticado adapta exclusivamente ferramentas de função; texto com aparência de ferramenta não é executado. A configuração da CLI é privada por execução e não sobrescreve configurações globais.
+
+## Coordenação opt-in dentro da conversa
+
+Em **Opções da conversa → Coordenar tarefas com agentes**, o planejador usa leitura dos arquivos para propor de uma a quatro tarefas específicas, com propriedade exclusiva de arquivos e verificações de uma lista conhecida. O plano JSON passa por validação antes de qualquer worker. Não há quatro frentes fixas, comandos livres de verificação ou DAG arbitrário. São aceitas tarefas independentes ou uma fundação verificada seguida de tarefas independentes, até dois workers simultâneos.
+
+Em leitura, o coordenador devolve o plano e não executa edições. Em escrita, esta versão exige uma worktree Git registrada como cópia da conversa. Pastas comuns continuam disponíveis no modo individual; o coordenador não inicializa Git silenciosamente. Alterações anteriores da cópia são registradas como base local antes da distribuição. Não se faz commit/push do checkout original.
+
+Workers usam `RunService`, subprocessos, worktrees próprias, fronteiras de arquivos, orçamento, verificações e artefatos canônicos. Um revisor de agente em leitura precisa aceitar o resultado estruturado. A política `agent_review_in_isolation` só permite essa revisão em cópia de conversa registrada; não representa aprovação humana. Fundação e consolidação final repetem as verificações. A consolidação só avança a cópia da conversa após conferir que ela não mudou durante o trabalho. Falhas preservam resultados e bloqueiam aplicação.
+
+O roteamento automático é opt-in, conserva executor/conexão e considera apenas combos com prova vigente. O perfil é inferido do nome do combo e o desempate usa tempo observado no teste. Sem avaliação comparativa por tarefa, o sistema não afirma escolher o melhor LLM. A regra e o destino são mostrados em cada tarefa. Na ausência de candidato, a seleção explícita permanece.
+
+Eventos `coordinator.plan`, `coordinator.task` e `coordinator.run` alimentam o progresso do mesmo chat e o vínculo para execução/verificações. Cancelamento interrompe a coordenação e suas árvores próprias; não encerra o daemon OmniRoute. Reinício não reenvia automaticamente operações incertas. Retomada automática de coordenação interrompida e reparo autônomo continuam fora desta versão; os resultados preservados permitem inspeção e novo pedido explícito.
+
+Evidência: [testes de rota/contexto](../../tests/test_conversation_route.py) e [coordenação com processos reais controlados](../../tests/test_conversation_coordinator.py). Estes últimos comprovam mecanismos locais, sem certificar desempenho ou qualidade de provedores reais.

@@ -7,7 +7,11 @@ import {
   ConversationAgent,
   clearPendingSend,
   pendingSendKey,
+  defaultRoute,
+  routeSelection,
 } from '@/feature/chat/conversationTypes';
+import { ConversationRoutePicker } from '@/feature/chat/ConversationRoutePicker';
+import { ConversationWorkflow, ExecutionMode } from '@/feature/chat/ConversationWorkflow';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useWorkspaceHierarchy } from '@/hook/useWorkspaceHierarchy';
 import { useLayoutStore } from '@/store/layoutStore';
@@ -48,6 +52,10 @@ export function NovoChatPage({
   const [draft, setDraft] = useState('');
   const [mode, setMode] = useState<OrchestrationMode>('persistent');
   const [executor, setExecutor] = useState('codex');
+  const [route, setRoute] = useState(defaultRoute());
+  const [routeReady, setRouteReady] = useState(true);
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('single');
+  const [autoRoute, setAutoRoute] = useState(false);
   const [accessMode, setAccessMode] = useState('read-only');
   const [error, setError] = useState<string | null>(null);
   const [folder, setFolder] = useState('');
@@ -79,6 +87,8 @@ export function NovoChatPage({
     mutationFn: async () => {
       if (!activeProject) throw new Error('Selecione ou cadastre a pasta do projeto.');
       if (!draft.trim()) throw new Error('Escreva sua mensagem antes de enviar.');
+      if (!routeReady)
+        throw new Error('Escolha um destino disponível e use Testar combinação antes de enviar.');
       if (!attachmentsReady)
         throw new Error('Aguarde o envio dos anexos ou remova os que falharam.');
       const payload = {
@@ -88,6 +98,17 @@ export function NovoChatPage({
         access_mode: accessMode,
         draft_session_id: `draft-${activeProject.id}`,
         attachment_ids: attachmentIds,
+        ...(executionMode !== 'single'
+          ? { execution_mode: executionMode, auto_route: autoRoute }
+          : {}),
+        ...(route.connection_mode !== 'direct' || route.target_ref
+          ? {
+              route: routeSelection({
+                ...route,
+                executor: effectiveExecutor as 'codex' | 'claude',
+              }),
+            }
+          : {}),
       };
       return client.request<{ conversation_id: string }>('/v1/control-plane/conversations', {
         method: 'POST',
@@ -224,7 +245,10 @@ export function NovoChatPage({
             id="novo-chat-agent-select"
             className={fieldClass}
             value={effectiveExecutor}
-            onChange={(e) => setExecutor(e.target.value)}
+            onChange={(e) => {
+              setExecutor(e.target.value);
+              setRoute(defaultRoute(e.target.value as 'codex' | 'claude'));
+            }}
           >
             {(
               agents.data ?? [
@@ -240,6 +264,12 @@ export function NovoChatPage({
           </select>
         </div>
       </div>
+      <ConversationRoutePicker
+        value={{ ...route, executor: effectiveExecutor as 'codex' | 'claude' }}
+        onChange={setRoute}
+        onReadyChange={setRouteReady}
+        disabled={create.isPending}
+      />
       {agents.data && !available.length && (
         <p role="status" className="mb-3 text-sm text-[#D1D1D1]">
           Instale Codex ou Claude Code e conecte sua conta.{' '}
@@ -248,7 +278,8 @@ export function NovoChatPage({
           </Link>
         </p>
       )}
-      {agents.data?.find((a) => a.id === effectiveExecutor)?.authenticated === false &&
+      {route.connection_mode === 'direct' &&
+        agents.data?.find((a) => a.id === effectiveExecutor)?.authenticated === false &&
         available.length > 0 && (
           <p role="status" className="mb-3 text-sm text-[#D1D1D1]">
             Conecte a conta do agente antes de enviar.{' '}
@@ -305,7 +336,10 @@ export function NovoChatPage({
             draft,
             onDraftChange: setDraft,
             mode,
-            onModeChange: setMode,
+            onModeChange: (value) => {
+              setMode(value);
+              setExecutionMode(value === 'swarm' ? 'swarm' : 'single');
+            },
             selectedProjectId: activeProject?.id ?? '',
             onSubmit: submit,
             isSubmitting: create.isPending,
@@ -378,6 +412,16 @@ export function NovoChatPage({
       )}
       <details className="mt-4 text-sm text-[#D1D1D1]">
         <summary className="w-fit cursor-pointer py-2">Opções da conversa</summary>
+        <ConversationWorkflow
+          mode={executionMode}
+          automatic={autoRoute}
+          onChange={(value, automatic) => {
+            setExecutionMode(value);
+            setMode(value === 'swarm' ? 'swarm' : 'persistent');
+            setAutoRoute(automatic);
+          }}
+          disabled={create.isPending}
+        />
         <label className="mt-2 flex min-h-11 items-center gap-3">
           <input
             type="checkbox"

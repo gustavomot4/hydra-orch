@@ -50,6 +50,9 @@ def _create_fake_shims(bin_dir: Path) -> None:
     fake_cli.write_text(
         "import sys,json,time\n"
         "tool = sys.argv[1] if len(sys.argv) > 1 else 'cli'\n"
+        "if '--version' in sys.argv:\n"
+        "    print(tool + ' controlled-e2e-1')\n"
+        "    sys.exit(0)\n"
         "if 'status' in sys.argv:\n"
         "    print(json.dumps({'loggedIn':True}), flush=True)\n"
         "    sys.exit(0)\n"
@@ -338,6 +341,12 @@ def main() -> None:
         from hydra_orch import server
         from hydra_orch.core.checkpointer import ExecutionStore
         from hydra_orch.core.run_service import RunService
+        from hydra_orch.core import conversation_route
+
+        # Keep both the catalog and server-side admission hermetic. Never use
+        # the developer's local model cache to validate a fake CLI invocation.
+        conversation_route.direct_models = lambda _driver: [
+            {'id':'model-a','name':'Modelo A'}, {'id':'model-b','name':'Modelo B'}]
 
         store = ExecutionStore(db_path=rt_dir / "checkpoints.sqlite")
         svc = RunService(repo_root=repo_dir, store=store, runtime_dir=rt_dir)

@@ -2181,6 +2181,211 @@ components:
       - action
       title: ConsentActionPayload
 
+    ConversationConnectionSettings:
+      properties:
+        base_url:
+          type: string
+          maxLength: 500
+          minLength: 1
+          title: Base Url
+        enabled:
+          type: boolean
+          title: Enabled
+        expected_version:
+          type: integer
+          minimum: 0.0
+          title: Expected Version
+        idempotency_key:
+          type: string
+          maxLength: 100
+          minLength: 16
+          title: Idempotency Key
+      additionalProperties: false
+      type: object
+      required:
+      - base_url
+      - enabled
+      - expected_version
+      - idempotency_key
+      title: ConversationConnectionSettings
+    ConversationCreatePayload:
+      properties:
+        content:
+          type: string
+          maxLength: 100000
+          minLength: 1
+          title: Content
+        idempotency_key:
+          type: string
+          maxLength: 100
+          minLength: 16
+          title: Idempotency Key
+        expected_last_seq:
+          type: integer
+          minimum: 0.0
+          title: Expected Last Seq
+          default: 0
+        draft_session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Draft Session Id
+        attachment_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 10
+          title: Attachment Ids
+        expected_route_revision:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Expected Route Revision
+        project_id:
+          type: string
+          title: Project Id
+        executor:
+          type: string
+          enum:
+          - codex
+          - claude
+          title: Executor
+          default: codex
+        access_mode:
+          type: string
+          enum:
+          - read-only
+          - workspace-write
+          title: Access Mode
+          default: read-only
+        route:
+          anyOf:
+          - $ref: '#/components/schemas/ConversationRoute'
+          - type: 'null'
+        execution_mode:
+          type: string
+          enum:
+          - single
+          - swarm
+          title: Execution Mode
+          default: single
+        auto_route:
+          type: boolean
+          title: Auto Route
+          default: false
+      additionalProperties: false
+      type: object
+      required:
+      - content
+      - idempotency_key
+      - project_id
+      title: ConversationCreatePayload
+    ConversationMessagePayload:
+      properties:
+        content:
+          type: string
+          maxLength: 100000
+          minLength: 1
+          title: Content
+        idempotency_key:
+          type: string
+          maxLength: 100
+          minLength: 16
+          title: Idempotency Key
+        expected_last_seq:
+          type: integer
+          minimum: 0.0
+          title: Expected Last Seq
+          default: 0
+        draft_session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Draft Session Id
+        attachment_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 10
+          title: Attachment Ids
+        expected_route_revision:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Expected Route Revision
+      additionalProperties: false
+      type: object
+      required:
+      - content
+      - idempotency_key
+      title: ConversationMessagePayload
+    ConversationRoute:
+      properties:
+        executor:
+          type: string
+          enum:
+          - codex
+          - claude
+          title: Executor
+          default: codex
+        connection_mode:
+          type: string
+          enum:
+          - direct
+          - omniroute
+          title: Connection Mode
+          default: direct
+        target_kind:
+          type: string
+          enum:
+          - model
+          - combo
+          title: Target Kind
+          default: model
+        target_ref:
+          type: string
+          maxLength: 300
+          title: Target Ref
+          default: ''
+      additionalProperties: false
+      type: object
+      title: ConversationRoute
+    ConversationRouteChange:
+      properties:
+        route:
+          $ref: '#/components/schemas/ConversationRoute'
+        expected_revision:
+          type: integer
+          minimum: 0.0
+          title: Expected Revision
+        idempotency_key:
+          type: string
+          maxLength: 100
+          minLength: 16
+          title: Idempotency Key
+        execution_mode:
+          anyOf:
+          - type: string
+            enum:
+            - single
+            - swarm
+          - type: 'null'
+          title: Execution Mode
+        auto_route:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Auto Route
+      additionalProperties: false
+      type: object
+      required:
+      - route
+      - expected_revision
+      - idempotency_key
+      title: ConversationRouteChange
+
 paths:
   # ============ NÚCLEO (MVP) ============
   /projects:
@@ -5015,3 +5220,355 @@ paths:
       responses:
         '200':
           description: Histórico de disparos
+
+  # Conversas: escolhas por envio e coordenação em cópia isolada.
+  /conversation-agents:
+    get:
+      summary: Conversation Agents
+      operationId: conversation_agents_v1_control_plane_conversation_agents_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /conversations:
+    post:
+      summary: Create Conversation
+      operationId: create_conversation_v1_control_plane_conversations_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationCreatePayload'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      summary: List Conversations
+      operationId: list_conversations_v1_control_plane_conversations_get
+      parameters:
+      - name: project_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Project Id
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 30
+          title: Limit
+      - name: q
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Q
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /omniroute/combos:
+    get:
+      summary: Conversation Route Catalog
+      operationId: conversation_route_catalog_v1_control_plane_omniroute_combos_get
+      parameters:
+      - name: executor
+        in: query
+        required: false
+        schema:
+          enum:
+          - codex
+          - claude
+          type: string
+          default: codex
+          title: Executor
+      - name: refresh
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Refresh
+      - name: connection_mode
+        in: query
+        required: false
+        schema:
+          enum:
+          - direct
+          - omniroute
+          type: string
+          default: omniroute
+          title: Connection Mode
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /conversation-routes/verify:
+    post:
+      summary: Certify Conversation Route
+      operationId: certify_conversation_route_v1_control_plane_conversation_routes_verify_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationRoute'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /conversation-routes/describe:
+    post:
+      summary: Describe Conversation Route
+      operationId: describe_conversation_route_v1_control_plane_conversation_routes_describe_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationRoute'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /conversation-routes/connection:
+    get:
+      summary: Get Conversation Connection
+      operationId: get_conversation_connection_v1_control_plane_conversation_routes_connection_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+    put:
+      summary: Update Conversation Connection
+      operationId: update_conversation_connection_v1_control_plane_conversation_routes_connection_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationConnectionSettings'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /conversations/{conversation_id}/route:
+    patch:
+      summary: Change Conversation Route
+      operationId: change_conversation_route_v1_control_plane_conversations__conversation_id__route_patch
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationRouteChange'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /conversations/{conversation_id}:
+    get:
+      summary: Conversation Snapshot
+      operationId: conversation_snapshot_v1_control_plane_conversations__conversation_id__get
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /conversations/{conversation_id}/messages:
+    post:
+      summary: Send Conversation Message
+      operationId: send_conversation_message_v1_control_plane_conversations__conversation_id__messages_post
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationMessagePayload'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /conversations/{conversation_id}/turns/{turn_id}/cancel:
+    post:
+      summary: Cancel Conversation Turn
+      operationId: cancel_conversation_turn_v1_control_plane_conversations__conversation_id__turns__turn_id__cancel_post
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      - name: turn_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Turn Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /conversations/{conversation_id}/events:
+    get:
+      summary: Conversation Event Stream
+      operationId: conversation_event_stream_v1_control_plane_conversations__conversation_id__events_get
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      - name: after
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: After
+      - name: Last-Event-ID
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last-Event-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'

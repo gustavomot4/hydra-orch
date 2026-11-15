@@ -350,6 +350,46 @@ class OmniRouteClient:
                 return env_val.strip()
         return None
 
+    async def conversation_catalog(self) -> Dict[str, Any]:
+        """Read-only discovery. Return no provider connection objects or credentials."""
+        if not self.enabled:
+            return {'status': 'disabled', 'combos': [], 'models': []}
+        if not self._resolve_api_key():
+            return {'status': 'credential_missing', 'combos': [], 'models': []}
+        import asyncio
+        try:
+            async with self._build_client(httpx.Timeout(12, connect=2)) as client:
+                health, combos, models = await asyncio.gather(
+                    client.get(self._health_url), client.get(f'{_origin_url(self.base_url)}/api/combos'),
+                    client.get(f'{self.base_url}/models'))
+                if any(r.status_code in {401, 403} for r in (health, combos, models)):
+                    return {'status': 'access_denied', 'combos': [], 'models': []}
+                if health.status_code != 200:
+                    return {'status': 'unavailable', 'combos': [], 'models': []}
+                result = {'status': 'connected', 'combos': [], 'models': [],
+                          'combos_status': 'available' if combos.status_code == 200 else 'catalog_unavailable',
+                          'models_status': 'available' if models.status_code == 200 else 'catalog_unavailable'}
+                if combos.status_code == 200:
+                    body = combos.json()
+                    items = body.get('combos', []) if isinstance(body, dict) else body
+                    if isinstance(items, list):
+                        result['combos'] = items
+                    else:
+                        result['combos_status'] = 'catalog_invalid'
+                if models.status_code == 200:
+                    body = models.json()
+                    items = body.get('data', []) if isinstance(body, dict) else None
+                    if isinstance(items, list):
+                        result['models'] = items
+                    else:
+                        result['models_status'] = 'catalog_invalid'
+                # Raw combo definitions remain internal, for semantic fingerprints only.
+                return result
+        except httpx.TimeoutException:
+            return {'status': 'timeout', 'combos': [], 'models': []}
+        except (httpx.HTTPError, ValueError, TypeError):
+            return {'status': 'unavailable', 'combos': [], 'models': []}
+
     def _build_client(self, timeout: Union[float, httpx.Timeout]) -> httpx.AsyncClient:
         headers: Dict[str, str] = {}
         token = self._resolve_api_key()

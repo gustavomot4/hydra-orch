@@ -298,7 +298,7 @@ class RunSpec(ExecutionModel):
     base_branch: NonEmpty
     orchestration_mode: Literal["swarm", "relay", "persistent"] = "relay"
     budget_policy: BudgetPolicy = Field(default_factory=BudgetPolicy)
-    integration_policy: Literal["explicit_review"] = "explicit_review"
+    integration_policy: Literal["explicit_review", "agent_review_in_isolation"] = "explicit_review"
     idempotency_key: Annotated[str, StringConstraints(min_length=16, max_length=64)]
     tasks: tuple[TaskSpec, ...] = Field(min_length=1)
 

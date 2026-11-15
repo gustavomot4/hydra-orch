@@ -5,6 +5,22 @@ export interface ConversationAgent {
   authenticated?: boolean;
 }
 
+export interface ConversationRoute {
+  executor: 'codex' | 'claude';
+  connection_mode: 'direct' | 'omniroute';
+  target_kind: 'model' | 'combo';
+  target_ref: string;
+}
+
+export function defaultRoute(executor: 'codex' | 'claude' = 'codex'): ConversationRoute {
+  return { executor, connection_mode: 'direct', target_kind: 'model', target_ref: '' };
+}
+
+export function routeSelection(value: ConversationRoute): ConversationRoute {
+  const { executor, connection_mode, target_kind, target_ref } = value;
+  return { executor, connection_mode, target_kind, target_ref };
+}
+
 export interface ConversationTurn {
   id: string;
   ordinal: number;
@@ -14,6 +30,18 @@ export interface ConversationTurn {
   error: string | null;
   diff: string;
   attachments: { filename: string; attachment_id: string }[];
+  route?: ConversationRoute;
+  route_revision?: number;
+  execution_mode?: 'single' | 'swarm';
+  coordination?: {
+    plan?: { objective: string; tasks: { id: string; title: string; paths: string[] }[] };
+    run_id?: string;
+    phase?: string;
+    tasks?: Record<
+      string,
+      { title: string; state: string; reason?: string; review?: string; route?: ConversationRoute }
+    >;
+  };
 }
 
 export interface ConversationSnapshot {
@@ -26,6 +54,10 @@ export interface ConversationSnapshot {
   last_seq: number;
   legacy_run_id?: string | null;
   turns: ConversationTurn[];
+  route?: ConversationRoute;
+  route_revision?: number;
+  execution_mode?: 'single' | 'swarm';
+  auto_route?: boolean;
   tools: {
     seq: number;
     turn_id: string;

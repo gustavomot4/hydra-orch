@@ -6,12 +6,22 @@ import { Square } from 'lucide-react';
 import { PromptComposer } from '@/feature/composer';
 import { AttachmentDropzone, AttachmentItemView } from '@/feature/attachment';
 import { DictationControl } from '@/feature/dictation';
-import { clearComposerDraft } from '@/feature/composer/composerTypes';
+import { clearComposerDraft, SLASH_COMMANDS } from '@/feature/composer/composerTypes';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useAuthStore } from '@/store/authStore';
 import { useLayoutStore } from '@/store/layoutStore';
 import { ControlPlaneApiError } from '@/type/controlPlane';
-import { clearPendingSend, ConversationSnapshot, pendingMessage } from './conversationTypes';
+import {
+  clearPendingSend,
+  ConversationSnapshot,
+  pendingMessage,
+  pendingSendKey,
+  ConversationRoute,
+  defaultRoute,
+  routeSelection,
+} from './conversationTypes';
+import { ConversationRoutePicker } from './ConversationRoutePicker';
+import { ConversationWorkflow, ExecutionMode } from './ConversationWorkflow';
 
 const labels: Record<string, string> = {
   queued: 'Aguardando envio',
@@ -21,6 +31,8 @@ const labels: Record<string, string> = {
   failed: 'Não foi possível concluir',
   cancelled: 'Interrompido',
 };
+// In an existing chat, workflow changes require the header's revisioned save.
+const conversationCommands = SLASH_COMMANDS.filter((item) => item.command !== '/swarm');
 
 export function ConversationPage({ conversationId }: { conversationId: string }) {
   const client = useControlPlaneClient();
@@ -30,9 +42,10 @@ export function ConversationPage({ conversationId }: { conversationId: string })
   const queryKey = ['control-plane', 'conversation', conversationId];
   const snapshot = useQuery({
     queryKey,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       client.request<ConversationSnapshot>(
         `/v1/control-plane/conversations/${encodeURIComponent(conversationId)}`,
+        { signal },
       ),
     refetchInterval: 2500,
     retry: false,
@@ -43,6 +56,11 @@ export function ConversationPage({ conversationId }: { conversationId: string })
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [routeDraft, setRouteDraft] = useState<ConversationRoute | null>(null);
+  const [routeReady, setRouteReady] = useState(true);
+  const [savingRoute, setSavingRoute] = useState(false);
+  const [workflowDraft, setWorkflowDraft] = useState<ExecutionMode>('single');
+  const [autoDraft, setAutoDraft] = useState(false);
   const sendingRef = useRef(false);
   const cursorRef = useRef(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -111,9 +129,12 @@ export function ConversationPage({ conversationId }: { conversationId: string })
       if (!refreshTimer)
         refreshTimer = setTimeout(() => {
           refreshTimer = undefined;
-          void queryClient.invalidateQueries({
-            queryKey: ['control-plane', 'conversation', conversationId],
-          });
+          void queryClient.invalidateQueries(
+            {
+              queryKey: ['control-plane', 'conversation', conversationId],
+            },
+            { cancelRefetch: false },
+          );
         }, 100);
     };
     async function connect() {
@@ -184,11 +205,14 @@ export function ConversationPage({ conversationId }: { conversationId: string })
       expected_last_seq: data.last_seq,
       draft_session_id: conversationId,
       attachment_ids: attachments.map((a) => a.attachment_id).filter(Boolean),
+      ...(data.route_revision !== undefined
+        ? { expected_route_revision: data.route_revision }
+        : {}),
     };
     try {
       if (attachments.some((a) => !['local_ready', 'transferred'].includes(a.status)))
         throw new Error('Aguarde os anexos ou remova os que falharam.');
-      await client.request(
+      const accepted = await client.request<{ turn_id: string; seq: number }>(
         `/v1/control-plane/conversations/${encodeURIComponent(conversationId)}/messages`,
         { method: 'POST', body: pendingMessage(conversationId, payload) },
       );
@@ -197,7 +221,36 @@ export function ConversationPage({ conversationId }: { conversationId: string })
       setAttachments([]);
       clearComposerDraft(conversationId);
       clearPendingSend(conversationId);
-      await snapshot.refetch();
+      // A persisted send is usable immediately. An overlapping background read
+      // must neither keep the composer disabled nor hide the accepted message.
+      await queryClient.cancelQueries({ queryKey });
+      queryClient.setQueryData<ConversationSnapshot>(queryKey, (previous) => {
+        if (!previous || previous.turns.some((t) => t.id === accepted.turn_id)) return previous;
+        return {
+          ...previous,
+          last_seq: Math.max(previous.last_seq, accepted.seq),
+          turns: [
+            ...previous.turns,
+            {
+              id: accepted.turn_id,
+              ordinal: previous.turns.length + 1,
+              content: payload.content,
+              response: '',
+              state: 'queued',
+              error: null,
+              diff: '',
+              attachments: attachments.map((a) => ({
+                filename: a.filename,
+                attachment_id: a.attachment_id!,
+              })),
+              route: previous.route,
+              route_revision: previous.route_revision,
+              execution_mode: previous.execution_mode,
+            },
+          ],
+        };
+      });
+      void snapshot.refetch({ cancelRefetch: false });
       requestAnimationFrame(() => pageRef.current?.querySelector('textarea')?.focus());
     } catch (err) {
       if (err instanceof ControlPlaneApiError && err.status === 409)
@@ -235,6 +288,36 @@ export function ConversationPage({ conversationId }: { conversationId: string })
     }
   }
 
+  async function saveRoute() {
+    if (!data || !routeDraft || !routeReady || savingRoute) return;
+    setSavingRoute(true);
+    setError(null);
+    const body = {
+      route: routeSelection(routeDraft),
+      expected_revision: data.route_revision ?? 0,
+      ...(data.execution_mode !== undefined
+        ? { execution_mode: workflowDraft, auto_route: autoDraft }
+        : {}),
+    };
+    try {
+      await client.request(
+        `/v1/control-plane/conversations/${encodeURIComponent(conversationId)}/route`,
+        {
+          method: 'PATCH',
+          body: { ...body, idempotency_key: pendingSendKey(`route:${conversationId}`, body) },
+        },
+      );
+      clearPendingSend(`route:${conversationId}`);
+      await snapshot.refetch();
+      setRouteDraft(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Não foi possível mudar a configuração.');
+      void snapshot.refetch();
+    } finally {
+      setSavingRoute(false);
+    }
+  }
+
   if (!data)
     return (
       <div className="p-6">
@@ -266,7 +349,88 @@ export function ConversationPage({ conversationId }: { conversationId: string })
         <p className="mt-2 text-sm text-[#D1D1D1]">
           {data.executor === 'codex' ? 'Codex' : 'Claude Code'} ·{' '}
           {data.access_mode === 'read-only' ? 'Somente leitura' : 'Edições em cópia isolada'}
+          {data.route?.target_ref && (
+            <>
+              {' '}
+              · {data.route.connection_mode === 'omniroute' ? 'OmniRoute · ' : ''}
+              {data.route.target_ref}
+            </>
+          )}
         </p>
+        {data.route_revision !== undefined && (
+          <button
+            type="button"
+            className="mt-2 min-h-11 rounded-lg border border-[#666] px-3 text-sm"
+            aria-expanded={Boolean(routeDraft)}
+            onClick={() => {
+              setWorkflowDraft(data.execution_mode ?? 'single');
+              setAutoDraft(data.auto_route ?? false);
+              setRouteDraft(
+                routeDraft
+                  ? null
+                  : routeSelection(data.route ?? defaultRoute(data.executor as 'codex' | 'claude')),
+              );
+            }}
+          >
+            Trocar modelo ou combo
+          </button>
+        )}
+        {routeDraft && (
+          <div className="mt-3 rounded-lg border border-[#666] p-3">
+            <p className="mb-3 text-sm text-[#D1D1D1]">
+              A mesma conversa continua com seus arquivos e histórico. A escolha vale para os
+              próximos envios; mensagens já na fila mantêm a configuração anterior.
+            </p>
+            <label htmlFor="conversation-agent" className="mb-1 block text-sm">
+              Agente
+            </label>
+            <select
+              id="conversation-agent"
+              className="mb-3 min-h-11 w-full rounded-lg border border-[#666] bg-[#1C1C1C] px-3 text-sm"
+              disabled={savingRoute}
+              value={routeDraft.executor}
+              onChange={(e) => setRouteDraft(defaultRoute(e.target.value as 'codex' | 'claude'))}
+            >
+              <option value="codex">Codex</option>
+              <option value="claude">Claude Code</option>
+            </select>
+            <ConversationRoutePicker
+              value={routeDraft}
+              onChange={setRouteDraft}
+              onReadyChange={setRouteReady}
+              disabled={savingRoute}
+            />
+            {data.execution_mode !== undefined && (
+              <ConversationWorkflow
+                mode={workflowDraft}
+                automatic={autoDraft}
+                onChange={(mode, automatic) => {
+                  setWorkflowDraft(mode);
+                  setAutoDraft(automatic);
+                }}
+                disabled={savingRoute}
+              />
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="min-h-11 rounded border border-[#666] px-3 text-sm disabled:opacity-50"
+                disabled={savingRoute || !routeReady}
+                onClick={() => void saveRoute()}
+              >
+                {savingRoute ? 'Salvando…' : 'Usar nos próximos envios'}
+              </button>
+              <button
+                type="button"
+                className="min-h-11 rounded border border-[#666] px-3 text-sm"
+                disabled={savingRoute}
+                onClick={() => setRouteDraft(null)}
+              >
+                Cancelar troca
+              </button>
+            </div>
+          </div>
+        )}
         {!connected && (
           <p role="status" className="mt-2 text-sm text-[#D1D1D1]">
             Reconectando… Suas mensagens estão salvas.
@@ -299,7 +463,8 @@ export function ConversationPage({ conversationId }: { conversationId: string })
             </div>
             <div className="min-w-0 px-1 py-2">
               <h2 className="mb-2 text-sm font-semibold text-[#D1D1D1]">
-                {data.executor === 'codex' ? 'Codex' : 'Claude Code'}
+                {(turn.route?.executor ?? data.executor) === 'codex' ? 'Codex' : 'Claude Code'}
+                {turn.route?.target_ref && <> · {turn.route.target_ref}</>}
               </h2>
               {turn.response && (
                 <div
@@ -307,6 +472,50 @@ export function ConversationPage({ conversationId }: { conversationId: string })
                   data-testid="agent-response"
                 >
                   {turn.response}
+                </div>
+              )}
+              {turn.coordination?.plan && (
+                <div className="my-3 rounded-lg border border-[#666] p-3 text-sm">
+                  <h3 className="font-semibold">Tarefas deste pedido</h3>
+                  <p className="my-2 text-[#D1D1D1]">{turn.coordination.plan.objective}</p>
+                  <ol className="list-decimal space-y-3 pl-5">
+                    {turn.coordination.plan.tasks.map((task) => {
+                      const progress = turn.coordination?.tasks?.[task.id];
+                      return (
+                        <li key={task.id}>
+                          <p>
+                            {task.title} ·{' '}
+                            {(
+                              {
+                                starting: 'Iniciando',
+                                accepted: 'Revisão aprovada',
+                                rejected: 'Revisão recusada',
+                                failed: 'Verificação falhou',
+                              } as Record<string, string>
+                            )[progress?.state ?? ''] ?? 'Planejada'}
+                          </p>
+                          <p className="break-words text-[#D1D1D1]">{task.paths.join(', ')}</p>
+                          {progress?.route?.target_ref && (
+                            <p>Destino: {progress.route.target_ref}</p>
+                          )}
+                          {progress?.reason && (
+                            <p className="mt-1 text-[#D1D1D1]">{progress.reason}</p>
+                          )}
+                          {progress?.review && (
+                            <p className="mt-1 text-[#D1D1D1]">Revisão: {progress.review}</p>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  {turn.coordination.run_id && turn.coordination.phase && (
+                    <Link
+                      className="mt-3 inline-block min-h-11 py-2 underline"
+                      to={`/chat/${turn.coordination.run_id}`}
+                    >
+                      Ver execução e verificações
+                    </Link>
+                  )}
                 </div>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -387,6 +596,7 @@ export function ConversationPage({ conversationId }: { conversationId: string })
             onDraftChange={setDraft}
             sessionKey={conversationId}
             hideModeSelector
+            slashCommands={conversationCommands}
             visibleTextareaLabel
             textareaAriaLabel="Sua mensagem"
             placeholder="Continue a conversa…"
