@@ -10,6 +10,16 @@ Ele atua como o cérebro central para alimentar agentes de código autônomos co
 
 ---
 
+## Abrir no Windows
+
+O executável **`Hydra.exe` fica na raiz do projeto**, ao lado deste README. Abra-o para iniciar o Hydra e o OmniRoute local. A janela oferece **Iniciar**, **Parar** e **Abrir Hydra**. Consulte o [manual Windows](doc/j_manual/iniciar_windows.md) para a preparação inicial e o comportamento do serviço.
+
+Em um checkout novo, depois de preparar as dependências, gere o executável local na raiz:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File src/launcher/build.ps1
+```
+
 ## Estado da implementação
 
 O núcleo e o control plane dos **Marcos M1 a M4 (`T01`–`T28`, 204 SP, Gate `G-M4`)** estão implementados e validados em suíte hermética offline (`python -m pytest tests -q` → **568 testes aprovados**). O repositório entrega CLI estendida (`hydra` com comandos M1 + **21 subgrupos**), API FastAPI + SSE (`77` paths OpenAPI `3.0.3` com Bearer auth PBKDF2-SHA256, CORS estrito e redaction), persistência SQLite WAL (`migration/0001` + `0002`), isolamento em *Git worktrees*, modos **Swarm (Wave 0+1) / Relay / Persist**, pausas HITL, conflitos 3-way, orçamento 80%/100%, PR packaging, memória consentida, discovery opt-in, SecretRef/MCP, extensões isoladas, preferências/WCAG AA e túnel SSH estrito (`StrictHostKeyChecking=yes`). Permanecem fora da validação offline a certificação real de CLIs/provedores pagos (`driver-certification`, opt-in no CI) e o frontend Web UI (há apenas o contrato em [`doc/b_spc/a_ui/README.md`](doc/b_spc/a_ui/README.md)).

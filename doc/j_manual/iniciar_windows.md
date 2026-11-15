@@ -2,7 +2,7 @@
 
 ## Abrir e parar
 
-O executável local fica em `ws/b_output/launcher/Hydra.exe`. Ele usa este checkout e as instalações locais de Python e Node; mantenha o arquivo dentro do projeto ou use um atalho para ele.
+O executável local fica na raiz do projeto: `Hydra.exe`, ao lado do `README.md`. Ele usa este checkout e as instalações locais de Python e Node; mantenha o arquivo na raiz ou use um atalho para ele. O build gera esse arquivo localmente; o binário não é versionado no Git.
 
 Nesta máquina, o atalho **Hydra** na Área de Trabalho aponta para esse executável com a opção `--start`: abrir o atalho já inicia o sistema e o navegador. A janela de controle permanece disponível para **Parar** e **Abrir Hydra**.
 

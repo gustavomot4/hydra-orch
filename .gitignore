@@ -46,6 +46,7 @@ htmlcov/
 orchestrator_checkpoints.db
 
 # Hydra worktrees and runtime artifacts
+/Hydra.exe
 .orchestrator/
 .hydra/
 worktrees/
