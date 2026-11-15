@@ -13,6 +13,7 @@ from typing import Awaitable, Callable
 
 from hydra_orch.bridge.worker_runner import filter_worker_env, cancel_process_tree
 from hydra_orch.bridge.pty_runner import _bundled_codex_needs_no_daemon
+from hydra_orch.bridge.agent_executable import resolve_agent_executable
 from hydra_orch.core.redaction import redact_text
 from hydra_orch.model import ContractViolation
 
@@ -48,7 +49,7 @@ class ConversationRunner:
     async def capabilities(self):
         result = []
         for driver, command in (("codex", "codex"), ("claude", "claude")):
-            executable = shutil.which(command)
+            executable = await asyncio.to_thread(resolve_agent_executable, command)
             result.append({"id": driver, "name": "Codex" if driver == "codex" else "Claude Code",
                            "available": bool(executable), "streaming": True,
                            "authenticated": await self.login_status(driver, executable) if executable else False,
@@ -69,7 +70,7 @@ class ConversationRunner:
         transport = ExitStack()
         try:
             driver = conversation["executor"]
-            executable = shutil.which(driver)
+            executable = await asyncio.to_thread(resolve_agent_executable, driver)
             if not executable:
                 raise ContractViolation("agent_unavailable", f"Instale {driver} e conecte sua conta antes de enviar novamente.")
             session = conversation.get("native_session_id")
@@ -106,8 +107,16 @@ class ConversationRunner:
                         gateway_args += ['-c', 'windows.sandbox="unelevated"']
                     allowed_env.update(OMNIROUTE_API_KEY=token, CODEX_HOME=str(home))
                 else:
+                    import hashlib
+                    state_root = Path(conversation.get('_agent_state_dir') or cwd.parent / '.hydra_agent_state' / hashlib.sha256(str(cwd).encode()).hexdigest()[:24])
+                    home = state_root / 'claude_home'
+                    if home.is_symlink() or state_root.is_symlink():
+                        raise ContractViolation('context_path_escape', 'O diretório do agente não é seguro.')
+                    home.mkdir(parents=True,exist_ok=True)
                     allowed_env.update(ANTHROPIC_BASE_URL=base_url.removesuffix('/v1'), ANTHROPIC_AUTH_TOKEN=token,
-                                       ANTHROPIC_MODEL=target, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1')
+                                       ANTHROPIC_MODEL=target, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1',CLAUDE_CONFIG_DIR=str(home),
+                                       ANTHROPIC_DEFAULT_OPUS_MODEL=target,ANTHROPIC_DEFAULT_SONNET_MODEL=target,
+                                       ANTHROPIC_DEFAULT_HAIKU_MODEL=target,ANTHROPIC_SMALL_FAST_MODEL=target,CLAUDE_CODE_SUBAGENT_MODEL=target)
             if driver == "codex":
                 args = [executable]
                 if await asyncio.to_thread(_bundled_codex_needs_no_daemon, executable):
@@ -255,6 +264,8 @@ class ConversationRunner:
             await asyncio.gather(errors_task, return_exceptions=True)
             self.processes.pop(turn["id"], None)
             metrics['duration_seconds'] = round(time.monotonic() - started, 3)
+            if observed.get('request_error'):
+                metrics['request_error']=observed['request_error']
             if observed.get('models'):
                 metrics['models'] = observed['models']
                 metrics['model_source'] = observed['source']

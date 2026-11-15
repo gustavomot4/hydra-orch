@@ -100,7 +100,8 @@ class ConversationRoutes:
 
     async def version(self, executor):
         if executor not in self._versions:
-            exe = shutil.which(executor)
+            from hydra_orch.bridge.agent_executable import resolve_agent_executable
+            exe = await asyncio.to_thread(resolve_agent_executable, executor)
             def read():
                 if not exe:
                     return 'not-installed'
@@ -179,15 +180,15 @@ class ConversationRoutes:
             if item is None:
                 raise ContractViolation('model_not_found', 'O modelo não está disponível no gateway.')
             leaves, definition = [route.target_ref], item
-        if route.executor == 'claude' and any(not any(part.startswith('claude-') for part in m.split('/')) for m in leaves):
-            raise ContractViolation('route_unsupported', 'Claude Code exige que todos os destinos do combo sejam modelos Claude.')
+        unofficial = route.executor == 'claude' and any(not any(part.startswith('claude-') for part in m.split('/')) for m in leaves)
         fingerprint = identity({'route': value, 'definition': definition, 'base_url': self.gateway.base_url,
-                                'cli_version': await self.version(route.executor), 'profile': 2})
+                                'cli_version': await self.version(route.executor), 'profile': 3 if route.executor=='claude' else 2})
         await self.store.initialize()
         async with self.store._connect() as db:
             row = await (await db.execute('SELECT evidence_json FROM conversation_route_certificates WHERE certificate_key=?', (fingerprint,))).fetchone()
         return {**value, **metadata, 'fingerprint': fingerprint, 'compatibility': 'verified' if row else 'unverified',
-                'reason': 'Leitura, edição e continuidade verificadas.' if row else 'Teste esta combinação antes de enviar.',
+                'reason': ('Leitura, edição e continuidade verificadas.' if row else 'Teste esta combinação antes de enviar.') +
+                          (' Destinos não-Claude via tradução do gateway: sem suporte oficial da Anthropic.' if unofficial else ''),
                 'evidence': json.loads(row[0]) if row else None}
 
     async def validate(self, selection, *, refresh=False):

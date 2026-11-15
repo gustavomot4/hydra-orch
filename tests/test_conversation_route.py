@@ -110,8 +110,10 @@ async def test_catalog_is_sanitized_and_recursive_compatibility_is_conservative(
     data['combos'].append({'name': 'Outro', 'models': ['codex/model']})
     assert (await routes.describe(selection, refresh=True))['fingerprint'] == first['fingerprint']
     definition['models'].append({'model': 'codex/model'})
-    with pytest.raises(ContractViolation, match='Claude'):
-        await routes.describe(selection, refresh=True)
+    changed=await routes.describe(selection, refresh=True)
+    assert changed['compatibility']=='unverified'
+    assert 'sem suporte oficial' in changed['reason']
+    assert changed['fingerprint']!=first['fingerprint']
 
 
 def test_gateway_function_profile_cannot_change_target_or_interpret_text_as_tools():
@@ -122,6 +124,10 @@ def test_gateway_function_profile_cannot_change_target_or_interpret_text_as_tool
     assert 'client_metadata' not in request
     with pytest.raises(ValueError):function_request(body, 'different')
     with pytest.raises(ValueError):function_request({**body, 'tools': []}, 'dev-test')
+    # The CLI may compact or answer without tools after the initial tool
+    # profile was admitted. Keep the target lock on those requests too.
+    assert function_request({'model':'dev-test','input':[]},'dev-test',tools_admitted=True)['tools']==[]
+    with pytest.raises(ValueError):function_request({'model':'other'},'dev-test',tools_admitted=True)
 
 
 @pytest.mark.asyncio

@@ -13,7 +13,7 @@ import threading
 import httpx
 
 
-def function_request(body, target):
+def function_request(body, target, *, tools_admitted=False):
     if not isinstance(body, dict) or not isinstance(body.get('tools', []), list):
         raise ValueError('Formato de requisição inválido.')
     if body.get('model') != target:
@@ -24,7 +24,7 @@ def function_request(body, target):
     request['tools'] = [t for t in body.get('tools', []) if isinstance(t, dict) and t.get('type') == 'function']
     # The CLI can always read/edit through its sandboxed shell tool. Unsupported
     # freeform, hosted search and deferred discovery are deliberately not exposed.
-    if not any(t.get('name') in {'exec_command', 'shell_command', 'shell'} for t in request['tools']):
+    if not tools_admitted and not any(t.get('name') in {'exec_command', 'shell_command', 'shell'} for t in request['tools']):
         raise ValueError('O agente não forneceu uma ferramenta de execução compatível.')
     return request
 
@@ -34,6 +34,7 @@ def codex_transport(base_url, upstream_key, target):
     delegate = secrets.token_urlsafe(32)
     stopped = threading.Event()
     observed = {'models': [], 'source': 'omniroute.responses'}
+    admission = threading.Event()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -47,9 +48,18 @@ def codex_transport(base_url, upstream_key, target):
                 length = int(self.headers.get('Content-Length', '0'))
                 if not 0 < length <= 8 * 1024 * 1024:
                     raise ValueError('Tamanho inválido.')
-                payload = function_request(json.loads(self.rfile.read(length)), target)
-            except (ValueError, TypeError, KeyError):
-                self.send_error(400, 'Invalid agent request')
+                payload = function_request(json.loads(self.rfile.read(length)), target,tools_admitted=admission.is_set())
+                admission.set()
+            except (ValueError, TypeError, KeyError) as exc:
+                # Keep errors machine-readable; never echo request bodies or keys.
+                reason = str(exc) if isinstance(exc,ValueError) else 'Formato de requisição inválido.'
+                observed['request_error'] = reason[:250]
+                encoded=json.dumps({'error':{'message':'Hydra: '+reason[:250],'type':'invalid_request_error'}}).encode()
+                self.send_response(400)
+                self.send_header('Content-Type','application/json')
+                self.send_header('Content-Length',str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
                 return
             try:
                 with httpx.Client(timeout=httpx.Timeout(60, connect=3)) as client:

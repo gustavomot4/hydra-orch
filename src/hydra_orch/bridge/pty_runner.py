@@ -455,7 +455,8 @@ class PtyRunner:
     ) -> _PtySessionState:
         exec_command = list(command)
         # CreateProcessW skips PATHEXT (.cmd/.bat npm shims) unless resolved explicitly.
-        resolved = shutil.which(exec_command[0], path=env.get("PATH"))
+        from hydra_orch.bridge.agent_executable import resolve_agent_executable
+        resolved = await asyncio.to_thread(resolve_agent_executable,exec_command[0],path=env.get("PATH"))
         if resolved:
             exec_command[0] = resolved
         if len(exec_command) == 1 and await asyncio.to_thread(_bundled_codex_needs_no_daemon, exec_command[0]):
@@ -574,7 +575,8 @@ class PtyRunner:
         exec_command = list(command)
         if os.name == "nt" and exec_command:
             # Windows CreateProcessW skips PATHEXT (.cmd/.bat, e.g. npm shims) unless resolved explicitly.
-            resolved = shutil.which(exec_command[0], path=env.get("PATH"))
+            from hydra_orch.bridge.agent_executable import resolve_agent_executable
+            resolved = await asyncio.to_thread(resolve_agent_executable,exec_command[0],path=env.get("PATH"))
             if resolved:
                 exec_command[0] = resolved
 

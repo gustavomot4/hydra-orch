@@ -277,7 +277,9 @@ class ConversationCoordinator:
                 result = outcome.result
                 if result.task_status != TaskStatus.READY_FOR_REVIEW:
                     await emit('coordinator.task', {'task_id':task.id,'title':task.title,'state':'failed','summary':result.summary})
-                    raise ContractViolation('coordinator_worker_failed', f'A tarefa {task.title} não passou pelas verificações. A execução {run_id} foi preservada para revisão.')
+                    reason = ('O agente encerrou com erro antes de executar as verificações' if not result.checks_executed
+                              else 'A tarefa não passou pelas verificações')
+                    raise ContractViolation('coordinator_worker_failed', f'{reason}: {task.title}. A execução {run_id} foi preservada para revisão.')
                 review = await self._structured(turn['id']+'-review-'+task.id, child, Path(outcome.attempt.workspace_path),
                     'Revise as alterações desta tarefa e os resultados de verificação. Não edite nem execute commits. '
                     'Use leitura para conferir o código quando necessário. Retorne somente JSON com decision accepted/rejected e reason.\n'

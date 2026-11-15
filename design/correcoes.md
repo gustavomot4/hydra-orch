@@ -12,6 +12,8 @@ A escolha entre propostas também entra, porque vira calibração do gosto:
 
 <!-- kit-frontend:correcoes -->
 
+- 2026-11-15 | organização avançada | “ainda estou confuso ... area de trabalho infinita ... cards os agentes trabalhando ... linhas ... clicar no card e mostra o chat” | estudar canvas navegável com cards e relações observáveis, detalhe por seleção e alternativa em lista; preservar a base visual atual; apresentar imagens antes da implementação | propostas visuais pendentes de escolha
+
 - 2026-11-14 | navegação e início | “complicado de entender” e “tem que procurar bastante e ler bastante para saber o que fazer” | mostrar a tarefa principal na primeira dobra, com o projeto selecionado junto do campo; adiar detalhes técnicos para quando forem necessários | registrado para as propostas
 - 2026-11-14 | barra lateral | “ela deveria espandir mais e mostrar os nomes” | mostrar ícone e nome na navegação por padrão e permitir ajustar a largura no desktop | registrado para as propostas
 - 2026-11-14 | identidade | “mais ousado, marcante e que chame mais atenção” | dar expressão ao modo de iniciar e acompanhar trabalho, mantendo a leitura rápida | registrado para as propostas
