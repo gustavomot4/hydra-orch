@@ -65,6 +65,14 @@ No chat, o seletor com **agente e modelo atual** fica junto do campo de mensagem
 
 Em Novo chat, clique no nome da **Pasta** para buscar por nome ou caminho. **Adicionar pasta** abre a escolha do Windows ou a entrada de caminho. O seletor junto do compositor e **Opções da conversa** abrem a mesma configuração de agente, conexão, destino, coordenação e acesso. Sugestões apenas preenchem o rascunho; não enviam um pedido automaticamente.
 
+### Pedir uma análise do repositório
+
+Pedidos para explicar capacidades e propor melhorias podem terminar com um relatório no próprio chat, inclusive quando a conversa está no modo coordenado. O planejador distingue esse pedido de uma implementação; uma análise estruturada válida não cria workers nem exige edições. Para uma inspeção, mantenha **Somente leitura** como configuração adequada ao pedido.
+
+Exemplo: “Analise o repositório sem alterar arquivos. Explique o que já está implementado, indique as limitações e proponha melhorias por prioridade. Cite os arquivos que sustentam suas conclusões e separe implementação encontrada de comportamento testado.”
+
+Se aparecer limite de tempo, a mensagem agora identifica a etapa: **leitura e planejamento** (180s), **revisão** (180s), **execução de tarefas** (900s) ou **coordenação total** (1200s). Uma falha antes do plano informa que nenhum worker começou; não anuncia resultados de workers inexistentes. Os registros da tentativa permanecem na conversa. É possível enviar outra mensagem na mesma conversa com um escopo mais específico, preservando o histórico.
+
 ## Pastas sem Git
 
 O cadastro do Novo chat aceita pastas comuns e repositórios ainda sem commit. O Hydra não executa `git init` para aceitá-las. Mantém uma cópia de trabalho e uma base para comparar alterações, preservando os arquivos originais.
@@ -120,3 +128,9 @@ O seletor de combos dentro da configuração foi exercitado em uma repetição d
 Verificador do kit no bundle de produção: **Novo chat: 0 falhas/2 avisos; Conversa: 0/3; Área de trabalho: 0/3**. Permanecem os avisos de primeira parada de Tab depois do foco programático e alvos herdados da navegação menores que 44px. Na conversa, a linha compacta de acesso/conexão/modo gera o aviso de metadados separados por pontos; foi mantida porque permite conferir a configuração efetiva junto do envio. No canvas, o aviso de ações concorrentes refere-se a seleções de navegação, origem e modo. As ações novas do compositor têm alvos de 44px no celular. A leitura de contraste sobre o fundo pontilhado permanece inconclusiva para o motor; cards têm fundo opaco.
 
 Foram inspecionados desktop/celular, árvore semântica e prancha de alto contraste/simulações; teclado, Esc e retorno do foco foram exercitados no diálogo da conversa. Leitor de tela real e teste com pessoas continuam não verificados. O build mantém o aviso de chunk acima de 500KB; esta rodada não redesenhou o carregamento de módulos. A instância pessoal em uso foi preservada. Para carregar o novo adaptador de eventos, use **Parar → Iniciar** pelo controle e recarregue a página.
+
+### Correção do limite no planejamento — 15/11/2026
+
+A investigação do registro local confirmou uma tentativa interrompida no planejador, depois de leitura, execução de pytest e tentativa de reparo de diretório temporário. Não havia plano ou execução de workers vinculada. O limite interno de 180s estava sendo apresentado como limite geral da coordenação e com uma mensagem indevida de resultados para revisão.
+
+A correção mantém os limites, distingue a etapa do timeout e acrescenta a saída estruturada de análise. A leitura inicial é fornecida em um pacote limitado, e a orientação do planejador exclui testes, escrita e reparo de ambiente dessa etapa. Passaram **32 testes Python** de conversa e coordenação, incluindo relatório sem workers com acesso de leitura/escrita, validação de plano, limites de planejamento/revisão/execução, cancelamento e preservação do histórico. A validação usou processos controlados, sem chamada nova ao combo real ou consumo de provedor. Para carregar a correção do backend, use **Parar → Iniciar**; a tentativa antiga mantém seu erro original no histórico.

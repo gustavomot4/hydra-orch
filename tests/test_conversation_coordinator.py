@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from test_conversation import service, create, ControlledRunner
-from hydra_orch.core.conversation_coordinator import CoordinatorPlan, ConversationCoordinator
+from hydra_orch.core.conversation_coordinator import AgentReview, CoordinatorPlan, ConversationCoordinator, planning_sources
 from hydra_orch.model import ContractViolation
 
 
@@ -60,6 +60,116 @@ print('worker complete')
 def test_plan_rejects_unsafe_or_overlapping_ownership(bad):
     with pytest.raises(ValidationError):
         CoordinatorPlan.model_validate(bad)
+
+
+@pytest.mark.parametrize('plan', [
+    {'objective': 'Empty implementation', 'tasks': []},
+    {'objective': 'Missing report', 'intent': 'analysis', 'tasks': []},
+    {'objective': 'Mixed modes', 'intent': 'analysis', 'report': 'A sufficiently detailed report.', 'tasks': [task('a')]},
+    {'objective': 'Mixed modes', 'report': 'A sufficiently detailed report.', 'tasks': [task('a')]},
+])
+def test_report_and_executable_plan_cannot_be_confused(plan):
+    with pytest.raises(ValidationError):
+        CoordinatorPlan.model_validate(plan)
+
+
+def test_initial_reading_is_bounded_and_excludes_credentials(tmp_path):
+    (tmp_path/'README.md').write_text('# Projeto\n'+'x'*2000, encoding='utf-8')
+    (tmp_path/'pyproject.toml').write_text('[project]\nname="example"', encoding='utf-8')
+    (tmp_path/'.env').write_text('SECRET=do-not-include')
+    result = planning_sources(tmp_path, ['README.md', 'pyproject.toml', '.env'], budget_chars=1000)
+    assert len(result) <= 1000
+    assert '# Projeto' in result and 'trecho inicial' in result
+    assert 'do-not-include' not in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('access_mode', ['read-only', 'workspace-write'])
+async def test_repository_analysis_returns_report_without_workers_even_with_write_permission(service, tmp_path, access_mode):
+    report = '# O que o projeto faz\n\nO ponto de entrada está em README.md.\n\n## Melhorias\n\nRevisar o fluxo; testes não executados nesta análise.'
+    plan = {'objective': 'Explicar o projeto e propor melhorias', 'intent': 'analysis', 'report': report, 'tasks': []}
+    runner = CoordinatedCLI(plan, tmp_path/'must-not-dispatch')
+    service.runner = runner
+    cid, _ = await create(service, execution_mode='swarm', access_mode=access_mode)
+    await service._execute(await service.claim())
+    snapshot = await service.snapshot(cid)
+    turn = snapshot['turns'][0]
+    assert turn['state'] == 'completed', turn['error']
+    assert turn['response'] == report
+    assert '# Projeto teste' in runner.calls[0][2]
+    assert 'run_id' not in turn['coordination']
+    assert not (tmp_path/'must-not-dispatch').exists()
+    assert not list(Path(snapshot['workspace_path']).glob('*.py'))
+    events = await service.events(cid)
+    assert any(e['type'] == 'coordinator.analysis' for e in events)
+    assert not any(e['type'] in {'coordinator.plan', 'coordinator.run', 'coordinator.task'} for e in events)
+
+
+@pytest.mark.asyncio
+async def test_planning_timeout_is_specific_and_preserves_read_events_without_claiming_worker_results(service):
+    class SlowPlanner(ControlledRunner):
+        def __init__(self):
+            super().__init__()
+            self.cancelled_jobs = []
+
+        async def run(self, turn, conv, prompt, cwd, emit):
+            assert conv['access_mode'] == 'read-only'
+            assert 'Não rode testes' in prompt
+            await emit('tool.started', {'tool': 'Read', 'detail': 'README.md'})
+            await asyncio.Event().wait()
+
+        async def cancel(self, job):
+            self.cancelled_jobs.append(job)
+
+    runner = SlowPlanner()
+    service.runner = runner
+    service.coordinator = ConversationCoordinator(service.runs, runner, structured_timeout_seconds=.03, total_timeout_seconds=2)
+    cid, _ = await create(service, execution_mode='swarm', access_mode='workspace-write')
+    claimed = await service.claim()
+    await service._execute(claimed)
+    turn = (await service.snapshot(cid))['turns'][0]
+    assert turn['state'] == 'failed'
+    assert 'leitura e o planejamento' in turn['error']
+    assert 'Nenhum worker foi iniciado' in turn['error']
+    assert 'limite total' not in turn['error']
+    assert not turn['coordination'].get('run_id')
+    assert claimed['id']+'-plan' in runner.cancelled_jobs
+    events = await service.events(cid)
+    assert any(e['type'] == 'tool.started' for e in events)
+    assert any(e['type'] == 'coordinator.diagnostic' and e['payload']['stage'] == 'planning' for e in events)
+
+
+@pytest.mark.asyncio
+async def test_review_timeout_is_not_reported_as_planning_or_total_timeout(service, tmp_path):
+    class SlowReviewer(ControlledRunner):
+        async def run(self, turn, conv, prompt, cwd, emit):
+            await asyncio.Event().wait()
+
+    runner = SlowReviewer()
+    coordinator = ConversationCoordinator(service.runs, runner, structured_timeout_seconds=.01)
+    observed = []
+    async def emit(kind, payload):
+        observed.append((kind, payload))
+    with pytest.raises(ContractViolation) as error:
+        await coordinator._structured('review-step', {'executor':'codex'}, tmp_path, 'Review', AgentReview, emit)
+    assert error.value.code == 'coordinator_review_timeout'
+    assert 'revisão do agente' in str(error.value)
+    assert observed[0][1]['stage'] == 'review'
+
+
+@pytest.mark.asyncio
+async def test_worker_phase_timeout_names_preserved_execution(service, tmp_path):
+    runner = CoordinatedCLI({'objective':'Timeout during execution','tasks':[task('a'),task('b')]},tmp_path/'workers')
+    service.runner = runner
+    service.coordinator = ConversationCoordinator(service.runs, runner, execution_timeout_seconds=.01, total_timeout_seconds=10)
+    cid, _ = await create(service, execution_mode='swarm', access_mode='workspace-write')
+    await service._execute(await service.claim())
+    turn = (await service.snapshot(cid))['turns'][0]
+    assert turn['state'] == 'failed'
+    assert 'execução das tarefas' in turn['error']
+    assert turn['coordination']['run_id'] in turn['error']
+    assert turn['coordination']['phase'] == 'stopped'
+    assert 'limite total' not in turn['error']
 
 
 @pytest.mark.asyncio
