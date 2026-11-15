@@ -152,6 +152,14 @@ async def startup_event() -> None:
     if app.state.token_verifier is None:
         raise RuntimeError("Configure HYDRA_API_TOKEN_HASH or HYDRA_API_TOKEN before serving HTTP")
     validate_cors_origins(app.state.cors_allow_origins)
+    if config.omniroute.auto_start_daemon:
+        # Honor a saved address before starting anything. Normal/manual required
+        # mode retains its existing preflight-before-database behavior.
+        saved = await get_conversation_routes().settings()
+        config.omniroute.base_url = saved['base_url']
+        if saved['version']:
+            config.omniroute.enabled = saved['enabled']
+            config.omniroute.connection_mode = 'optional' if saved['enabled'] else 'disabled'
     await router.ensure_gateway()
     await router.checkpointer.initialize()
     settings = await get_conversation_routes().settings()
@@ -3413,7 +3421,7 @@ async def desktop_ping():
     from hydra_orch.core.local_desktop import enabled
     if not enabled():
         raise HTTPException(404)
-    return {"status": "ready"}
+    return {"status": "ready", "omniroute": getattr(router, 'gateway_startup', {'status': 'not_requested', 'ready': False})}
 
 
 @app.post("/v1/launcher/pick-folder", include_in_schema=False)

@@ -6,13 +6,25 @@ O executável local fica em `ws/b_output/launcher/Hydra.exe`. Ele usa este check
 
 Nesta máquina, o atalho **Hydra** na Área de Trabalho aponta para esse executável com a opção `--start`: abrir o atalho já inicia o sistema e o navegador. A janela de controle permanece disponível para **Parar** e **Abrir Hydra**.
 
-1. Abra **Hydra.exe** e clique em **Iniciar**. O programa prepara a interface quando necessário, inicia o backend e abre o navegador já conectado.
+1. Abra **Hydra.exe** e clique em **Iniciar**. O programa prepara a interface quando necessário, inicia ou reutiliza o OmniRoute local, inicia o backend e abre o navegador já conectado.
 2. Use **Abrir Hydra** para voltar à interface.
 3. Use **Parar** para encerrar a instância iniciada por essa janela. Fechar a janela também encerra seus agentes e terminais; os históricos persistidos permanecem.
 
 O programa começa pela porta 8000 e escolhe uma porta livre se ela estiver ocupada. O endereço correto é aberto automaticamente. Processos anteriores ou pertencentes a outros programas são preservados. A janela controla apenas o backend que ela própria iniciou, inclusive ao parar.
 
 Não é preciso abrir Vite, copiar um token ou lembrar duas portas para o uso pelo executável. Servidores iniciados manualmente continuam disponíveis como configuração avançada.
+
+## OmniRoute junto com o Hydra
+
+Desde 15/11/2026, o início pelo executável habilita a partida automática do gateway. O Hydra consulta a saúde do endereço configurado antes de iniciar qualquer processo. Se o OmniRoute já estiver pronto, reutiliza essa instância. Se a porta local estiver livre, executa a instalação existente com `serve --daemon --no-open --no-tray --port <porta>` e aguarda a saúde por até aproximadamente 35 segundos, sem abrir outro navegador ou console.
+
+O endereço salvo em **Configurações e perfil → Conexão OmniRoute** é lido antes da partida. Uma conexão explicitamente desabilitada permanece desabilitada. A partida local só é permitida para HTTP em loopback; um gateway remoto continua sendo consultado no endereço escolhido, sem criar um substituto local. Um processo que ocupe a porta é preservado. Falta da CLI ou falha de saúde não impede abrir o Hydra em modo opcional; a conexão informa sua indisponibilidade e nenhuma instalação ou atualização é feita automaticamente.
+
+**Parar o Hydra deixa o OmniRoute ligado.** Ele funciona como serviço compartilhado e pode ser reutilizado por outros programas ou na próxima abertura. O Hydra não altera combos, contas ou credenciais do OmniRoute e não envia prompts para validar a partida. O daemon iniciado por ele usa apenas loopback; a credencial local do Hydra não é herdada por esse processo. A credencial da API OmniRoute permanece separada.
+
+No modo avançado, `HYDRA_OMNIROUTE_AUTOSTART=0` desativa essa partida pelo executável. O servidor manual mantém o padrão sem gateway; para optar por partida automática na configuração, use `omniroute.enabled: true`, `connection_mode: optional` (ou `required`) e `auto_start_daemon: true`. O modo `required` continua recusando uma inicialização sem gateway disponível.
+
+Validação: testes com serviço de fixture real em porta livre, segunda partida sem duplicação, porta ocupada, CLI ausente, timeout, separação da credencial, configuração persistida e opção de desativação. A jornada pelo executável usa um runtime de teste isolado e verifica também a preservação do OmniRoute instalado depois de parar o Hydra.
 
 ## Pastas e conversas
 

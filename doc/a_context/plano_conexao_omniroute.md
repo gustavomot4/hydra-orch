@@ -88,7 +88,7 @@ Aplicar o [kit de frontend](../../.agents/skills/kit-frontend/SKILL.md), os padr
 - Reutilizar eventos duráveis de texto, ferramenta, erro, interrupção e término. Acrescentar eventos de rota solicitada, definição observada e modelo efetivo quando reportado pelo protocolo. Não inventar modelo, uso ou custo; informação não observada permanece desconhecida.
 - Preservar permissões de leitura/edição, anexos, worktree ou cópia de pasta e cancelamento da árvore do agente. O cancelamento não encerra o daemon compartilhado do OmniRoute. Eventuais requisições upstream já aceitas podem continuar sendo contabilizadas; verificar o cancelamento real.
 - Distinguir fallback configurado dentro do combo de troca de conexão pelo Hydra. Não acrescentar novos destinos pagos, chamadas paralelas ou retries após efeitos de ferramentas sem política explícita e evidência.
-- O launcher mantém entrada automática no Hydra. Deve propagar apenas a configuração necessária ao backend e informar se o gateway está disponível. Preservar a regra de parar somente processos que iniciou; não iniciar, atualizar ou parar o OmniRoute existente para habilitar esta tela.
+- O launcher mantém entrada automática no Hydra. Deve propagar apenas a configuração necessária ao backend e informar se o gateway está disponível. A autorização posterior de 15/11/2026 acrescentou a partida automática do OmniRoute ausente ao iniciar o Hydra, conforme o [manual Windows](../j_manual/iniciar_windows.md). Uma instância existente é reutilizada; o daemon compartilhado não é atualizado nem encerrado pelo Hydra.
 
 ### API prevista no planejamento original
 

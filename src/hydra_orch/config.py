@@ -205,8 +205,8 @@ class OmniRouteConfig(StrictConfig):
             raise ValueError("Gateway optional/required requires enabled=true")
         if self.enabled and self.connection_mode == "disabled":
             raise ValueError("Gateway enabled=true requires optional or required mode")
-        if self.auto_start_daemon:
-            raise ValueError("Automatic gateway startup is not implemented; start it externally")
+        if self.auto_start_daemon and not self.enabled:
+            raise ValueError("Automatic gateway startup requires enabled=true")
         return self
 
 

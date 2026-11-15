@@ -105,7 +105,13 @@ class HydraRouter:
         raise ProviderUnavailableError("No eligible inference adapter is configured")
 
     async def ensure_gateway(self) -> None:
-        """Required is fail-closed; disabled/optional never need a preflight call."""
+        """Autostart is explicit; required remains fail-closed, optional can open."""
+        if self.config.omniroute.auto_start_daemon and not self.config.is_direct_mode:
+            from hydra_orch.bridge.omniroute_daemon import ensure_local_gateway
+            self.gateway_startup = await ensure_local_gateway(
+                self.config.omniroute.base_url, self.config.omniroute.api_key_env)
+            if not self.gateway_startup['ready']:
+                logger.warning(self.gateway_startup['message'])
         if self.config.is_omniroute_required:
             gateway = OmniRouteClient(
                 base_url=self.config.omniroute.base_url,
