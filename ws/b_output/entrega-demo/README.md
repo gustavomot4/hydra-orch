@@ -10,7 +10,8 @@ execução e diagnóstico que deram origem à entrega continuam locais e ignorad
   `index.html`. Horizonte Arquitetura é uma empresa fictícia; o site não foi
   publicado na internet.
 - [Bundle do frontend Hydra](Hydra-frontend.zip): contém `dist/`, com o build
-  local de produção usado na demonstração. Pode ser extraído em `frontend/`.
+  de produção atualizado. Pode incluir correções posteriores à gravação e ser
+  extraído em `frontend/`.
 - [Prompt inicial](prompt.txt), [registro da execução](demo-receipt.json),
   [manifesto da edição](edit-manifest.json) e
   [verificação do site](site-verification.json).

@@ -1,4 +1,4 @@
-"""Bounded snapshots and text diffs for chats in ordinary folders; never initializes Git."""
+"""Bounded folder snapshots, diffs and private Git for coordinated execution."""
 from __future__ import annotations
 
 import difflib
@@ -6,11 +6,88 @@ import filecmp
 import os
 from pathlib import Path
 import shutil
+import subprocess
 
 from hydra_orch.core.redaction import redact_text
 from hydra_orch.model import ContractViolation
 
 _SKIP = {".git", ".orchestrator", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next"}
+
+
+def prepare_git(directory: Path, repository_dir: Path | None = None) -> str:
+    """Prepare Git only in a managed conversation copy, never in its source folder.
+
+    Separate metadata gives the copy its own repository boundary even when the
+    Hydra runtime is nested inside another checkout. No remote is configured.
+    Existing managed metadata is validated and reused without resetting files.
+    """
+    directory = Path(directory).absolute()
+    working, baseline = directory/'work', directory/'base'
+    metadata = Path(repository_dir).absolute() if repository_dir is not None else directory/'repository.git'
+    storage, pointer = metadata.parent, working/'.git'
+    if (directory.is_symlink() or working.is_symlink() or baseline.is_symlink()
+            or not working.is_dir() or not baseline.is_dir()
+            or (directory/'ready').is_symlink() or not (directory/'ready').is_file()
+            or storage.is_symlink() or metadata.is_symlink() or pointer.is_symlink()
+            or metadata.resolve().is_relative_to(working.resolve())
+            or metadata.resolve().is_relative_to(baseline.resolve())):
+        raise ContractViolation('workspace_invalid', 'A cópia isolada não está disponível para preparar os agentes.')
+    binding = storage/'workspace.txt'
+    if binding.is_symlink() or (binding.exists() and Path(binding.read_text(encoding='utf-8')).resolve()!=working.resolve()):
+        raise ContractViolation('workspace_invalid', 'O Git interno pertence a outra cópia. Os arquivos foram preservados.')
+    if pointer.exists() and (not pointer.is_file() or not metadata.is_dir()):
+        raise ContractViolation('workspace_invalid', 'O Git da cópia isolada foi alterado. Os arquivos foram preservados.')
+    storage.mkdir(parents=True,exist_ok=True)
+    binding.write_text(str(working.resolve()),encoding='utf-8')
+    env = {k:v for k,v in os.environ.items() if not k.upper().startswith('GIT_')}
+    env.update(GIT_TERMINAL_PROMPT='0', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+
+    def git(*args, cwd=working):
+        try:
+            result = subprocess.run(['git', *args], cwd=cwd, env=env, capture_output=True,
+                                    text=True, encoding='utf-8', errors='replace', timeout=60,
+                                    stdin=subprocess.DEVNULL,
+                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ContractViolation('workspace_git_prepare_failed', 'Não foi possível preparar o Git interno dos agentes. Confira a instalação do Git; os arquivos foram preservados.') from exc
+        if result.returncode:
+            raise ContractViolation('workspace_git_prepare_failed', 'Não foi possível preparar a cópia isolada para os agentes. Os arquivos foram preservados.')
+        return result.stdout.strip()
+
+    if not pointer.exists():
+        git('init', '--initial-branch=main', '--separate-git-dir='+str(metadata), str(working), cwd=directory)
+    if (Path(git('rev-parse', '--show-toplevel')).resolve() != working.resolve()
+            or Path(git('rev-parse', '--absolute-git-dir')).resolve() != metadata.resolve()):
+        raise ContractViolation('workspace_invalid', 'O Git não pertence à cópia isolada desta conversa.')
+    hooks = storage/'git-hooks'
+    if hooks.is_symlink():
+        raise ContractViolation('workspace_invalid', 'A configuração do Git interno não é segura.')
+    hooks.mkdir(exist_ok=True)
+    git('config', '--local', 'core.hooksPath', str(hooks))
+    git('config', '--local', 'commit.gpgSign', 'false')
+    git('config', '--local', 'core.fsmonitor', 'false')
+    exclude = metadata/'info'/'exclude'
+    if exclude.is_symlink():
+        raise ContractViolation('workspace_invalid', 'A configuração do Git interno não é segura.')
+    rules = '\n# Hydra private conversation exclusions\n.orchestrator/\n.env*\n**/.env*\n' + ''.join(name+'/\n' for name in sorted(_SKIP-{'.git', '.orchestrator'}))
+    existing = exclude.read_text(encoding='utf-8') if exclude.exists() else ''
+    if '# Hydra private conversation exclusions' not in existing:
+        exclude.write_text(existing+rules, encoding='utf-8')
+    # Do not snapshot through links added after the original folder copy.
+    for parent, folders, names in os.walk(working, followlinks=False):
+        folders[:] = [name for name in folders if name not in _SKIP]
+        if any((Path(parent)/name).is_symlink() for name in [*folders, *names] if name not in _SKIP):
+            raise ContractViolation('scope_violation', 'A cópia contém um link que exige revisão. Os arquivos foram preservados.')
+    # Reopening never checkpoints edits here: the coordinator already handles
+    # subsequent changes after validating their allowed source paths.
+    result = subprocess.run(['git','rev-parse','--verify','HEAD'], cwd=working, env=env,
+                            capture_output=True, timeout=10, stdin=subprocess.DEVNULL,
+                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    if result.returncode:
+        git('add', '--all', '--', '.')
+        git('-c','user.name=Hydra','-c','user.email=hydra@localhost','commit','--allow-empty',
+            '-m','chore: initialize isolated conversation snapshot')
+    return git('rev-parse', '--verify', 'HEAD')
 
 
 def files(root: Path):

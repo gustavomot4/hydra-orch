@@ -302,8 +302,22 @@ class ConversationCoordinator:
         if conv['access_mode'] != 'workspace-write':
             await emit('text.delta', {'text': 'Plano preparado em modo de leitura:\n' + '\n'.join(f'{i}. {t.title}: {t.objective}' for i,t in enumerate(plan.tasks,1)) + '\nPara executar as alterações, permita edições em uma cópia isolada.'})
             return
+        if conv.get('workspace_kind') == 'folder':
+            from hydra_orch.core.folder_workspace import prepare_git
+            directory = self.runs.runtime_dir / 'folder_workspace' / conv['id']
+            if (directory.is_symlink() or not directory.resolve().is_relative_to(self.runs.runtime_dir.resolve())
+                    or cwd.resolve() != (directory/'work').resolve()):
+                raise ContractViolation('workspace_invalid', 'A execução exige a cópia isolada registrada nesta conversa.')
+            await emit('coordinator.phase', {'phase':'preparing_workspace','message':'Preparando automaticamente a cópia isolada para os agentes.'})
+            # Git's Windows stash/merge helpers still have path-length limits;
+            # keep common metadata short instead of under the full conversation ID.
+            repository = self.runs.runtime_dir/'folder_git'/hashlib.sha256(conv['id'].encode()).hexdigest()[:16]/'repo.git'
+            if not repository.resolve().is_relative_to(self.runs.runtime_dir.resolve()):
+                raise ContractViolation('workspace_invalid', 'O diretório interno dos agentes não é válido.')
+            await asyncio.to_thread(prepare_git, directory, repository)
+            conv['workspace_kind'] = 'git'
         if conv.get('workspace_kind') != 'git' or not (cwd / '.git').is_file():
-            raise ContractViolation('coordinator_git_required', 'O plano foi preservado. A execução paralela desta versão exige uma cópia Git; pastas comuns continuam disponíveis no trabalho individual.')
+            raise ContractViolation('workspace_invalid', 'A cópia isolada não está disponível para os agentes. Os arquivos foram preservados.')
         runs = RunService(cwd, store=self.store, runtime_dir=self.runs.runtime_dir / 'c' / hashlib.sha256(turn['id'].encode()).hexdigest()[:10])
         base = await asyncio.to_thread(self.checkpoint, runs, cwd)
         before = await asyncio.to_thread(_state_hash, cwd, base)

@@ -12,6 +12,8 @@ A escolha entre propostas também entra, porque vira calibração do gosto:
 
 <!-- kit-frontend:correcoes -->
 
+- 2026-11-16 | preparação do projeto | “uma pasta .git não poderia atrapalhar em nada se não tem cria”, “o orquestrador tem que ser o mais automático possível” | preparar automaticamente o Git necessário na cópia isolada; não exigir comandos Git, troca de modo ou mudança de pasta para iniciar a coordenação; preservar a origem e o histórico | coordenador, orientação da conversa e documentação
+
 - 2026-11-15 | aprovação | “sim aprovo tudo, pode começar o build” | construir a composição compacta das três vistas, com painéis ajustáveis, hierarquia por projeto, catálogos limitados e compositor sem atalhos predefinidos | implementação autorizada da compactação
 
 - 2026-11-15 | densidade e espaço | “sistema apertado”, “tudo ... muito grande”, “aumentar ou diminuir ... ocultar ou mostrar” | propor uma composição de trabalho compacta, tamanhos independentes de interface/texto/editor, painéis ajustáveis e seções recolhíveis; preservar preto predominante e legibilidade | estudo visual antes do planejamento e implementação

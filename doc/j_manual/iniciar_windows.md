@@ -61,7 +61,7 @@ Arraste pelo **corpo do card** para mudar sua posição. Um clique abre os detal
 
 O mapa recebe eventos da conversa e da execução. **Ao vivo** indica stream conectado; na reconexão, o último mapa permanece e a consulta automática serve de recuperação. Um agente criado pela própria CLI entra quando seu protocolo informa identidade e estado; os detalhes identificam essa origem. Chamadas de shell e texto afirmando que houve delegação não criam agentes. O acompanhamento não habilita novas ferramentas: as restrições da conexão continuam valendo.
 
-Em **Somente leitura**, o coordenador pode produzir um plano sem executar os workers. Esses cards aparecem como **Planejado**, com a indicação de que a execução não começou. Para executar o plano pelo coordenador, inicie um pedido com coordenação e permita edições em uma cópia isolada de um projeto Git.
+Em **Somente leitura**, o coordenador pode produzir um plano sem executar os workers. Esses cards aparecem como **Planejado**, com a indicação de que a execução não começou. Para executar o plano, permita edições na cópia isolada. Pode ser uma pasta comum: o Hydra prepara automaticamente o isolamento necessário para os agentes.
 
 No chat, o seletor com **agente e modelo atual** fica junto do campo de mensagem. Clique nele para trocar agente, conexão, modelo ou combo dos próximos envios, mantendo o histórico. A parte das mensagens rola enquanto o compositor permanece acessível. Em janelas com até 480px de altura, a tela volta ao fluxo completo para não encobrir conteúdo. Anexos e voz ficam no próprio compositor; no celular, os controles são compactos.
 
@@ -77,7 +77,9 @@ Se aparecer limite de tempo, a mensagem agora identifica a etapa: **leitura e pl
 
 ## Pastas sem Git
 
-O cadastro do Novo chat aceita pastas comuns e repositórios ainda sem commit. O Hydra não executa `git init` para aceitá-las. Mantém uma cópia de trabalho e uma base para comparar alterações, preservando os arquivos originais.
+O cadastro do Novo chat aceita pastas comuns e repositórios ainda sem commit. Mantém uma cópia de trabalho e uma base para comparar alterações, preservando os arquivos originais. No modo coordenado com escrita, se faltar Git, o próprio Hydra cria um repositório interno na cópia e continua a execução. Não é necessário inicializar Git manualmente, escolher outro modo nem mover o projeto.
+
+Essa preparação também funciona em conversas existentes que antes falharam por falta de Git. Após carregar a versão atualizada do backend, basta enviar **Continue** na mesma conversa. O histórico e os arquivos da cópia são mantidos. O Git interno não tem remoto nem faz push; o Git da pasta original permanece como estava. Pedidos somente de leitura e o modo individual não precisam dessa preparação.
 
 A cópia exclui `.git`, `.orchestrator`, caches e dependências comuns (`node_modules`, `.venv`, `venv`, `dist`, `build`, `.next`, `__pycache__`), links e arquivos `.env*`. O limite inicial é de 10 mil arquivos ou 256 MB. Projetos Git continuam usando worktrees; operações avançadas de branches e integração exigem Git.
 

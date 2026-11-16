@@ -41,8 +41,8 @@ export function ConversationWorkflow({
         <>
           <p>
             O coordenador lê o projeto, cria até quatro tarefas e executa até duas em paralelo.
-            Verificações e revisão de agente precedem a consolidação na cópia da conversa. Para
-            executar, permita edições em um projeto Git.
+            Verificações e revisão de agente precedem a consolidação na cópia da conversa. Permita
+            edições para executar; o Hydra prepara automaticamente o isolamento da pasta.
           </p>
           <label className="flex min-h-11 cursor-pointer items-center gap-3">
             <input

@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from test_conversation import service, create, ControlledRunner
 from hydra_orch.core.conversation_coordinator import AgentReview, CoordinatorPlan, ConversationCoordinator, planning_sources
+from hydra_orch.core.run_service import RunService
 from hydra_orch.model import ContractViolation
 
 
@@ -231,6 +232,102 @@ async def test_failed_worker_checks_preserve_results_without_integration(service
     assert 'verificações' in snapshot['turns'][0]['error']
     assert not (Path(snapshot['workspace_path'])/'a.py').exists()
     assert snapshot['turns'][0]['coordination']['phase']=='stopped'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('parallel', [False, True])
+async def test_plain_folder_automatically_runs_checked_agents_inside_nested_runtime(service, tmp_path, parallel):
+    # Reproduce the desktop layout: the plain conversation copy lives inside
+    # Hydra's own Git checkout. That checkout and the source must stay untouched.
+    parent = service.runs.repo_root
+    service.runs = RunService(parent,store=service.store,runtime_dir=parent/'.orchestrator')
+    head = subprocess.check_output(['git','rev-parse','HEAD'],cwd=parent,text=True).strip()
+    source = tmp_path/'plain-source'
+    source.mkdir()
+    (source/'README.md').write_text('Original plain folder\n')
+    (source/'.env').write_text('PRIVATE=do-not-copy')
+    project = await service.runs.create_project(source,'Plain project',allow_plain_folder=True)
+    tasks = [task('a'),task('b')] if parallel else [task('foundation')]
+    service.runner = CoordinatedCLI({'objective':'Build in an ordinary folder','tasks':tasks},tmp_path/'barrier')
+    created = await service.create(project_id=project['id'],executor='codex',content='Implementar o projeto',
+                                   execution_mode='swarm',access_mode='workspace-write',idempotency_key='plain-coordinated-first-0001')
+    cid = created['conversation_id']
+    await service._execute(await service.claim())
+    snap = await service.snapshot(cid)
+    turn = snap['turns'][0]
+    assert turn['state']=='completed',turn['error']
+    assert turn['coordination']['phase']=='completed'
+    assert all(v['state']=='accepted' for v in turn['coordination']['tasks'].values())
+    working = Path(snap['workspace_path'])
+    assert (working/'.git').is_file()
+    assert not (working/'.env').exists()
+    for t in tasks:
+        assert (working/(t['id']+'.py')).read_text()=='VALUE = 1\n'
+        assert t['id']+'.py' in turn['diff']
+    assert (source/'README.md').read_text()=='Original plain folder\n'
+    assert sorted(p.name for p in source.iterdir())==['.env','README.md']
+    assert subprocess.check_output(['git','rev-parse','HEAD'],cwd=parent,text=True).strip()==head
+    assert subprocess.check_output(['git','status','--porcelain'],cwd=parent,text=True)==''
+    # Continue the same conversation using its existing private repository.
+    service.runner = CoordinatedCLI({'objective':'Continue the same ordinary folder','tasks':[task('next'),task('after')]},tmp_path/'next-barrier')
+    service.coordinator = None
+    await service.send(cid,content='Continue a implementação',idempotency_key='plain-coordinated-second-0001',expected_last_seq=snap['last_seq'])
+    await service._execute(await service.claim())
+    continued = await service.snapshot(cid)
+    assert continued['turns'][-1]['state']=='completed',continued['turns'][-1]['error']
+    assert continued['workspace_path']==snap['workspace_path']
+    assert (working/'README.md').read_text()=='Original plain folder\n'
+    assert (working/'next.py').read_text()=='VALUE = 1\n'
+    assert (working/'after.py').read_text()=='VALUE = 1\n'
+
+
+@pytest.mark.asyncio
+async def test_plain_folder_read_only_plan_does_not_prepare_git(service, tmp_path):
+    source=tmp_path/'source'
+    source.mkdir()
+    project=await service.runs.create_project(source,'Plain read-only',allow_plain_folder=True)
+    service.runner=CoordinatedCLI({'objective':'Plan only','tasks':[task('foundation')]},tmp_path/'unused')
+    result=await service.create(project_id=project['id'],executor='codex',content='Prepare um plano',
+                                execution_mode='swarm',access_mode='read-only',idempotency_key='plain-readonly-coordination-0001')
+    await service._execute(await service.claim())
+    snap=await service.snapshot(result['conversation_id'])
+    assert snap['turns'][0]['state']=='completed'
+    assert not (Path(snap['workspace_path'])/'.git').exists()
+    assert not (source/'.git').exists()
+
+
+@pytest.mark.asyncio
+async def test_failed_plain_folder_conversation_can_continue_without_recreating_it(service, tmp_path):
+    class PreviousPolicy:
+        active = {}
+        async def run(self, turn, conv, prompt, cwd, emit):
+            await emit('coordinator.plan',{'plan':{'objective':'Preserved plan','tasks':[task('foundation')]},'run_id':'cr-old-plan'})
+            raise ContractViolation('coordinator_git_required','A execução paralela exige uma cópia Git.')
+
+    source=tmp_path/'source'
+    source.mkdir()
+    project=await service.runs.create_project(source,'Recover plain folder',allow_plain_folder=True)
+    result=await service.create(project_id=project['id'],executor='codex',content='Criar o projeto',
+                                execution_mode='swarm',access_mode='workspace-write',idempotency_key='plain-old-policy-first-0001')
+    cid=result['conversation_id']
+    service.coordinator=PreviousPolicy()
+    await service._execute(await service.claim())
+    failed=await service.snapshot(cid)
+    assert failed['turns'][0]['state']=='failed'
+    working=Path(failed['workspace_path'])
+    (working/'manual.md').write_text('Keep edits made after the failure')
+    service.coordinator=None
+    service.runner=CoordinatedCLI({'objective':'Resume preserved project','tasks':[task('foundation')]},tmp_path/'unused')
+    await service.send(cid,content='Continue',idempotency_key='plain-old-policy-resume-0001',expected_last_seq=failed['last_seq'])
+    await service._execute(await service.claim())
+    resumed=await service.snapshot(cid)
+    assert resumed['workspace_path']==failed['workspace_path']
+    assert resumed['turns'][0]['state']=='failed'
+    assert resumed['turns'][0]['coordination']['run_id']=='cr-old-plan'
+    assert resumed['turns'][1]['state']=='completed',resumed['turns'][1]['error']
+    assert (working/'foundation.py').is_file()
+    assert (working/'manual.md').read_text()=='Keep edits made after the failure'
+    assert not (source/'.git').exists()
 
 
 @pytest.mark.asyncio
