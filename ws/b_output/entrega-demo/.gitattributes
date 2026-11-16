@@ -1,0 +1,2 @@
+# Preserve published files byte for byte so SHA256SUMS also works after cloning.
+* -text

@@ -1,0 +1,64 @@
+{
+  "duration_seconds": 85.4,
+  "silent": true,
+  "width": 1440,
+  "height": 900,
+  "segments": [
+    {
+      "name": "01-config",
+      "source_start": 3.3739999999999997,
+      "source_end": 15.982,
+      "output_seconds": 14,
+      "caption": "1  ·  Escolha o combo OmniRoute e ative o swarm"
+    },
+    {
+      "name": "02-prompt",
+      "source_start": 15.982,
+      "source_end": 29.403,
+      "output_seconds": 14,
+      "caption": "2  ·  Descreva o site e envie o pedido"
+    },
+    {
+      "name": "03-canvas",
+      "source_start": 34.275,
+      "source_end": 38.675000000000004,
+      "output_seconds": 5,
+      "caption": "3  ·  Abra a área de trabalho"
+    },
+    {
+      "name": "04-workers",
+      "source_start": 120.426,
+      "source_end": 124.426,
+      "output_seconds": 4,
+      "caption": "Dois agentes trabalhando em paralelo"
+    },
+    {
+      "name": "04b-details",
+      "source_start": 224.317,
+      "source_end": 230.798,
+      "output_seconds": 8,
+      "caption": "Arraste os cards e abra os detalhes do agente"
+    },
+    {
+      "name": "04c-wait",
+      "source_start": 230.798,
+      "source_end": 656.0269999999999,
+      "output_seconds": 10,
+      "caption": "Agentes em paralelo  ·  Espera acelerada"
+    },
+    {
+      "name": "05-complete",
+      "source_start": 656.0269999999999,
+      "source_end": 662.892,
+      "output_seconds": 10,
+      "caption": "4  ·  Verificações, revisão e consolidação concluídas"
+    },
+    {
+      "name": "06-site",
+      "source_start": 663.7049999999999,
+      "source_end": 675.9689999999999,
+      "output_seconds": 21,
+      "caption": "5  ·  Resultado gerado: Horizonte Arquitetura"
+    }
+  ]
+}

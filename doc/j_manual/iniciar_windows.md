@@ -2,7 +2,9 @@
 
 ## Abrir e parar
 
-O executável local fica na raiz do projeto: `Hydra.exe`, ao lado do `README.md`. Ele usa este checkout e as instalações locais de Python e Node; mantenha o arquivo na raiz ou use um atalho para ele. O build gera esse arquivo localmente; o binário não é versionado no Git.
+O executável fica na raiz do projeto: [`Hydra.exe`](../../Hydra.exe), ao lado do `README.md`, e é versionado no Git. Ele usa este checkout e as instalações locais de Python e Node; mantenha o arquivo na raiz ou use um atalho para ele. Para recompilá-lo a partir das fontes, use `src/launcher/build.ps1`. O binário é um iniciador do sistema, não um instalador portátil com Python e Node embutidos.
+
+Os arquivos finais da demonstração (vídeo, site gerado, bundle de frontend, capturas e relatórios) estão em [entrega-demo](../../ws/b_output/entrega-demo/README.md). Bancos, credenciais, logs e ambientes de execução continuam fora do Git.
 
 Nesta máquina, o atalho **Hydra** na Área de Trabalho aponta para esse executável com a opção `--start`: abrir o atalho já inicia o sistema e o navegador. A janela de controle permanece disponível para **Parar** e **Abrir Hydra**.
 

@@ -45,8 +45,7 @@ venv.bak/
 htmlcov/
 orchestrator_checkpoints.db
 
-# Hydra worktrees and runtime artifacts
-/Hydra.exe
+# Hydra worktrees and runtime artifacts (Hydra.exe is a published root deliverable)
 .orchestrator/
 .hydra/
 worktrees/
@@ -56,6 +55,27 @@ worktree/
 /ws/b_output/*
 !/ws/b_output/.gitkeep
 !/ws/b_output/README.md
+!/ws/b_output/entrega-demo/
+/ws/b_output/entrega-demo/*
+!/ws/b_output/entrega-demo/README.md
+!/ws/b_output/entrega-demo/.gitattributes
+!/ws/b_output/entrega-demo/SHA256SUMS.txt
+!/ws/b_output/entrega-demo/Hydra-swarm-OmniRoute-demo.mp4
+!/ws/b_output/entrega-demo/Horizonte-site-gerado.zip
+!/ws/b_output/entrega-demo/Hydra-frontend.zip
+!/ws/b_output/entrega-demo/prompt.txt
+!/ws/b_output/entrega-demo/demo-receipt.json
+!/ws/b_output/entrega-demo/edit-manifest.json
+!/ws/b_output/entrega-demo/site-verification.json
+!/ws/b_output/entrega-demo/canvas-interaction.png
+!/ws/b_output/entrega-demo/swarm-completed.png
+!/ws/b_output/entrega-demo/completed-chat.png
+!/ws/b_output/entrega-demo/site-desktop.png
+!/ws/b_output/entrega-demo/site-verified-mobile.png
+!/ws/b_output/entrega-demo/video-start.jpg
+!/ws/b_output/entrega-demo/video-swarm.jpg
+!/ws/b_output/entrega-demo/video-result.jpg
+!/ws/b_output/entrega-demo/video-end.jpg
 
 # IDE files
 .vscode/

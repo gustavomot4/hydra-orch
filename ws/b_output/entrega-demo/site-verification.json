@@ -1,0 +1,39 @@
+{
+  "desktop": {
+    "title": "Horizonte Arquitetura — Espaços para viver melhor",
+    "h1": "Espaços para viver melhor.",
+    "overflow": false,
+    "sections": [
+      "inicio",
+      "sobre",
+      "servicos",
+      "projetos",
+      "contato"
+    ]
+  },
+  "mobile": {
+    "overflow": false,
+    "toggle": true,
+    "expanded": "true",
+    "linksVisible": true,
+    "escapeClosed": true
+  },
+  "focus": "A",
+  "errors": [],
+  "axe": {
+    "violations": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+        "nodes": 5
+      }
+    ],
+    "incomplete": []
+  },
+  "tests": {
+    "exitCode": 0,
+    "stdout": "✔ institutional content is navigable and semantic (7.1795ms)\n✔ menu script has valid JavaScript syntax (1.2977ms)\n✔ visual contract supports desktop, mobile, keyboard and reduced motion (4.317ms)\nℹ tests 3\nℹ suites 0\nℹ pass 3\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 553.6052\n",
+    "stderr": ""
+  }
+}
