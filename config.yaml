@@ -15,7 +15,7 @@ hydra:
 execution:
   driver: "codex"
   model: null # Selecionar explicitamente na certificação; não presume modelo disponível.
-  timeout_seconds: 300
+  timeout_seconds: 600 # Por worker; a coordenação mantém os limites de fase e total.
 
 # Somente entradas habilitadas são instanciadas. CLI Codex/Claude não equivale a CDP.
 providers:

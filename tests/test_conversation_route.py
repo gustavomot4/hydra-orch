@@ -222,7 +222,9 @@ print(asyncio.run(routes.version('codex')),flush=True)
         **({'creationflags':subprocess.CREATE_NEW_PROCESS_GROUP} if os.name=='nt' else {'start_new_session':True}))
     try:
         # Deliberately leave the launcher's input pipe open.
-        output=await asyncio.wait_for(process.stdout.readline(),5)
+        # The real probe permits 10 seconds; include interpreter/import startup
+        # without weakening the exact version assertion that catches open stdin.
+        output=await asyncio.wait_for(process.stdout.readline(),15)
         assert output.strip()==b'controlled-version-1'
         await asyncio.wait_for(process.wait(),3)
         assert process.returncode==0

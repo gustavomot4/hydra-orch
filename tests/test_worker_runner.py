@@ -97,6 +97,29 @@ async def test_cwd_resolved(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_timeout_preserves_output_produced_before_process_tree_termination(tmp_path: Path):
+    worktree = tmp_path/'worktree'
+    worktree.mkdir()
+    logs = tmp_path/'artifacts'
+    runner = WorkerRunner()
+    result = await runner.execute_task_in_worktree(
+        worktree_path=worktree, prompt='diagnostic output', cli_name='python_fake',
+        custom_command=(sys.executable, '-c',
+                        "import sys,time; print('partial-stdout',flush=True); print('partial-stderr',file=sys.stderr,flush=True); time.sleep(30)"),
+        timeout=2, attempt_id='att-partial-output', task_id='task-partial', run_id='run-partial',
+        base_sha=BASE_SHA, artifacts_dir=logs, artifacts_rel_prefix='attempt/att-partial-output',
+    )
+    assert result['process_status'] == ProcessStatus.TIMED_OUT.value
+    assert result['success'] is False
+    assert result['tree_killed'] is True
+    assert 'partial-stdout' in result['output']
+    assert 'partial-stderr' in result['stderr']
+    assert 'partial-stdout' in (logs/'stdout.log').read_text()
+    assert 'partial-stderr' in (logs/'stderr.log').read_text()
+    assert not runner._active_attempts
+
+
+@pytest.mark.asyncio
 async def test_env_filtered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Sensitive environment variables are stripped from worker subprocesses while safe and allowed vars remain."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-secret-openai-123")

@@ -181,6 +181,7 @@ async def test_conversation_coordinates_real_workers_checks_review_and_isolated_
     tasks = ([task('foundation')] if foundation else []) + [task('a', ['foundation'] if foundation else []),task('b',['foundation'] if foundation else [])]
     plan = {'objective':'Two independently owned project changes', 'tasks':tasks, 'foundation_id':'foundation' if foundation else None}
     service.runner = CoordinatedCLI(plan,tmp_path/'barrier')
+    service.worker_timeout_seconds = 417
     cid, project = await create(service, access_mode='workspace-write', execution_mode='swarm')
     claimed = await service.claim()
     await service._execute(claimed)
@@ -197,7 +198,9 @@ async def test_conversation_coordinates_real_workers_checks_review_and_isolated_
     assert all(t['state']=='accepted' for t in turn['coordination']['tasks'].values())
     assert 'a.py' in turn['diff'] and 'b.py' in turn['diff']
     run_id = turn['coordination']['run_id']
-    assert (await service.store.get_run(run_id))['status']=='succeeded'
+    run_record = await service.store.get_run(run_id)
+    assert run_record['status']=='succeeded'
+    assert all(t.timeout_seconds == 417 for t in run_record['spec'].tasks)
     detail=await service.runs.get_run_detail(run_id)
     assert all(task['current_attempt']['result']['review']['actor'].startswith('agent:') for task in detail['tasks'])
     from hydra_orch import server
@@ -228,6 +231,37 @@ async def test_failed_worker_checks_preserve_results_without_integration(service
     assert 'verificações' in snapshot['turns'][0]['error']
     assert not (Path(snapshot['workspace_path'])/'a.py').exists()
     assert snapshot['turns'][0]['coordination']['phase']=='stopped'
+
+
+@pytest.mark.asyncio
+async def test_worker_timeout_is_specific_and_retains_diagnostics(service, tmp_path):
+    class SlowWorker(CoordinatedCLI):
+        async def invocation(self, child, cwd):
+            return [sys.executable, '-c', "import time;print('worker-started',flush=True);time.sleep(30)"], {}, ExitStack(), {}
+
+    service.runner = SlowWorker({'objective':'Bounded worker execution','tasks':[task('a')]}, tmp_path/'unused')
+    service.worker_timeout_seconds = 1
+    cid, _ = await create(service, access_mode='workspace-write', execution_mode='swarm')
+    await service._execute(await service.claim())
+    turn = (await service.snapshot(cid))['turns'][0]
+    assert turn['state'] == 'failed'
+    assert 'limite de 1 segundos' in turn['error']
+    assert 'sem consolidação final' in turn['error']
+    assert 'antes de executar as verificações' not in turn['error']
+    assert turn['coordination']['phase'] == 'stopped'
+    assert 'limite de 1 segundos' in turn['coordination']['tasks']['a']['summary']
+    detail = await service.runs.get_run_detail(turn['coordination']['run_id'])
+    assert detail['tasks'][0]['current_attempt']['process_status'] == 'timed_out'
+
+
+def test_server_passes_configured_worker_timeout_to_conversations(service, monkeypatch):
+    from hydra_orch import server
+    monkeypatch.setattr(server, 'get_run_service', lambda: service.runs)
+    monkeypatch.setattr(server, 'get_attachment_service', lambda: None)
+    monkeypatch.setattr(server, 'get_conversation_routes', lambda: None)
+    monkeypatch.setattr(server.app.state, 'conversation_service', None, raising=False)
+    monkeypatch.setattr(server.config.execution, 'timeout_seconds', 487)
+    assert server.get_conversation_service().worker_timeout_seconds == 487
 
 
 @pytest.mark.asyncio

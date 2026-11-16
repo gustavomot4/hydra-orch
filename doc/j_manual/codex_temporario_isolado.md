@@ -43,6 +43,23 @@ python -m pytest tests/test_conversation_agent_temp.py tests/test_conversation_r
 ```
 
 Uma chamada ao provedor ainda pode variar por latência, cota, fallback ou conteúdo.
-A correção não aumenta os limites de execução nem transforma uma tarefa expirada
-em resultado aceito. Novos processos do backend carregam o adaptador atualizado;
+O isolamento temporário não transforma uma tarefa expirada em resultado aceito.
+Novos processos do backend carregam o adaptador atualizado;
 um backend que já estava rodando precisa ser reiniciado.
+
+## Orçamento e diagnóstico dos workers
+
+A geração real posterior criou HTML, JS e CSS e passou nos testes de HTML/JS,
+mas o worker HTML atingiu o corte fixo de 300 segundos durante suas verificações
+adicionais, antes de encerrar a resposta. O coordenador ignorava
+`execution.timeout_seconds` do `config.yaml`. Agora o servidor passa essa
+configuração até o `TaskSpec` de cada worker. O arquivo de configuração deste
+projeto usa 600 segundos por worker; permanecem os limites de 900 segundos da
+fase de execução e 1200 segundos da coordenação completa. Verificações e revisão
+continuam obrigatórias antes da consolidação.
+
+Em caso de timeout, a mensagem identifica a etapa do worker e seu limite real.
+O `WorkerRunner` mantém a leitura de stdout/stderr durante o encerramento da árvore
+de processos e salva a saída já produzida nos artefatos, em vez de descartá-la
+quando o temporizador cancela a espera. Um timeout continua sendo uma falha,
+com os resultados preservados e sem integração automática.

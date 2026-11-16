@@ -347,7 +347,8 @@ def get_conversation_service() -> ConversationService:
     service = getattr(app.state, "conversation_service", None)
     runs = get_run_service()
     if service is None or service.runs is not runs:
-        service = ConversationService(runs, attachments=get_attachment_service(), routes=get_conversation_routes())
+        service = ConversationService(runs, attachments=get_attachment_service(), routes=get_conversation_routes(),
+                                      worker_timeout_seconds=config.execution.timeout_seconds)
         app.state.conversation_service = service
     return service
 

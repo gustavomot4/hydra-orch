@@ -25,7 +25,7 @@ from hydra_orch.core.redaction import redact_text
 from hydra_orch.core.run_service import RunService
 from hydra_orch.engine.orchestration import consolidate_stage, _state_hash
 from hydra_orch.engine.decomposer import LOCKED_DEPENDENCY_MANIFESTS
-from hydra_orch.model import BudgetPolicy, CheckSpec, ContractViolation, IntegrationStatus, RunSpec, TaskSpec, TaskStatus
+from hydra_orch.model import BudgetPolicy, CheckSpec, ContractViolation, IntegrationStatus, ProcessStatus, RunSpec, TaskSpec, TaskStatus
 
 FORBIDDEN = ('.git', '.git/**', '.orchestrator/**', '.env*', '**/.env*', 'node_modules/**', '**/node_modules/**')
 
@@ -153,9 +153,10 @@ def planning_sources(cwd, inventory, *, budget_chars=16000):
 
 
 class ConversationCoordinator:
-    def __init__(self, runs, runner, routes=None, *, structured_timeout_seconds=180, execution_timeout_seconds=900, total_timeout_seconds=1200):
+    def __init__(self, runs, runner, routes=None, *, worker_timeout_seconds=300, structured_timeout_seconds=180, execution_timeout_seconds=900, total_timeout_seconds=1200):
         self.runs, self.runner, self.routes, self.store = runs, runner, routes, runs.store
         self.structured_timeout_seconds = structured_timeout_seconds
+        self.worker_timeout_seconds = worker_timeout_seconds
         self.execution_timeout_seconds = execution_timeout_seconds
         self.total_timeout_seconds = total_timeout_seconds
         self.active = {}
@@ -310,7 +311,7 @@ class ConversationCoordinator:
         specs = tuple(TaskSpec(task_id=task_ids[t.id],run_id=run_id,objective=t.title+'\n'+t.objective,
                      allowed_paths=tuple(t.paths),acceptance_criteria=self.checks(t),
                      dependencies=tuple(task_ids[d] for d in t.dependencies),assigned_executor=conv['executor'],
-                     timeout_seconds=300,max_repair_attempts=0) for t in plan.tasks)
+                     timeout_seconds=self.worker_timeout_seconds,max_repair_attempts=0) for t in plan.tasks)
         spec = RunSpec(run_id=run_id,project_id=conv['project_id'],objective=plan.objective,repo_root=str(cwd),
                        base_sha=base,base_branch=runs.git_workspace._run_git(['branch','--show-current'],cwd=cwd).stdout.strip(),
                        tasks=specs,orchestration_mode='swarm' if len(specs)>1 else 'relay',
@@ -345,6 +346,10 @@ class ConversationCoordinator:
                     await asyncio.to_thread(transport.close)
                 result = outcome.result
                 if result.task_status != TaskStatus.READY_FOR_REVIEW:
+                    if result.process_status == ProcessStatus.TIMED_OUT:
+                        message = f'O agente atingiu o limite de {self.worker_timeout_seconds:g} segundos na tarefa: {task.title}.'
+                        await emit('coordinator.task', {'task_id':task.id,'title':task.title,'state':'failed','summary':message})
+                        raise ContractViolation('coordinator_worker_timeout', message + f' A execução {run_id} e os registros disponíveis foram preservados para revisão, sem consolidação final.')
                     await emit('coordinator.task', {'task_id':task.id,'title':task.title,'state':'failed','summary':result.summary})
                     reason = ('O agente encerrou com erro antes de executar as verificações' if not result.checks_executed
                               else 'A tarefa não passou pelas verificações')

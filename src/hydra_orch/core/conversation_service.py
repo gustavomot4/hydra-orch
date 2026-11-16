@@ -23,12 +23,13 @@ def new_id(prefix):
 
 
 class ConversationService:
-    def __init__(self, run_service, *, runner=None, attachments=None, routes=None):
+    def __init__(self, run_service, *, runner=None, attachments=None, routes=None, worker_timeout_seconds=300):
         self.runs = run_service
         self.store = run_service.store
         self.runner = runner or ConversationRunner()
         self.attachments = attachments
         self.routes = routes
+        self.worker_timeout_seconds = worker_timeout_seconds
         self.coordinator = None
         self.owner = new_id("consumer")
         self.worker = None
@@ -465,7 +466,8 @@ class ConversationService:
             if stored_turn['execution_mode'] == 'swarm':
                 if self.coordinator is None:
                     from hydra_orch.core.conversation_coordinator import ConversationCoordinator
-                    self.coordinator = ConversationCoordinator(self.runs, self.runner, self.routes)
+                    self.coordinator = ConversationCoordinator(self.runs, self.runner, self.routes,
+                                                              worker_timeout_seconds=self.worker_timeout_seconds)
                 await self.coordinator.run(turn, conv, prompt, cwd, emit)
             else:
                 await self.runner.run(turn, conv, prompt, cwd, emit)

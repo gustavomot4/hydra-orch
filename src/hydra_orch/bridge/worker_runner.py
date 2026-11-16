@@ -739,6 +739,7 @@ class WorkerRunner:
         stdout_bytes = b""
         stderr_bytes = b""
         dispatch_latency_ms = 0.0
+        communication_task = None
 
         try:
             kwargs: Dict[str, Any] = {
@@ -758,10 +759,10 @@ class WorkerRunner:
             active_entry = _ActiveProcessEntry(attempt_id=resolved_attempt_id, process=process)
             self._active_attempts[resolved_attempt_id] = active_entry
 
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(input=plan.stdin_bytes),
-                timeout=timeout,
-            )
+            communication_task = asyncio.create_task(process.communicate(input=plan.stdin_bytes))
+            # Keep readers alive across a timeout so killing the process can
+            # flush the output already produced into the review artifacts.
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(asyncio.shield(communication_task), timeout=timeout)
             finished_at = datetime.now(timezone.utc)
             duration_seconds = max((finished_at - started_at).total_seconds(), 0.0)
 
@@ -862,6 +863,11 @@ class WorkerRunner:
                     await asyncio.wait_for(process.wait(), timeout=2.0)
                 except Exception:
                     pass
+                if communication_task is not None:
+                    try:
+                        stdout_bytes, stderr_bytes = await asyncio.wait_for(asyncio.shield(communication_task), timeout=2.0)
+                    except (asyncio.TimeoutError, OSError):
+                        pass
 
             finished_at = datetime.now(timezone.utc)
             duration_seconds = max((finished_at - started_at).total_seconds(), 0.0)
@@ -969,6 +975,10 @@ class WorkerRunner:
                 "artifacts": (),
             }
         finally:
+            if communication_task is not None:
+                if not communication_task.done():
+                    communication_task.cancel()
+                await asyncio.gather(communication_task, return_exceptions=True)
             self._active_attempts.pop(resolved_attempt_id, None)
 
     @staticmethod
