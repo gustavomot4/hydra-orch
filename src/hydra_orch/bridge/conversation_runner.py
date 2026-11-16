@@ -88,10 +88,18 @@ class ConversationRunner:
                     from hydra_orch.bridge.codex_catalog import gateway_catalog
                     from hydra_orch.bridge.omniroute_transport import codex_transport
                     import hashlib
-                    state_root = Path(conversation.get('_agent_state_dir') or cwd.parent / '.hydra_agent_state' / hashlib.sha256(str(cwd).encode()).hexdigest()[:24])
+                    state_root = Path(conversation.get('_agent_state_dir') or cwd.parent / '.hydra_agent_state' / hashlib.sha256(str(cwd).encode()).hexdigest()[:24]).absolute()
                     home = state_root / 'codex_home'
                     if home.is_symlink() or state_root.is_symlink():
                         raise ContractViolation('context_path_escape', 'O diretório do agente não é seguro.')
+                    # A fresh Windows sandbox grants access to its writable temp
+                    # root. Inheriting the user's entire TEMP makes each isolated
+                    # worker walk that shared tree, delaying even its first tool.
+                    # Keep this root small, private to the agent and stable on resume.
+                    private_temp = state_root / 'tmp'
+                    if private_temp.is_symlink() or (private_temp.exists() and not private_temp.is_dir()):
+                        raise ContractViolation('context_path_escape', 'O diretório temporário do agente não é seguro.')
+                    private_temp.mkdir(parents=True, exist_ok=True)
                     catalog = await asyncio.to_thread(gateway_catalog, executable, target, home)
                     base_url, token, observed = transport.enter_context(codex_transport(base_url, token, target))
                     provider = {'name': 'OmniRoute', 'base_url': base_url, 'env_key': 'OMNIROUTE_API_KEY',
@@ -100,12 +108,14 @@ class ConversationRunner:
                     gateway_args = ['-c', 'model_provider="hydra_omni"', '-c', 'model_providers.hydra_omni=' + inline,
                                     '-c', 'model_catalog_json=' + json.dumps(str(catalog).replace('\\', '/')),
                                     '-c', 'web_search="disabled"', '-c', 'features.incremental_tools=false',
-                                    '-c', 'features.apps=false', '-c', 'features.goals=false', '-c', 'features.multi_agent=false']
+                                    '-c', 'features.apps=false', '-c', 'features.plugins=false',
+                                    '-c', 'features.goals=false', '-c', 'features.multi_agent=false']
                     if os.name == 'nt':
                         # An isolated CODEX_HOME must still select the supported Windows
                         # sandbox implementation; --sandbox remains the user's access mode.
                         gateway_args += ['-c', 'windows.sandbox="unelevated"']
-                    allowed_env.update(OMNIROUTE_API_KEY=token, CODEX_HOME=str(home))
+                    allowed_env.update(OMNIROUTE_API_KEY=token, CODEX_HOME=str(home),
+                                       TEMP=str(private_temp), TMP=str(private_temp), TMPDIR=str(private_temp))
                 else:
                     import hashlib
                     state_root = Path(conversation.get('_agent_state_dir') or cwd.parent / '.hydra_agent_state' / hashlib.sha256(str(cwd).encode()).hexdigest()[:24])

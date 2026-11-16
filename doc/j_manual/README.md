@@ -9,6 +9,8 @@
 
 ---
 
+Guia de diagnóstico: [temporários isolados do Codex via OmniRoute](codex_temporario_isolado.md).
+
 ## 0. Manual Operacional M1–M5 (Superfície Validada em T01–T38)
 
 Esta seção documenta a superfície **100% implementada e validada** do **hydra-orch** nos Marcos **M1 a M5 (`T01–T38` / Gates `G-M1` a `G-M5`)**. As seções 1 a 12 mais abaixo preservam o desenho conceitual original da arquitetura; a segurança HTTP (`T09`) está na seção 0.4, migrações (`T10`) na seção 0.5, a superfície estendida CLI/API (`T11–T23`) na seção 0.6, os runbooks operacionais verificados (`T24`) na seção 0.7 e a operação interativa M5 (OmniRoute, TUI, GUI `frontend/`, matriz PTY, automações e painéis Parking Lot) na seção 0.8.
