@@ -123,7 +123,10 @@ async def test_planning_timeout_is_specific_and_preserves_read_events_without_cl
 
     runner = SlowPlanner()
     service.runner = runner
-    service.coordinator = ConversationCoordinator(service.runs, runner, structured_timeout_seconds=.03, total_timeout_seconds=2)
+    # The event is persisted to SQLite on the real filesystem. Allow that read
+    # event to commit before testing cancellation of the deliberately hung CLI;
+    # 30ms races Windows disk scheduling instead of the behavior under test.
+    service.coordinator = ConversationCoordinator(service.runs, runner, structured_timeout_seconds=1, total_timeout_seconds=5)
     cid, _ = await create(service, execution_mode='swarm', access_mode='workspace-write')
     claimed = await service.claim()
     await service._execute(claimed)

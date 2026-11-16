@@ -1,10 +1,11 @@
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { Send, FolderOpen, ChevronDown, ArrowUpRight, Code2, Search, Map } from 'lucide-react';
+import { Send, FolderOpen, ChevronDown } from 'lucide-react';
 import { ChatChoice, ChatDialog } from '@/feature/chat/ChatDialog';
 import '@/feature/chat/conversation.css';
 import { clearComposerDraft, OrchestrationMode } from '@/feature/composer/composerTypes';
+import { rememberPrompt } from '@/feature/composer/promptHistory';
 import {
   ConversationAgent,
   clearPendingSend,
@@ -13,6 +14,7 @@ import {
   routeSelection,
 } from '@/feature/chat/conversationTypes';
 import { ConversationRoutePicker } from '@/feature/chat/ConversationRoutePicker';
+import { useRouteCatalogWarmup } from '@/feature/chat/useRouteCatalogWarmup';
 import { ConversationWorkflow, ExecutionMode } from '@/feature/chat/ConversationWorkflow';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useWorkspaceHierarchy } from '@/hook/useWorkspaceHierarchy';
@@ -56,6 +58,7 @@ export function NovoChatPage({
   const [mode, setMode] = useState<OrchestrationMode>('persistent');
   const [executor, setExecutor] = useState('codex');
   const [route, setRoute] = useState(defaultRoute());
+  useRouteCatalogWarmup(route);
   const [routeReady, setRouteReady] = useState(true);
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('single');
   const [autoRoute, setAutoRoute] = useState(false);
@@ -122,6 +125,10 @@ export function NovoChatPage({
     },
     retry: false,
     onSuccess: ({ conversation_id }) => {
+      if (useLayoutStore.getState().promptHistoryEnabled) {
+        rememberPrompt(`draft-${activeProject?.id}`, draft.trim());
+        rememberPrompt(conversation_id, draft.trim());
+      }
       const route = `/chat/${encodeURIComponent(conversation_id)}`;
       clearPendingSend(`new:${activeProject?.id}`);
       clearComposerDraft(`draft-${activeProject?.id}`);
@@ -199,9 +206,14 @@ export function NovoChatPage({
           ? err.message
           : 'Não foi possível abrir o seletor. Informe o caminho da pasta.',
       );
+      setFolderOpen(true);
     } finally {
       setPickingFolder(false);
     }
+  };
+  const addFolder = () => {
+    if (desktop) void chooseFolder();
+    else setFolderOpen(true);
   };
   const submit = () => {
     if (inFlight.current) return;
@@ -238,10 +250,19 @@ export function NovoChatPage({
           value={activeProject?.id ?? ''}
           options={projects.map((p) => ({ id: p.id, name: p.name, detail: p.canonical_root }))}
           onChange={(id) => selectHierarchy({ projectId: id, runId: null, sessionId: null })}
-          onAdd={() => setFolderOpen(true)}
+          onAdd={addFolder}
         />
-        <button type="button" className="chat-text-button" onClick={() => setFolderOpen(true)}>
-          Adicionar pasta
+        <button
+          type="button"
+          className="chat-text-button"
+          onClick={addFolder}
+          disabled={pickingFolder || register.isPending}
+        >
+          {pickingFolder
+            ? 'Escolha a pasta na janela do Windows…'
+            : register.isPending
+              ? 'Adicionando pasta…'
+              : 'Adicionar pasta'}
         </button>
       </div>
       {isLoading && !projects.length && (
@@ -436,34 +457,6 @@ export function NovoChatPage({
         <p role="status" className="mt-2 text-sm text-[#D1D1D1]">
           Aguarde os anexos ou remova os que falharam antes de enviar.
         </p>
-      )}
-      {!draft && (
-        <div className="chat-suggestions" aria-label="Sugestões de mensagem">
-          {[
-            'Explique como iniciar este projeto',
-            'Revise o código e encontre problemas',
-            'Me ajude a planejar uma mudança',
-          ].map((label) => (
-            <button
-              key={label}
-              className="chat-suggestion"
-              onClick={() => {
-                setDraft(label);
-                composerRef.current?.querySelector('textarea')?.focus();
-              }}
-            >
-              {label.startsWith('Explique') ? (
-                <Code2 size={16} aria-hidden="true" />
-              ) : label.startsWith('Revise') ? (
-                <Search size={16} aria-hidden="true" />
-              ) : (
-                <Map size={16} aria-hidden="true" />
-              )}
-              <span>{label}</span>
-              <ArrowUpRight size={14} aria-hidden="true" />
-            </button>
-          ))}
-        </div>
       )}
       <div className="chat-footer-controls">
         <button type="button" className="chat-text-button" onClick={() => setConfigOpen(true)}>

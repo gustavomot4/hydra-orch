@@ -14,6 +14,7 @@ interface Target {
 }
 interface Catalog {
   status: string;
+  models_status?: string;
   combos: Target[];
   models: Target[];
   direct_models: { id: string; name: string }[];
@@ -46,6 +47,8 @@ export function ConversationRoutePicker({
   const id = useId();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [category, setCategory] = useState<'combos' | 'models'>('combos');
+  const [page, setPage] = useState(0);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const key = ['conversation-route-catalog', value.executor, value.connection_mode];
@@ -53,12 +56,33 @@ export function ConversationRoutePicker({
     queryKey: key,
     queryFn: () =>
       client.request<Catalog>(
-        `/v1/control-plane/omniroute/combos?executor=${value.executor}&connection_mode=${value.connection_mode}`,
+        `/v1/control-plane/omniroute/combos?executor=${value.executor}&connection_mode=${value.connection_mode}&include_models=false`,
       ),
     staleTime: 30000,
     retry: false,
   });
+  const modelsQuery = useQuery({
+    queryKey: [...key, 'models'],
+    queryFn: ({ signal }) =>
+      client.request<Catalog>(
+        `/v1/control-plane/omniroute/combos?executor=${value.executor}&connection_mode=${value.connection_mode}&include_models=true`,
+        { signal },
+      ),
+    enabled:
+      open &&
+      value.connection_mode === 'omniroute' &&
+      (category === 'models' || Boolean(search.trim())),
+    staleTime: 30000,
+    retry: false,
+  });
+  useEffect(() => {
+    setPage(0);
+  }, [search, category, value.executor, value.connection_mode]);
   const catalog = query.data;
+  const availableModels = modelsQuery.data?.models ?? catalog?.models ?? [];
+  const loading =
+    query.isLoading || ((category === 'models' || Boolean(search.trim())) && modelsQuery.isLoading);
+
   const selected = (catalog?.combos ?? []).find(
     (c) => c.name === value.target_ref && value.target_kind === 'combo',
   );
@@ -88,13 +112,18 @@ export function ConversationRoutePicker({
     onChange(next);
     onReadyChange?.(next.connection_mode === 'direct');
   };
-  const targets = [...(catalog?.combos ?? []), ...(catalog?.models ?? [])];
+  const targets = search.trim()
+    ? [...(catalog?.combos ?? []), ...availableModels]
+    : category === 'combos'
+      ? (catalog?.combos ?? [])
+      : availableModels;
   const normalize = (text: string) =>
     text
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLocaleLowerCase();
   const matches = targets.filter((t) => normalize(t.name).includes(normalize(search)));
+  const safePage = Math.min(page, Math.max(0, Math.ceil(matches.length / 30) - 1));
   async function test() {
     setTesting(true);
     setError(null);
@@ -177,6 +206,52 @@ export function ConversationRoutePicker({
                     <Dialog.Description className="mb-3 text-sm text-[#D1D1D1]">
                       Combos usam as regras que você cadastrou no OmniRoute.
                     </Dialog.Description>
+                    <div className="chat-footer-controls" aria-label="Catálogo de destinos">
+                      <button
+                        type="button"
+                        className="chat-choice"
+                        aria-pressed={category === 'combos'}
+                        onClick={() => {
+                          setCategory('combos');
+                          setSearch('');
+                        }}
+                      >
+                        Combos ({catalog?.combos.length ?? 0})
+                      </button>
+                      <button
+                        type="button"
+                        className="chat-choice"
+                        aria-pressed={category === 'models'}
+                        onClick={() => {
+                          setCategory('models');
+                          setSearch('');
+                        }}
+                      >
+                        Modelos
+                      </button>
+                      <button
+                        type="button"
+                        className="chat-text-button"
+                        disabled={query.isFetching || modelsQuery.isFetching}
+                        onClick={async () => {
+                          try {
+                            await queryClient.fetchQuery({
+                              queryKey: key,
+                              queryFn: () =>
+                                client.request<Catalog>(
+                                  `/v1/control-plane/omniroute/combos?executor=${value.executor}&connection_mode=${value.connection_mode}&include_models=false&refresh=true`,
+                                ),
+                            });
+                            void queryClient.invalidateQueries({ queryKey: [...key, 'models'] });
+                            void queryClient.invalidateQueries({ queryKey: selectionKey });
+                          } catch {
+                            setError('Não foi possível atualizar o catálogo. Tente novamente.');
+                          }
+                        }}
+                      >
+                        Atualizar catálogo
+                      </button>
+                    </div>
                     <label htmlFor={`${id}-search`} className="mb-1 text-sm">
                       Buscar pelo nome
                     </label>
@@ -187,10 +262,12 @@ export function ConversationRoutePicker({
                       onChange={(e) => setSearch(e.target.value)}
                     />
                     <p role="status" className="py-2 text-sm text-[#D1D1D1]">
-                      Mostrando {Math.min(30, matches.length)} de {matches.length}
+                      {loading
+                        ? 'Carregando opções…'
+                        : `Mostrando ${matches.length ? safePage * 30 + 1 : 0}–${Math.min((safePage + 1) * 30, matches.length)} de ${matches.length}`}
                     </p>
                     <div className="min-h-0 overflow-y-auto">
-                      {matches.slice(0, 30).map((t) => (
+                      {matches.slice(safePage * 30, (safePage + 1) * 30).map((t) => (
                         <button
                           type="button"
                           key={`${t.target_kind}:${t.id}`}
@@ -208,12 +285,47 @@ export function ConversationRoutePicker({
                           </span>
                         </button>
                       ))}
-                      {!matches.length && (
+                      {!matches.length && !loading && !query.isError && !modelsQuery.isError && (
                         <p className="py-3 text-sm">
                           Nenhum resultado. Atualize a conexão ou ajuste a busca.
                         </p>
                       )}
                     </div>
+                    {(query.isError || modelsQuery.isError) && (
+                      <p role="alert">
+                        Não foi possível carregar as opções. Use Atualizar catálogo para tentar
+                        novamente.
+                      </p>
+                    )}
+                    {category === 'models' &&
+                      modelsQuery.data?.models_status &&
+                      modelsQuery.data.models_status !== 'available' && (
+                        <p role="alert">
+                          O OmniRoute não retornou o catálogo de modelos. Os combos continuam
+                          disponíveis.
+                        </p>
+                      )}
+                    {matches.length > 30 && (
+                      <div className="canvas-pagination">
+                        <button
+                          type="button"
+                          disabled={safePage === 0}
+                          onClick={() => setPage(safePage - 1)}
+                        >
+                          Anterior
+                        </button>
+                        <span>
+                          {safePage + 1} / {Math.ceil(matches.length / 30)}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={(safePage + 1) * 30 >= matches.length}
+                          onClick={() => setPage(safePage + 1)}
+                        >
+                          Próxima
+                        </button>
+                      </div>
+                    )}
                     <Dialog.Close className="mt-3 min-h-11 rounded border border-[#666] px-3">
                       Fechar
                     </Dialog.Close>

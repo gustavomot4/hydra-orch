@@ -27,6 +27,7 @@ import { NovoChatPage } from '@/page/NovoChatPage';
 import { WorkspaceWorkbenchPage } from '@/page/WorkspaceWorkbenchPage';
 import { useAuthStore } from '@/store/authStore';
 import { PaneId, TabKind, useLayoutStore, WorkspaceTab } from '@/store/layoutStore';
+import '@/style/workbench.css';
 
 function buildTabFromQuickOpen(item: QuickOpenSearchItem): WorkspaceTab {
   if (item.tab_hint === 'chat' || item.kind === 'run' || item.kind === 'session') {
@@ -77,6 +78,9 @@ export function HydraShell() {
   const token = useAuthStore((s) => s.token);
   const status = useAuthStore((s) => s.status);
   const density = useLayoutStore((s) => s.density);
+  const interfaceScale = useLayoutStore((s) => s.interfaceScale);
+  const chatFontSize = useLayoutStore((s) => s.chatFontSize);
+  const chatExpanded = useLayoutStore((s) => s.chatExpanded);
   const reducedMotion = useLayoutStore((s) => s.reducedMotion);
   const selectedHostId = useLayoutStore((s) => s.selectedHostId);
   const selectedWorkspaceId = useLayoutStore((s) => s.selectedWorkspaceId);
@@ -109,9 +113,15 @@ export function HydraShell() {
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.documentElement.dataset.density = density;
+      document.documentElement.style.fontSize = `${(density === 'compact' ? 0.875 : density === 'spacious' ? 1.125 : 1) * interfaceScale}%`;
+      document.documentElement.style.setProperty('--chat-font-size', `${chatFontSize}px`);
+      document.documentElement.style.setProperty(
+        '--chat-max-width',
+        chatExpanded ? '100%' : '800px',
+      );
       document.documentElement.dataset.reducedMotion = reducedMotion ? 'true' : 'false';
     }
-  }, [density, reducedMotion]);
+  }, [density, reducedMotion, interfaceScale, chatFontSize, chatExpanded]);
 
   // Sync direct URL navigation into the active pane tab deterministically.
   useEffect(() => {

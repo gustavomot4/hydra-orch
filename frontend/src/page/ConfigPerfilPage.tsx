@@ -11,11 +11,12 @@ import {
   Trash2,
 } from 'lucide-react';
 import { StatusBadge } from '@/component/StatusBadge';
+import { AppearanceSettings } from '@/component/AppearanceSettings';
 import { ConversationConnectionSettings } from '@/feature/chat/ConversationConnectionSettings';
 import { useCapabilities } from '@/hook/useCapabilities';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useAuthStore } from '@/store/authStore';
-import { DensityMode, useLayoutStore } from '@/store/layoutStore';
+import { useLayoutStore } from '@/store/layoutStore';
 import { ControlPlaneApiError, Preference, TokenMetadata } from '@/type/controlPlane';
 
 const KEYBOARD_SHORTCUTS = [
@@ -70,8 +71,11 @@ export function ConfigPerfilPage() {
     for (const pref of items) {
       try {
         const val = JSON.parse(pref.value_json);
-        if (pref.key === 'ui.density' && (val === 'compact' || val === 'comfortable')) {
-          setDensity(val);
+        if (
+          pref.key === 'ui.density' &&
+          (val === 'compact' || val === 'comfortable' || val === 'spacious')
+        ) {
+          if (!useLayoutStore.getState().appearanceLocallyConfigured) setDensity(val);
         } else if (pref.key === 'ui.reduced_motion' && typeof val === 'boolean') {
           setReducedMotion(val);
         } else if (pref.key === 'ui.keyboard_hints' && typeof val === 'boolean') {
@@ -128,6 +132,7 @@ export function ConfigPerfilPage() {
     },
     retry: false,
     onSuccess: () => {
+      setDensity('compact');
       setPrefFeedback({ kind: 'ok', text: 'Preferência revertida com sucesso.' });
       void queryClient.invalidateQueries({ queryKey: ['control-plane', 'preferences'] });
     },
@@ -239,6 +244,7 @@ export function ConfigPerfilPage() {
       </header>
 
       <ConversationConnectionSettings />
+      <AppearanceSettings />
 
       <section
         aria-labelledby="pref-section-title"
@@ -256,29 +262,11 @@ export function ConfigPerfilPage() {
             <div className="rounded-xl border border-[#303030] bg-[#141414] p-3">
               <div className="text-xs font-medium text-[#E8E8E8]">Tema visual</div>
               <p className="mt-0.5 text-[11px] text-[#969696]">
-                Paleta escura neutra Figma (#141414 / #1C1C1C / #202020) com contraste WCAG AA.
+                Preto e cinza com detalhes em laranja. Ajuste os tamanhos e painéis acima.
               </p>
               <div className="mt-2 inline-flex rounded-md border border-[#303030] bg-[#202020] px-2.5 py-1 text-xs text-[#E8E8E8]">
                 Escuro canônico ativo
               </div>
-            </div>
-
-            <div className="rounded-xl border border-[#303030] bg-[#141414] p-3">
-              <label
-                htmlFor="config-density-select"
-                className="block text-xs font-medium text-[#E8E8E8]"
-              >
-                Densidade da interface
-              </label>
-              <select
-                id="config-density-select"
-                value={density}
-                onChange={(e) => setDensity(e.target.value as DensityMode)}
-                className="mt-2 w-full rounded-lg border border-[#303030] bg-[#202020] px-2.5 py-1.5 text-xs text-[#E8E8E8]"
-              >
-                <option value="comfortable">Confortável (14px padrão)</option>
-                <option value="compact">Compacta (13px denso)</option>
-              </select>
             </div>
           </div>
 

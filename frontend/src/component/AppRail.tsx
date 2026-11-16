@@ -78,6 +78,8 @@ export function AppRail({ activeRoute, onNavigate, onSearch, children }: AppRail
   const sidebarCollapsed = useLayoutStore((s) => s.sidebarCollapsed);
   const setMobileDrawerOpen = useLayoutStore((s) => s.setMobileDrawerOpen);
   const mobileDrawerOpen = useLayoutStore((s) => s.mobileDrawerOpen);
+  const toolsExpanded = useLayoutStore((s) => s.expandedNodeIds['navigation:tools'] === true);
+  const toggleTreeNode = useLayoutStore((s) => s.toggleTreeNode);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const [narrow, setNarrow] = useState(
     () => typeof window !== 'undefined' && window.innerWidth < 768,
@@ -215,7 +217,23 @@ export function AppRail({ activeRoute, onNavigate, onSearch, children }: AppRail
           {expanded ? children : null}
 
           <div className="mt-auto border-t border-[#303030] pt-2">
-            {TOOL_NAV_ITEMS.map(renderNavItem)}
+            {expanded ? (
+              <details
+                className="workbench-tools"
+                open={toolsExpanded}
+                onToggle={(e) => {
+                  if (e.target === e.currentTarget && e.currentTarget.open !== toolsExpanded)
+                    toggleTreeNode('navigation:tools', e.currentTarget.open);
+                }}
+              >
+                <summary className="flex cursor-pointer items-center px-2 text-sm text-[var(--text-muted)]">
+                  Ferramentas
+                </summary>
+                {TOOL_NAV_ITEMS.map(renderNavItem)}
+              </details>
+            ) : (
+              TOOL_NAV_ITEMS.map(renderNavItem)
+            )}
             <button
               type="button"
               onClick={() =>

@@ -4,6 +4,7 @@ import { Gauge, RefreshCw, Server } from 'lucide-react';
 import { StatusBadge } from '@/component/StatusBadge';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { ControlPlaneApiError, QuotaStatusPayload } from '@/type/controlPlane';
+import { ModelCatalog } from './ModelCatalog';
 import { ProviderQuotaCard } from './ProviderQuotaCard';
 import {
   mergeProviderQuotaCards,
@@ -22,14 +23,11 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
 
   const [scopeId, setScopeId] = useState(initialScopeId);
   const [updatingProvider, setUpdatingProvider] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'error'; text: string } | null>(
-    null,
-  );
+  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
   const inventoryQuery = useQuery<QuotaInventoryExtended>({
     queryKey: ['control-plane', 'omniroute-inventory', scopeId],
-    queryFn: () =>
-      client.getOmniRouteInventory(scopeId) as Promise<QuotaInventoryExtended>,
+    queryFn: () => client.getOmniRouteInventory(scopeId) as Promise<QuotaInventoryExtended>,
     retry: false,
     staleTime: 15_000,
   });
@@ -87,7 +85,7 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
   const overallStatus =
     directQuota?.status && directQuota.status !== 'unknown'
       ? directQuota.status
-      : inventory?.quota?.status ?? 'unknown';
+      : (inventory?.quota?.status ?? 'unknown');
 
   const isLoading = inventoryQuery.isLoading && quotaQuery.isLoading;
   const loadError = inventoryQuery.error ?? quotaQuery.error;
@@ -112,7 +110,8 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
             <StatusBadge status={overallStatus} />
           </div>
           <p className="text-xs text-[#969696]">
-            Monitoramento das janelas de 5h por provedor, origem observada/desatualizada/desconhecida e seleção de conta OmniRoute.
+            Monitoramento das janelas de 5h por provedor, origem
+            observada/desatualizada/desconhecida e seleção de conta OmniRoute.
           </p>
         </div>
 
@@ -143,9 +142,7 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
             <RefreshCw
               aria-hidden="true"
               className={`h-3.5 w-3.5 text-[#969696] ${
-                inventoryQuery.isFetching || quotaQuery.isFetching
-                  ? 'motion-safe:animate-spin'
-                  : ''
+                inventoryQuery.isFetching || quotaQuery.isFetching ? 'motion-safe:animate-spin' : ''
               }`}
             />
             <span>Atualizar</span>
@@ -224,7 +221,9 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
             <ProviderQuotaCard
               key={card.providerKey}
               card={card}
-              isUpdating={updatingProvider === card.overrideProvider && selectAccountMutation.isPending}
+              isUpdating={
+                updatingProvider === card.overrideProvider && selectAccountMutation.isPending
+              }
               onSelectAccount={async (provider, accountId) => {
                 await selectAccountMutation.mutateAsync({ provider, accountId });
               }}
@@ -243,30 +242,13 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
         </h2>
 
         {!inventory?.models?.length ? (
-          <p className="mt-2 text-xs text-[#969696]">
-            Nenhum modelo ativo retornado pelo gateway (ou operando em modo direto sem fabricação de entradas).
-          </p>
+          <p className="mt-2 text-xs text-[#969696]">Nenhum modelo ativo retornado pelo gateway.</p>
         ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full border-collapse text-left text-xs">
-              <thead>
-                <tr className="border-b border-[#303030] text-[11px] text-[#969696]">
-                  <th className="py-1.5 pr-4 font-medium">Modelo</th>
-                  <th className="py-1.5 pr-4 font-medium">Provedor</th>
-                  <th className="py-1.5 font-medium">Proprietário</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inventory.models.map((m) => (
-                  <tr key={m.id} className="border-b border-[#303030]/60 last:border-b-0">
-                    <td className="py-2 pr-4 font-mono text-[#E8E8E8]">{m.id}</td>
-                    <td className="py-2 pr-4 font-mono text-[#969696]">{m.provider}</td>
-                    <td className="py-2 font-mono text-[#969696]">{m.owned_by}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ModelCatalog
+            models={inventory.models}
+            title="Todos os modelos"
+            label={`Abrir catálogo (${inventory.models.length})`}
+          />
         )}
       </section>
     </div>

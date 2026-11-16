@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 const LAYOUT_STORAGE_KEY = 'hydra_layout_state_v1';
-export const DEFAULT_SIDEBAR_WIDTH = 280;
+export const DEFAULT_SIDEBAR_WIDTH = 240;
 export const MIN_SIDEBAR_WIDTH = 200;
 export const MAX_SIDEBAR_WIDTH = 420;
 
@@ -34,7 +34,56 @@ export interface WorkspaceTab {
 
 export type PaneId = 'primary' | 'secondary';
 export type SplitMode = 'single' | 'split';
-export type DensityMode = 'comfortable' | 'compact';
+export type DensityMode = 'comfortable' | 'compact' | 'spacious';
+
+export interface AppearancePreferences {
+  interfaceScale: number;
+  chatFontSize: number;
+  terminalFontSize: number;
+  chatExpanded: boolean;
+  inspectorWidth: number;
+  inspectorVisible: boolean;
+  splitRatio: number;
+  statusBarVisible: boolean;
+  conversationsVisible: boolean;
+  foldersVisible: boolean;
+  promptHistoryEnabled: boolean;
+  suggestionsEnabled: boolean;
+}
+export const DEFAULT_APPEARANCE: AppearancePreferences = {
+  interfaceScale: 100,
+  chatFontSize: 14,
+  terminalFontSize: 13,
+  chatExpanded: false,
+  inspectorWidth: 320,
+  inspectorVisible: true,
+  splitRatio: 50,
+  statusBarVisible: true,
+  conversationsVisible: true,
+  foldersVisible: true,
+  promptHistoryEnabled: true,
+  suggestionsEnabled: true,
+};
+export function normalizeAppearance(
+  value: Partial<AppearancePreferences> = {},
+): AppearancePreferences {
+  const result = { ...DEFAULT_APPEARANCE };
+  for (const key of Object.keys(result) as (keyof AppearancePreferences)[]) {
+    if (typeof result[key] === 'boolean' && typeof value[key] === 'boolean')
+      Object.assign(result, { [key]: value[key] });
+  }
+  for (const [key, min, max] of [
+    ['interfaceScale', 80, 120],
+    ['chatFontSize', 12, 24],
+    ['terminalFontSize', 10, 24],
+    ['inspectorWidth', 260, 640],
+    ['splitRatio', 25, 75],
+  ] as const) {
+    const n = value[key];
+    if (typeof n === 'number' && Number.isFinite(n)) result[key] = Math.min(max, Math.max(min, n));
+  }
+  return result;
+}
 
 export interface PaneState {
   id: PaneId;
@@ -42,7 +91,8 @@ export interface PaneState {
   activeTabId: string | null;
 }
 
-interface PersistedLayout {
+interface PersistedLayout extends AppearancePreferences {
+  appearanceLocallyConfigured: boolean;
   sidebarWidth: number;
   sidebarCollapsed: boolean;
   splitMode: SplitMode;
@@ -78,6 +128,8 @@ function clampSidebarWidth(width: number): number {
 
 function createDefaultPersistedLayout(): PersistedLayout {
   return {
+    ...DEFAULT_APPEARANCE,
+    appearanceLocallyConfigured: false,
     sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
     sidebarCollapsed: false,
     splitMode: 'single',
@@ -104,7 +156,7 @@ function createDefaultPersistedLayout(): PersistedLayout {
     selectedRunId: null,
     selectedSessionId: null,
     expandedNodeIds: { 'host:local': true },
-    density: 'comfortable',
+    density: 'compact',
     reducedMotion: false,
     keyboardHintsVisible: true,
   };
@@ -136,6 +188,8 @@ function loadPersistedLayout(): PersistedLayout {
       : [];
 
     return {
+      ...normalizeAppearance(parsed),
+      appearanceLocallyConfigured: parsed.appearanceLocallyConfigured === true,
       sidebarWidth: clampSidebarWidth(parsed.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH),
       sidebarCollapsed: Boolean(parsed.sidebarCollapsed),
       splitMode: parsed.splitMode === 'split' ? 'split' : 'single',
@@ -155,7 +209,7 @@ function loadPersistedLayout(): PersistedLayout {
           activeTabId:
             parsed.panes?.secondary?.activeTabId && tabs[parsed.panes.secondary.activeTabId]
               ? parsed.panes.secondary.activeTabId
-              : secondaryTabs[0] ?? null,
+              : (secondaryTabs[0] ?? null),
         },
       },
       tabs,
@@ -172,7 +226,9 @@ function loadPersistedLayout(): PersistedLayout {
         parsed.expandedNodeIds && typeof parsed.expandedNodeIds === 'object'
           ? parsed.expandedNodeIds
           : { 'host:local': true },
-      density: parsed.density === 'compact' ? 'compact' : 'comfortable',
+      density: ['compact', 'comfortable', 'spacious'].includes(parsed.density ?? '')
+        ? parsed.density!
+        : 'compact',
       reducedMotion: Boolean(parsed.reducedMotion),
       keyboardHintsVisible: parsed.keyboardHintsVisible ?? true,
     };
@@ -187,6 +243,8 @@ function savePersistedLayout(state: PersistedLayout): void {
   }
   try {
     const payload: PersistedLayout = {
+      ...normalizeAppearance(state),
+      appearanceLocallyConfigured: state.appearanceLocallyConfigured,
       sidebarWidth: state.sidebarWidth,
       sidebarCollapsed: state.sidebarCollapsed,
       splitMode: state.splitMode,
@@ -238,6 +296,8 @@ export interface LayoutState extends PersistedLayout {
   setReducedMotion: (reduced: boolean) => void;
   setKeyboardHintsVisible: (visible: boolean) => void;
   resetLayout: () => void;
+  setAppearance: (preferences: Partial<AppearancePreferences>) => void;
+  resetAppearance: () => void;
 }
 
 function updateAndPersist(
@@ -257,6 +317,19 @@ const initialLayout = loadPersistedLayout();
 export const useLayoutStore = create<LayoutState>((set) => ({
   ...initialLayout,
   mobileDrawerOpen: false,
+  setAppearance: (preferences) =>
+    updateAndPersist(set, (prev) => ({
+      ...normalizeAppearance({ ...prev, ...preferences }),
+      appearanceLocallyConfigured: true,
+    })),
+  resetAppearance: () =>
+    updateAndPersist(set, () => ({
+      ...DEFAULT_APPEARANCE,
+      appearanceLocallyConfigured: true,
+      density: 'compact',
+      sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+      sidebarCollapsed: false,
+    })),
   setSidebarWidth: (width) =>
     updateAndPersist(set, () => ({ sidebarWidth: clampSidebarWidth(width) })),
   setSidebarCollapsed: (collapsed) =>
@@ -319,8 +392,7 @@ export const useLayoutStore = create<LayoutState>((set) => ({
   activateTab: (tabId, paneId) =>
     updateAndPersist(set, (prev) => {
       const resolvedPane: PaneId =
-        paneId ??
-        (prev.panes.secondary.tabIds.includes(tabId) ? 'secondary' : 'primary');
+        paneId ?? (prev.panes.secondary.tabIds.includes(tabId) ? 'secondary' : 'primary');
       const pane = prev.panes[resolvedPane];
       if (!pane.tabIds.includes(tabId)) {
         return {};
@@ -339,8 +411,7 @@ export const useLayoutStore = create<LayoutState>((set) => ({
   closeTab: (tabId, paneId) =>
     updateAndPersist(set, (prev) => {
       const targetPaneId: PaneId =
-        paneId ??
-        (prev.panes.secondary.tabIds.includes(tabId) ? 'secondary' : 'primary');
+        paneId ?? (prev.panes.secondary.tabIds.includes(tabId) ? 'secondary' : 'primary');
       const tab = prev.tabs[tabId];
       if (!tab || tab.closable === false) {
         return {};
@@ -407,8 +478,7 @@ export const useLayoutStore = create<LayoutState>((set) => ({
   selectHierarchy: (selection) =>
     updateAndPersist(set, (prev) => ({
       selectedHostId: selection.hostId ?? prev.selectedHostId,
-      selectedAreaId:
-        selection.areaId !== undefined ? selection.areaId : prev.selectedAreaId,
+      selectedAreaId: selection.areaId !== undefined ? selection.areaId : prev.selectedAreaId,
       selectedWorkspaceId:
         selection.workspaceId !== undefined ? selection.workspaceId : prev.selectedWorkspaceId,
       selectedProjectId:
@@ -428,7 +498,8 @@ export const useLayoutStore = create<LayoutState>((set) => ({
         },
       };
     }),
-  setDensity: (density) => updateAndPersist(set, () => ({ density })),
+  setDensity: (density) =>
+    updateAndPersist(set, () => ({ density, appearanceLocallyConfigured: true })),
   setReducedMotion: (reducedMotion) => updateAndPersist(set, () => ({ reducedMotion })),
   setKeyboardHintsVisible: (keyboardHintsVisible) =>
     updateAndPersist(set, () => ({ keyboardHintsVisible })),

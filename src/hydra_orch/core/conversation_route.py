@@ -61,6 +61,10 @@ class ConversationRoutes:
         self.store, self.gateway = store, gateway
         self._cache = None
         self._cache_at = 0
+        self._combo_cache = None
+        self._combo_cache_at = 0
+        self._combo_lock = asyncio.Lock()
+        self._version_locks = {}
         self._lock = asyncio.Lock()
         self._versions = {}
         self.certifying = asyncio.Lock()
@@ -95,34 +99,44 @@ class ConversationRoutes:
         value = {'base_url': base_url.rstrip('/'), 'enabled': enabled}
         await PreferenceService(self.store).set_preference('user', 'operator', 'integration.omniroute', value,
             expected_version=expected_version, idempotency_key=idempotency_key)
-        self._cache = None
+        self._cache = self._combo_cache = None
         return await self.settings()
 
     async def version(self, executor):
-        if executor not in self._versions:
-            from hydra_orch.bridge.agent_executable import resolve_agent_executable
-            exe = await asyncio.to_thread(resolve_agent_executable, executor)
-            def read():
-                if not exe:
-                    return 'not-installed'
-                try:
-                    p = subprocess.run([exe, '--version'], capture_output=True, timeout=10, stdin=subprocess.DEVNULL,
-                                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-                    return p.stdout.decode('utf-8', errors='replace').strip()[:100] if p.returncode == 0 else 'unknown'
-                except (OSError, subprocess.TimeoutExpired):
-                    return 'unknown'
-            self._versions[executor] = await asyncio.to_thread(read)
-        return self._versions[executor]
+        async with self._version_locks.setdefault(executor, asyncio.Lock()):
+            if executor not in self._versions:
+                from hydra_orch.bridge.agent_executable import resolve_agent_executable
+                exe = await asyncio.to_thread(resolve_agent_executable, executor)
+                def read():
+                    if not exe:
+                        return 'not-installed'
+                    try:
+                        p = subprocess.run([exe, '--version'], capture_output=True, timeout=10, stdin=subprocess.DEVNULL,
+                                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                        return p.stdout.decode('utf-8', errors='replace').strip()[:100] if p.returncode == 0 else 'unknown'
+                    except (OSError, subprocess.TimeoutExpired):
+                        return 'unknown'
+                self._versions[executor] = await asyncio.to_thread(read)
+            return self._versions[executor]
 
-    async def raw(self, refresh=False):
+    async def raw(self, refresh=False, *, include_models=True):
+        if refresh:
+            self._cache = self._combo_cache = None
         if not self._settings_loaded or refresh:
             await self.settings()
-        if refresh or self._cache is None or time.monotonic() - self._cache_at > 30:
-            async with self._lock:
-                if refresh or self._cache is None or time.monotonic() - self._cache_at > 30:
-                    self._cache = await self.gateway.conversation_catalog()
-                    self._cache_at = time.monotonic()
-        return self._cache
+        if not refresh and self._cache is not None and time.monotonic() - self._cache_at <= 30:
+            return self._cache
+        if not include_models:
+            async with self._combo_lock:
+                if refresh or self._combo_cache is None or time.monotonic() - self._combo_cache_at > 30:
+                    self._combo_cache = await self.gateway.conversation_catalog(include_models=False)
+                    self._combo_cache_at = time.monotonic()
+                return self._combo_cache
+        async with self._lock:
+            if refresh or self._cache is None or time.monotonic() - self._cache_at > 30:
+                self._cache = await self.gateway.conversation_catalog()
+                self._cache_at = time.monotonic()
+            return self._cache
 
     @staticmethod
     def leaves(item, combos, seen=(), definitions=None):
@@ -152,7 +166,7 @@ class ConversationRoutes:
             raise ValueError('Este combo não contém modelos.')
         return result
 
-    async def describe(self, selection, *, refresh=False):
+    async def describe(self, selection, *, refresh=False, _catalog_raw=None, _evidence=None):
         route = ConversationRoute.model_validate(selection).checked()
         value = route.model_dump()
         metadata = {'cli_version':await self.version(route.executor),
@@ -162,7 +176,7 @@ class ConversationRoutes:
             if route.target_ref and route.target_ref not in known:
                 raise ContractViolation('route_invalid', 'O modelo não está no catálogo local deste agente. Atualize a lista.')
             return {**value, **metadata, 'fingerprint': identity({**value,**metadata}), 'compatibility': 'verified', 'reason': 'Conexão nativa do agente.'}
-        raw = await self.raw(refresh)
+        raw = _catalog_raw if _catalog_raw is not None else await self.raw(refresh, include_models=route.target_kind == 'model')
         if raw['status'] != 'connected':
             raise ContractViolation('gateway_unavailable', 'Não foi possível conectar ao OmniRoute. Confira o estado da conexão.')
         combos = {c.get('name'): c for c in raw.get('combos', []) if isinstance(c, dict)}
@@ -183,9 +197,12 @@ class ConversationRoutes:
         unofficial = route.executor == 'claude' and any(not any(part.startswith('claude-') for part in m.split('/')) for m in leaves)
         fingerprint = identity({'route': value, 'definition': definition, 'base_url': self.gateway.base_url,
                                 'cli_version': await self.version(route.executor), 'profile': 3 if route.executor=='claude' else 2})
-        await self.store.initialize()
-        async with self.store._connect() as db:
-            row = await (await db.execute('SELECT evidence_json FROM conversation_route_certificates WHERE certificate_key=?', (fingerprint,))).fetchone()
+        if _evidence is None:
+            await self.store.initialize()
+            async with self.store._connect() as db:
+                row = await (await db.execute('SELECT evidence_json FROM conversation_route_certificates WHERE certificate_key=?', (fingerprint,))).fetchone()
+        else:
+            row = _evidence.get(fingerprint)
         return {**value, **metadata, 'fingerprint': fingerprint, 'compatibility': 'verified' if row else 'unverified',
                 'reason': ('Leitura, edição e continuidade verificadas.' if row else 'Teste esta combinação antes de enviar.') +
                           (' Destinos não-Claude via tradução do gateway: sem suporte oficial da Anthropic.' if unofficial else ''),
@@ -197,11 +214,12 @@ class ConversationRoutes:
             raise ContractViolation('route_unverified', 'Use Testar combinação para validar ferramentas e continuidade antes de enviar.')
         return described
 
-    async def catalog(self, executor='codex', refresh=False, include_gateway=True):
+    async def catalog(self, executor='codex', refresh=False, include_gateway=True, include_models=True):
         if not include_gateway:
             return {'status': 'not_requested', 'combos': [], 'models': [], 'direct_models': direct_models(executor)}
-        raw = await self.raw(refresh)
+        raw = await self.raw(refresh, include_models=include_models)
         combos = []
+        descriptions = {}
         for item in raw.get('combos', [])[:1000]:
             if not isinstance(item, dict) or not isinstance(item.get('name'), str):
                 continue
@@ -209,13 +227,30 @@ class ConversationRoutes:
                 continue
             selection = ConversationRoute(executor=executor, connection_mode='omniroute', target_kind='combo', target_ref=item['name']).model_dump()
             try:
-                info = await self.describe(selection)
+                info = await self.describe(selection, _catalog_raw=raw, _evidence={})
+                descriptions[item['name']] = info
                 compatibility, reason = info['compatibility'], info['reason']
             except ContractViolation as e:
                 compatibility, reason = 'unsupported', str(e)
             combos.append({'id': str(item.get('id') or item['name']), 'name': item['name'], 'target_kind': 'combo',
                            'compatibility': compatibility, 'reason': reason})
-        models = [{'id': m['id'], 'name': m['id'], 'target_kind': 'model'} for m in raw.get('models', [])[:5000]
+        # One initialization and a bounded set of reads replaces one connection per combo.
+        if descriptions:
+            await self.store.initialize()
+            keys = list({info['fingerprint'] for info in descriptions.values()})
+            certificates = {}
+            async with self.store._connect() as db:
+                for start in range(0, len(keys), 500):
+                    chunk = keys[start:start + 500]
+                    rows = await (await db.execute(
+                        'SELECT certificate_key, evidence_json FROM conversation_route_certificates WHERE certificate_key IN (' + ','.join('?' for _ in chunk) + ')', chunk)).fetchall()
+                    certificates.update({row[0]: json.loads(row[1]) for row in rows})
+            for combo in combos:
+                info = descriptions.get(combo['name'])
+                if info and info['fingerprint'] in certificates:
+                    combo['compatibility'] = 'verified'
+                    combo['reason'] = info['reason'].replace('Teste esta combinação antes de enviar.', 'Leitura, edição e continuidade verificadas.')
+        models = [{'id': m['id'], 'name': m['id'], 'target_kind': 'model'} for m in (raw.get('models', []) if include_models else [])[:5000]
                   if isinstance(m, dict) and isinstance(m.get('id'), str)]
         return redact({'status': raw['status'], 'combos_status': raw.get('combos_status'),
                        'models_status': raw.get('models_status'), 'observed_at': datetime.now(timezone.utc).isoformat(),

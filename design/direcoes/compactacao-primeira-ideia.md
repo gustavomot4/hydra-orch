@@ -1,6 +1,6 @@
 # Hydra — estudo de espaço e personalização
 
-Status: proposta visual para escolha do dono. Nenhuma alteração de interface ou runtime nesta etapa. As imagens foram apresentadas antes do [plano proposto](compactacao-plano.md); a execução e a consolidação visual dependem da escolha do dono.
+Status: registro da proposta visual, aprovada integralmente pelo dono em 15/11/2026 e autorizada para construção. As imagens foram apresentadas antes do [plano](compactacao-plano.md). Este documento preserva a ideia e o limite da evidência dos mockups; as provas da implementação ficam no manual Windows.
 
 Primeira ideia: conservar o canvas livre e o preto aprovado, mas usar a composição de uma bancada de desenvolvimento. Navegação curta, barra de atividade estreita, projetos como pais de conversas/execuções, seções recolhíveis e divisores redimensionáveis. O conteúdo ganha área útil pela redução de cabeçalhos e espaçamentos; texto e zoom do canvas não dependem de uma redução global indiscriminada.
 

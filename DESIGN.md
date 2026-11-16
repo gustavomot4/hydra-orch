@@ -22,6 +22,14 @@ Direção escolhida pelo dono em 15/11/2026: composição A (canvas livre e conv
 
 Hydra aproxima o operador do trabalho dos agentes: pedido, responsáveis, atividade e resultado. A navegação mostra nomes completos. A Área de trabalho é o destino principal para acompanhar; Novo chat inicia pedidos e Alterações concentra revisão. Infraestrutura técnica fica recolhida. Logo existente preservado.
 
+## Compactação aprovada — 15/11/2026
+
+O dono aprovou integralmente as três vistas de compactação e autorizou a construção. A composição usa navegação por projeto pai com seções recolhíveis, cabeçalhos curtos, painéis ajustáveis/ocultáveis e listas de modelos com prévias de três itens. Remover os atalhos predefinidos do chat. Adicionar pasta abre o seletor nativo diretamente no desktop. Modelo e conexão permanecem junto do compositor. A árvore compartilha pais reais entre navegação e escolha do trabalho.
+
+Tokens de tamanho: interface compacta 14px, confortável 16px e ampla 18px na escala de 100%; escala configurável de 80 a 120% aplicada ao tamanho raiz em unidades relativas ao padrão do navegador. Texto de conversa 12–24px e terminal 10–24px independentes; conversa focada com limite de 800px ou expandida. No desktop compacto, linhas de navegação de 32px, controles de 32px, cabeçalhos com 8px de respiro; confortável 36px/12px e ampla 44px/16px. Textos auxiliares conservam piso de 12px. Divisores têm linha visual de 1px e área de interação de 24px no mouse, 44px no toque. Alvos de toque continuam com pelo menos 44px. Detalhe lateral entre 260 e 640px; divisão principal entre 25 e 75%. Layout salva preferências localmente e permite restaurar os tamanhos sem apagar conversas ou fechar sessões.
+
+Tab aceita somente conclusão visível; menus têm precedência. Histórico por projeto/conversa preserva rascunho e só usa setas nos limites do campo. Sugestões contextuais são somente texto, dispensáveis e não enviam pedidos nem executam ferramentas automaticamente. Nenhuma inferência recorrente é habilitada sem orçamento definido.
+
 ## Tokens
 
 Fonte canônica: `frontend/src/style/tokens.css`. Tipografia Inter para interface e JetBrains Mono apenas para código, logs e identificadores. Corpo 16px no canvas; informações auxiliares a partir de 12px. Espaçamento em passos de 4px, raios de 8/12/16px; alvos de 44px nas ações novas.
@@ -62,7 +70,7 @@ Dados vêm das conversas e execuções persistidas. Relações mostram delegaç�
 
 Conversa tem cabeçalho compacto, histórico com rolagem e compositor sempre disponível na parte inferior da área útil. Modelo, combo e modo ficam junto do compositor, com diálogo acessível para alterar a configuração dos próximos envios. Em altura até 480px, a composição inteira volta ao fluxo da página. Mensagens do usuário usam superfície cinza discreta e largura pelo conteúdo; respostas do agente têm leitura editorial sem caixa, com Markdown seguro, títulos, subtítulos, listas, tabelas e código. Atividade aparece em cinza claro e detalhes recolhíveis, separada da resposta.
 
-Novo chat apresenta o compositor primeiro. Pasta é escolhida em diálogo com busca e caminhos para distinguir nomes; adicionar pasta é uma ação explícita, sem acordeão. Agente, conexão e modelo usam controles compactos com a seleção atual visível; opções avançadas abrem um diálogo. As sugestões viram linhas leves com ícone e ação, sem balões contornados. A direção segue o pedido explícito de familiaridade com Codex e Claude Code; não é uma nova escolha de marca.
+Novo chat apresenta o compositor primeiro. Pastas já cadastradas são escolhidas em árvore/busca com caminhos para distinguir nomes; adicionar pasta abre diretamente o Explorer no desktop, com entrada de caminho em navegadores sem integração nativa. Agente, conexão e modelo usam controles compactos com a seleção atual visível; opções avançadas abrem um diálogo. Atalhos de prompts predefinidos foram retirados por solicitação do dono; conclusão por Tab aparece dentro do campo. A direção segue o pedido explícito de familiaridade com Codex e Claude Code; não é uma nova escolha de marca.
 
 O arrasto funciona no corpo do card, preservando clique para abrir detalhes e alça com setas para teclado. Eventos autenticados atualizam o mapa sem aguardar o polling de recuperação. Subagentes nativos são registros observados do protocolo da CLI, não execuções gerenciadas pelo RunService; mostrar essa origem nos detalhes. Não inferir delegação pela resposta textual nem habilitar ferramentas ou permissões novas para preencher o mapa.
 

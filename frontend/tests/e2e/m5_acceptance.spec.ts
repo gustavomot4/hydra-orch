@@ -72,6 +72,7 @@ async function loginControlPlane(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Conectar ao Control Plane' }).click();
   await expect(page.getByTestId('hydra-app-shell')).toBeVisible({ timeout: 20_000 });
 
+  await page.getByText('Ferramentas', { exact: true }).click();
   const currentUrl = page.url();
   expect(currentUrl).not.toContain(E2E_TOKEN);
   const storedToken = await page.evaluate(() =>
@@ -383,13 +384,20 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await page.setViewportSize({ width: 1920, height: 1100 });
     await page
       .getByRole('navigation', { name: 'Navegação principal' })
-      .getByRole('button', { name: 'Novo chat' })
+      .getByRole('button', { name: 'Novo chat', exact: true })
       .click();
     await expect(composer).toHaveValue('');
-    await page
-      .getByRole('region', { name: 'Conversas recentes' })
-      .getByRole('button', { name: taskObjective, exact: true })
-      .click();
+    const workTree = page.getByTestId('desktop-sidebar').locator('.project-work-tree');
+    const projectSummary = workTree
+      .locator('summary')
+      .filter({ hasText: 'hydra-e2e-repo' })
+      .first();
+    if ((await projectSummary.locator('..').getAttribute('open')) === null)
+      await projectSummary.click();
+    const chatsSummary = workTree.locator('summary').filter({ hasText: 'Conversas' }).first();
+    if ((await chatsSummary.locator('..').getAttribute('open')) === null)
+      await chatsSummary.click();
+    await workTree.getByRole('button', { name: taskObjective, exact: true }).click();
     await expect(page.getByTestId('conversation-turn-2')).toBeVisible();
     await page.getByLabel('Sua mensagem').fill('Aguarde e explique de novo');
     await page.getByRole('button', { name: 'Enviar', exact: true }).click();
@@ -537,7 +545,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     // Step 1/2: Open Split Terminal PTY via QuickOpen / navigation and verify live output + clean terminate
     await rail.getByRole('button', { name: 'Recursos' }).click();
     await expect(page.getByTestId('governance-page')).toBeVisible();
-    await rail.getByRole('button', { name: 'Novo chat' }).click();
+    await rail.getByRole('button', { name: 'Novo chat', exact: true }).click();
     await expect(composer).toHaveValue(preservedDraft);
 
     await page.keyboard.press('Control+k');
@@ -595,7 +603,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     });
 
     // Step 3 check: return to Novo chat and confirm unsent composer draft persisted or re-enter draft
-    await rail.getByRole('button', { name: 'Novo chat' }).click();
+    await rail.getByRole('button', { name: 'Novo chat', exact: true }).click();
     await expect(page.getByTestId('novo-chat-page')).toBeVisible();
 
     // Step 4: Inspect Markdown (no XSS), PNG image, PDF & Diff safe previews in Workbench
@@ -632,6 +640,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     const selectNextButtons = quotaPage.getByRole('button', {
       name: /Definir para próximas execuções/i,
     });
+    await quotaPage.locator('.quota-account-settings > summary').first().click();
     await expect(selectNextButtons.first()).toBeEnabled({ timeout: 10_000 });
     await selectNextButtons.first().click();
     await expect(quotaPage.locator('[data-testid^="active-override-"]').first()).toBeVisible({
@@ -690,7 +699,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await page.keyboard.press('Escape');
 
     // Desktop & narrow zoom 200% responsive WCAG checks
-    await rail.getByRole('button', { name: 'Novo chat' }).click();
+    await rail.getByRole('button', { name: 'Novo chat', exact: true }).click();
     await expect(page.getByTestId('novo-chat-page')).toBeVisible();
     await runAxeWcagAA(page, 'NovoChat (1920x1100)');
 
@@ -712,7 +721,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
 
     // Mobile narrow viewport (390x844) drawer + zero horizontal page overflow + WCAG AA
     await page.setViewportSize({ width: 390, height: 844 });
-    await rail.getByRole('button', { name: 'Novo chat' }).click();
+    await rail.getByRole('button', { name: 'Novo chat', exact: true }).click();
     await expect(page.getByTestId('novo-chat-page')).toBeVisible();
     const mobileOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth + 2,
@@ -881,7 +890,9 @@ test('keeps composer settings in reach, renders Markdown and adds CLI agents fro
         init?.signal?.addEventListener('abort', () => {
           try {
             streamController.close();
-          } catch {}
+          } catch {
+            /* Stream may already have closed. */
+          }
         });
         return new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } });
       }

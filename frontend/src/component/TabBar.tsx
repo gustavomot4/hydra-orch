@@ -1,5 +1,7 @@
-import { KeyboardEvent } from 'react';
-import { Columns2, Plus, Square, X } from 'lucide-react';
+import { KeyboardEvent, useState } from 'react';
+import { Columns2, Plus, Square, X, SlidersHorizontal } from 'lucide-react';
+import { AppearanceSettings } from './AppearanceSettings';
+import { ChatDialog } from '@/feature/chat/ChatDialog';
 import { PaneId, useLayoutStore } from '@/store/layoutStore';
 
 export interface TabBarProps {
@@ -8,6 +10,7 @@ export interface TabBarProps {
 }
 
 export function TabBar({ paneId, onSyncRoute }: TabBarProps) {
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const pane = useLayoutStore((s) => s.panes[paneId]);
   const tabs = useLayoutStore((s) => s.tabs);
   const splitMode = useLayoutStore((s) => s.splitMode);
@@ -42,6 +45,18 @@ export function TabBar({ paneId, onSyncRoute }: TabBarProps) {
         splitMode === 'split' && focusedPaneId === paneId ? 'border-b-[#3B82F6]/60' : ''
       }`}
     >
+      <ChatDialog open={appearanceOpen} onOpenChange={setAppearanceOpen} title="Aparência">
+        <AppearanceSettings />
+      </ChatDialog>
+      <button
+        type="button"
+        className="workbench-appearance-button"
+        aria-label="Aparência e painéis"
+        title="Aparência e painéis"
+        onClick={() => setAppearanceOpen(true)}
+      >
+        <SlidersHorizontal size={16} />
+      </button>
       <nav
         aria-label={`Abas do painel ${paneId === 'primary' ? 'principal' : 'secundário'}`}
         className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"

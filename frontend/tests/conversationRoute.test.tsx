@@ -30,6 +30,43 @@ afterEach(() => {
 });
 
 describe('conversation route choices', () => {
+  it('shows combos before fetching models and distinguishes loading from an empty search', async () => {
+    const user = userEvent.setup();
+    const selection = { ...defaultRoute(), connection_mode: 'omniroute' as const };
+    let releaseCatalog!: (value: unknown) => void;
+    client.request.mockImplementation((url: string) => {
+      if (url.includes('include_models=false'))
+        return new Promise((resolve) => {
+          releaseCatalog = resolve;
+        });
+      return Promise.resolve({
+        status: 'connected',
+        combos: [],
+        models: [{ id: 'last-model', name: 'last-model', target_kind: 'model' }],
+        direct_models: [],
+      });
+    });
+    mount(<ConversationRoutePicker value={selection} onChange={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: /Modelo ou combo/ }));
+    expect(screen.getByText('Carregando opções…')).toBeInTheDocument();
+    expect(screen.queryByText(/Nenhum resultado/)).not.toBeInTheDocument();
+    releaseCatalog({
+      status: 'connected',
+      combos: [{ id: 'a', name: 'Meu combo', target_kind: 'combo' }],
+      models: [],
+      direct_models: [],
+    });
+    expect(await screen.findByRole('button', { name: /Meu combo/ })).toBeVisible();
+    expect(client.request.mock.calls.some(([url]) => url.includes('include_models=true'))).toBe(
+      false,
+    );
+    await user.click(screen.getByRole('button', { name: 'Modelos' }));
+    expect(await screen.findByRole('button', { name: /last-model/ })).toBeVisible();
+    expect(client.request.mock.calls.some(([url]) => url.includes('include_models=true'))).toBe(
+      true,
+    );
+    expect(client.request.mock.calls.some(([url]) => url.endsWith('/verify'))).toBe(false);
+  });
   it('keeps a prompt typed before the initial project arrives and separates later project drafts', async () => {
     const user = userEvent.setup();
     function InitialProject() {
@@ -124,7 +161,7 @@ describe('conversation route choices', () => {
     );
     await screen.findByText('Conectado ao OmniRoute');
     await user.click(screen.getByRole('button', { name: /Modelo ou combo/ }));
-    expect(await screen.findByText('Mostrando 30 de 81')).toBeInTheDocument();
+    expect(await screen.findByText('Mostrando 1–1 de 1')).toBeInTheDocument();
     await user.type(screen.getByLabelText('Buscar pelo nome'), 'programacao');
     const choose = screen.getByRole('button', { name: /Programação grande/ });
     expect(choose).toBeEnabled();
@@ -176,10 +213,10 @@ describe('conversation route choices', () => {
     };
     const changes: unknown[] = [];
     client.request.mockImplementation(
-      async (path: string, options?: { method?: string; body?: any }) => {
+      async (path: string, options?: { method?: string; body?: { route: typeof first } }) => {
         if (options?.method === 'PATCH') {
           changes.push(options.body);
-          state.route = options.body.route;
+          state.route = options.body!.route;
           state.route_revision = 1;
           return { route_revision: 1 };
         }

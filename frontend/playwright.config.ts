@@ -78,7 +78,10 @@ export default defineConfig({
     launchOptions: resolvedExecutablePath ? { executablePath: resolvedExecutablePath } : undefined,
   },
   webServer: {
-    command: `npx vite --config tests/e2e/vite.e2e.config.ts --port ${uiPort} --strictPort`,
+    command:
+      process.env.HYDRA_E2E_PRODUCTION === '1'
+        ? `npx vite preview --config tests/e2e/vite.e2e.config.ts --outDir ../ws/b_output/compact-production --port ${uiPort} --strictPort`
+        : `npx vite --config tests/e2e/vite.e2e.config.ts --port ${uiPort} --strictPort`,
     url: `http://127.0.0.1:${uiPort}/`,
     reuseExistingServer: false,
     timeout: 60_000,

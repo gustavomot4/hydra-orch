@@ -11,7 +11,7 @@ import {
 } from './canvasModel';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-type View = { x: number; y: number; scale: number };
+type View = { x: number; y: number; scale: number; automaticFit?: boolean };
 function restoreView(key: string): View | null {
   try {
     const value = JSON.parse(localStorage.getItem('hydra:canvas-view:' + key) || 'null');
@@ -68,11 +68,16 @@ export function AgentCanvas({
   const fontProbe = useRef<HTMLSpanElement>(null);
   // Keep graph geometry and its text together when the browser's text size changes.
   const [textScale, setTextScale] = useState(1);
+  const measuredFontScale = useRef<number | null>(null);
   useEffect(() => {
     const element = fontProbe.current;
     if (!element || typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(([entry]) => {
-      setTextScale(Math.max(0.5, entry.contentRect.width / 16));
+      const next = Math.max(0.5, entry.contentRect.width / 16);
+      if (measuredFontScale.current !== null && measuredFontScale.current !== next)
+        automaticFit.current = false; // Browser text enlargement must enlarge the graph as a unit.
+      measuredFontScale.current = next;
+      setTextScale(next);
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -84,6 +89,7 @@ export function AgentCanvas({
   nodesRef.current = graph.nodes;
   const [positions, setPositions] = useState(() => restore(workId, graph.nodes));
   const [view, setView] = useState<View>(() => restoreView(workId) || { x: 24, y: 24, scale: 0.8 });
+  const automaticFit = useRef(!restoreView(workId) || restoreView(workId)?.automaticFit === true);
   const viewRef = useRef(view);
   viewRef.current = view;
   const drag = useRef<{ id?: string; x: number; y: number; start: Point } | null>(null);
@@ -110,7 +116,10 @@ export function AgentCanvas({
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
-        localStorage.setItem('hydra:canvas-view:' + workId, JSON.stringify(view));
+        localStorage.setItem(
+          'hydra:canvas-view:' + workId,
+          JSON.stringify({ ...view, automaticFit: automaticFit.current }),
+        );
       } catch {
         /* optional */
       }
@@ -127,6 +136,7 @@ export function AgentCanvas({
     { left: 0, top: 0, right: 680, bottom: 500 },
   );
   const fit = () => {
+    automaticFit.current = true;
     const width = stage.current?.clientWidth || 800,
       height = stage.current?.clientHeight || 600;
     const scale = clamp(
@@ -148,6 +158,7 @@ export function AgentCanvas({
     });
   };
   const zoom = (amount: number, point?: Point) => {
+    automaticFit.current = false;
     setView((old) => {
       const scale = clamp(Math.round((old.scale + amount) * 100) / 100, 0.25, 1.8);
       const center = point || {
@@ -164,6 +175,18 @@ export function AgentCanvas({
   const fitRef = useRef(fit);
   fitRef.current = fit;
   useEffect(() => {
+    if (automaticFit.current) fitRef.current();
+  }, [textScale, positions]);
+  useEffect(() => {
+    const element = stage.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (automaticFit.current) fitRef.current();
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
     const element = stage.current;
     if (!element) return;
     const wheel = (event: WheelEvent) => {
@@ -174,7 +197,10 @@ export function AgentCanvas({
           x: event.clientX - rect.left,
           y: event.clientY - rect.top,
         });
-      else setView((v) => ({ ...v, x: v.x - event.deltaY, y: v.y - event.deltaX }));
+      else {
+        automaticFit.current = false;
+        setView((v) => ({ ...v, x: v.x - event.deltaY, y: v.y - event.deltaX }));
+      }
     };
     element.addEventListener('wheel', wheel, { passive: false });
     return () => element.removeEventListener('wheel', wheel);
@@ -184,11 +210,13 @@ export function AgentCanvas({
     if (restored) setView(restored);
     else fitRef.current();
   }, [workId]);
-  const moveNode = (id: string, x: number, y: number) =>
+  const moveNode = (id: string, x: number, y: number) => {
+    automaticFit.current = false;
     setPositions((old) => ({
       ...old,
       [id]: { x: clamp(x, -10000, 10000), y: clamp(y, -10000, 10000) },
     }));
+  };
 
   return (
     <div className="agent-map" data-testid="agent-map">
@@ -216,6 +244,7 @@ export function AgentCanvas({
           if (event.button !== 0 || (event.target as HTMLElement).closest('button,a,input,select'))
             return;
           event.currentTarget.focus();
+          automaticFit.current = false;
           event.currentTarget.setPointerCapture(event.pointerId);
           drag.current = { x: event.clientX, y: event.clientY, start: { x: view.x, y: view.y } };
           setDragging(true);
@@ -261,6 +290,7 @@ export function AgentCanvas({
             ArrowDown: { x: 0, y: -60 },
           };
           if (delta[event.key]) {
+            automaticFit.current = false;
             event.preventDefault();
             setView((v) => ({ ...v, x: v.x + delta[event.key].x, y: v.y + delta[event.key].y }));
           }

@@ -350,7 +350,7 @@ class OmniRouteClient:
                 return env_val.strip()
         return None
 
-    async def conversation_catalog(self) -> Dict[str, Any]:
+    async def conversation_catalog(self, *, include_models: bool = True) -> Dict[str, Any]:
         """Read-only discovery. Return no provider connection objects or credentials."""
         if not self.enabled:
             return {'status': 'disabled', 'combos': [], 'models': []}
@@ -361,14 +361,14 @@ class OmniRouteClient:
             async with self._build_client(httpx.Timeout(12, connect=2)) as client:
                 health, combos, models = await asyncio.gather(
                     client.get(self._health_url), client.get(f'{_origin_url(self.base_url)}/api/combos'),
-                    client.get(f'{self.base_url}/models'))
+                    client.get(f'{self.base_url}/models') if include_models else asyncio.sleep(0, result=httpx.Response(200, json={'data': []})))
                 if any(r.status_code in {401, 403} for r in (health, combos, models)):
                     return {'status': 'access_denied', 'combos': [], 'models': []}
                 if health.status_code != 200:
                     return {'status': 'unavailable', 'combos': [], 'models': []}
                 result = {'status': 'connected', 'combos': [], 'models': [],
                           'combos_status': 'available' if combos.status_code == 200 else 'catalog_unavailable',
-                          'models_status': 'available' if models.status_code == 200 else 'catalog_unavailable'}
+                          'models_status': ('available' if models.status_code == 200 else 'catalog_unavailable') if include_models else 'not_requested'}
                 if combos.status_code == 200:
                     body = combos.json()
                     items = body.get('combos', []) if isinstance(body, dict) else body

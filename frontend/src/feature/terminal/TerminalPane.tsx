@@ -29,6 +29,7 @@ import {
 import { StatusBadge } from '@/component/StatusBadge';
 import { ControlPlaneClient, useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useAuthStore } from '@/store/authStore';
+import { useLayoutStore } from '@/store/layoutStore';
 import { ControlPlaneApiError } from '@/type/controlPlane';
 import {
   buildPtyWebSocketUrl,
@@ -84,7 +85,7 @@ function createXtermAdapter(
     windowsPty: options.backendKind === 'windows_conpty' ? { backend: 'conpty' } : undefined,
     cursorBlink: true,
     fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-    fontSize: 13,
+    fontSize: useLayoutStore.getState().terminalFontSize,
     lineHeight: 1.4,
     scrollback: 2000,
     theme: {
@@ -128,6 +129,12 @@ function createXtermAdapter(
   };
 
   const textarea = term.textarea;
+  const unsubscribeFont = useLayoutStore.subscribe((next, prev) => {
+    if (next.terminalFontSize !== prev.terminalFontSize) {
+      term.options.fontSize = next.terminalFontSize;
+      fit();
+    }
+  });
   textarea?.addEventListener('paste', pasteCaptureHandler, true);
 
   let resizeObserver: ResizeObserver | null = null;
@@ -153,6 +160,7 @@ function createXtermAdapter(
       return () => disp.dispose();
     },
     dispose: () => {
+      unsubscribeFont();
       resizeObserver?.disconnect();
       textarea?.removeEventListener('paste', pasteCaptureHandler, true);
       term.dispose();

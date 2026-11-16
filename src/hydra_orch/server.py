@@ -367,8 +367,8 @@ async def create_conversation(payload: ConversationCreatePayload):
 
 @app.get('/v1/control-plane/omniroute/combos')
 async def conversation_route_catalog(executor: Literal['codex', 'claude'] = 'codex', refresh: bool = False,
-                                     connection_mode: Literal['direct', 'omniroute'] = 'omniroute'):
-    return await get_conversation_routes().catalog(executor, refresh, connection_mode == 'omniroute')
+                                     connection_mode: Literal['direct', 'omniroute'] = 'omniroute', include_models: bool = True):
+    return await get_conversation_routes().catalog(executor, refresh, connection_mode == 'omniroute', include_models)
 
 
 @app.post('/v1/control-plane/conversation-routes/verify')

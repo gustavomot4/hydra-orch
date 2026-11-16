@@ -131,6 +131,54 @@ def test_gateway_function_profile_cannot_change_target_or_interpret_text_as_tool
 
 
 @pytest.mark.asyncio
+async def test_combo_discovery_skips_model_request_and_batches_certificate_reads(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+    requested = []
+    def handler(request):
+        requested.append(request.url.path)
+        if request.url.path == '/api/health':
+            return httpx.Response(200, json={'status': 'ok'})
+        if request.url.path == '/api/combos':
+            return httpx.Response(200, json={'combos': [
+                {'name': f'Combo {i}', 'models': ['codex/model']} for i in range(20)]})
+        raise AssertionError('Combo discovery must not wait for the model inventory')
+    store = ExecutionStore(tmp_path / 'catalog.sqlite')
+    routes = ConversationRoutes(store, OmniRouteClient(api_key='fixture-key', transport=httpx.MockTransport(handler)))
+    routes._versions = {'codex': 'fixture-version'}
+    routes._settings_loaded = True
+    initialize = AsyncMock(wraps=store.initialize)
+    monkeypatch.setattr(store, 'initialize', initialize)
+    result = await routes.catalog(include_models=False)
+    assert len(result['combos']) == 20 and result['models'] == []
+    assert initialize.await_count == 1
+    assert '/v1/models' not in requested
+    info = await routes.describe({'executor': 'codex', 'connection_mode': 'omniroute', 'target_kind': 'combo', 'target_ref': 'Combo 0'})
+    assert info['compatibility'] == 'unverified'
+    assert '/v1/models' not in requested
+
+
+@pytest.mark.asyncio
+async def test_catalog_preserves_certification_and_invalidates_changed_definitions(tmp_path):
+    combo = {'name': 'Fixture combo', 'models': ['codex/model-a']}
+    def handler(request):
+        if request.url.path == '/api/health': return httpx.Response(200, json={})
+        if request.url.path == '/api/combos': return httpx.Response(200, json={'combos': [combo]})
+        return httpx.Response(200, json={'data': []})
+    store = ExecutionStore(tmp_path / 'certificate.sqlite')
+    routes = ConversationRoutes(store, OmniRouteClient(api_key='fixture-key', transport=httpx.MockTransport(handler)))
+    routes._versions = {'codex': 'fixture-version'}
+    selection = {'executor': 'codex', 'connection_mode': 'omniroute', 'target_kind': 'combo', 'target_ref': combo['name']}
+    info = await routes.describe(selection)
+    async with store._connect() as db:
+        await db.execute('INSERT INTO conversation_route_certificates (certificate_key, evidence_json) VALUES (?, ?)',
+                         (info['fingerprint'], '{}'))
+        await db.commit()
+    assert (await routes.catalog(include_models=False))['combos'][0]['compatibility'] == 'verified'
+    combo['models'] = ['codex/model-b']
+    assert (await routes.catalog(refresh=True, include_models=False))['combos'][0]['compatibility'] == 'unverified'
+
+
+@pytest.mark.asyncio
 async def test_connection_settings_are_reversible_persisted_non_secret_and_conflict_checked(tmp_path):
     store = ExecutionStore(tmp_path/'state.sqlite')
     route = ConversationRoutes(store, OmniRouteClient(api_key='fixture-only-credential', enabled=False))

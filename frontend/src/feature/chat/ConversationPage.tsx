@@ -7,6 +7,9 @@ import { ChatDialog } from './ChatDialog';
 import { MarkdownSafeView } from '@/feature/artifact/MarkdownSafeView';
 import './conversation.css';
 import { PromptComposer } from '@/feature/composer';
+import { rememberPrompt } from '@/feature/composer/promptHistory';
+import { contextualSuggestion } from '@/feature/composer/contextualSuggestion';
+import { useRouteCatalogWarmup } from './useRouteCatalogWarmup';
 import { AttachmentDropzone, AttachmentItemView } from '@/feature/attachment';
 import { DictationControl } from '@/feature/dictation';
 import { clearComposerDraft, SLASH_COMMANDS } from '@/feature/composer/composerTypes';
@@ -74,6 +77,7 @@ export function ConversationPage({ conversationId }: { conversationId: string })
   const followOutputRef = useRef(true);
   const renderedSeqRef = useRef<number | null>(null);
   const data = snapshot.data;
+  useRouteCatalogWarmup(data?.route);
   const dataId = data?.id;
   const dataTitle = data?.title;
   const lastSeq = data?.last_seq;
@@ -218,6 +222,8 @@ export function ConversationPage({ conversationId }: { conversationId: string })
         { method: 'POST', body: pendingMessage(conversationId, payload) },
       );
       setDraft('');
+      if (useLayoutStore.getState().promptHistoryEnabled)
+        rememberPrompt(conversationId, payload.content);
       followOutputRef.current = true;
       setAttachments([]);
       clearComposerDraft(conversationId);
@@ -532,6 +538,7 @@ export function ConversationPage({ conversationId }: { conversationId: string })
                 draft={draft}
                 onDraftChange={setDraft}
                 sessionKey={conversationId}
+                completion={contextualSuggestion(data)}
                 hideModeSelector
                 toolbarStart={
                   <>

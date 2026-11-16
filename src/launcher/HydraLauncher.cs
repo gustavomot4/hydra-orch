@@ -10,6 +10,70 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Runtime.InteropServices;
+
+// Windows Common Item Dialog: Explorer navigation, address bar and folder selection.
+internal static class NativeFolderPicker
+{
+    [ComImport, Guid("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7")]
+    class FileOpenDialog { }
+    [ComImport, Guid("42F85136-DB7E-439C-85F1-E4075D135FC8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IFileDialog {
+        [PreserveSig] int Show(IntPtr owner);
+        void SetFileTypes(uint count, IntPtr filters);
+        void SetFileTypeIndex(uint index);
+        void GetFileTypeIndex(out uint index);
+        void Advise(IntPtr events, out uint cookie);
+        void Unadvise(uint cookie);
+        void SetOptions(uint options);
+        void GetOptions(out uint options);
+        void SetDefaultFolder(IShellItem folder);
+        void SetFolder(IShellItem folder);
+        void GetFolder(out IShellItem folder);
+        void GetCurrentSelection(out IShellItem item);
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string name);
+        void GetFileName(out IntPtr name);
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string title);
+        void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string text);
+        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string text);
+        void GetResult(out IShellItem result);
+        void AddPlace(IShellItem item, uint placement);
+        void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string extension);
+        void Close(int result);
+        void SetClientGuid(ref Guid guid);
+        void ClearClientData();
+        void SetFilter(IntPtr filter);
+    }
+    [ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IShellItem {
+        void BindToHandler(IntPtr context, ref Guid handler, ref Guid iid, out IntPtr result);
+        void GetParent(out IShellItem parent);
+        void GetDisplayName(uint format, out IntPtr name);
+        void GetAttributes(uint mask, out uint attributes);
+        void Compare(IShellItem item, uint hint, out int order);
+    }
+    public static string Choose(IntPtr owner) {
+        IFileDialog dialog = (IFileDialog)new FileOpenDialog();
+        IShellItem result = null;
+        IntPtr path = IntPtr.Zero;
+        try {
+            // PICKFOLDERS | FORCEFILESYSTEM | PATHMUSTEXIST | NOCHANGEDIR | DONTADDTORECENT.
+            dialog.SetOptions(0x20 | 0x40 | 0x800 | 0x8 | 0x02000000);
+            dialog.SetTitle("Escolha a pasta do seu projeto");
+            dialog.SetOkButtonLabel("Selecionar pasta");
+            int status = dialog.Show(owner);
+            if (status == unchecked((int)0x800704C7)) return null;
+            Marshal.ThrowExceptionForHR(status);
+            dialog.GetResult(out result);
+            result.GetDisplayName(0x80058000, out path); // SIGDN_FILESYSPATH
+            return Marshal.PtrToStringUni(path);
+        } finally {
+            if (path != IntPtr.Zero) Marshal.FreeCoTaskMem(path);
+            if (result != null) Marshal.FinalReleaseComObject(result);
+            Marshal.FinalReleaseComObject(dialog);
+        }
+    }
+}
 
 // Local checkout launcher. The access credential exists only in process memory/environment.
 internal sealed class HydraLauncher : Form
@@ -203,15 +267,23 @@ internal sealed class HydraLauncher : Form
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
         try {
             if (Array.IndexOf(args,"--pick-folder") >= 0) {
-                using (var owner = new Form { Opacity=0, ShowInTaskbar=false, TopMost=true, Size=new Size(1,1) })
-                using (var picker = new FolderBrowserDialog { Description="Escolha a pasta do seu projeto", ShowNewFolderButton=false }) {
-                    owner.Show();
-                    if (picker.ShowDialog(owner)==DialogResult.OK) {
-                        byte[] pathBytes=Encoding.UTF8.GetBytes(picker.SelectedPath);
+                // Keep the modal owner in this helper process. A foreign launcher
+                // owner can remain disabled if the picker is terminated on timeout.
+                using (var owner = new Form { Text="Hydra — Selecionar pasta", ShowInTaskbar=true,
+                    StartPosition=FormStartPosition.CenterScreen, FormBorderStyle=FormBorderStyle.FixedDialog,
+                    MaximizeBox=false, MinimizeBox=false, ClientSize=new Size(420,90),
+                    BackColor=Color.FromArgb(20,20,20), ForeColor=Color.FromArgb(232,232,232) }) {
+                    owner.Controls.Add(new Label { Text="Escolha a pasta na janela do Windows.",
+                        Dock=DockStyle.Fill, TextAlign=ContentAlignment.MiddleCenter });
+                    owner.Show(); owner.Activate();
+                    string selected = NativeFolderPicker.Choose(owner.Handle);
+                    if (selected != null) {
+                        byte[] pathBytes=Encoding.UTF8.GetBytes(selected);
                         using (var output=Console.OpenStandardOutput()) output.Write(pathBytes,0,pathBytes.Length);
                     }
-                    owner.Close(); return 0;
+                    owner.Close();
                 }
+                return 0;
             }
             string root = FindRoot(args); int port = 8000; int portOption = Array.IndexOf(args,"--port");
             if (portOption >= 0) port = int.Parse(args[portOption+1]);

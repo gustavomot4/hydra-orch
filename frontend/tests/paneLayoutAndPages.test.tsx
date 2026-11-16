@@ -255,10 +255,9 @@ function setupFetchStub() {
     }
 
     if (url.includes('/v1/control-plane/runs') && method === 'GET') {
-      return new Response(
-        JSON.stringify({ items: [], total: 0, page: 1, size: 50, pages: 1 }),
-        { status: 200 },
-      );
+      return new Response(JSON.stringify({ items: [], total: 0, page: 1, size: 50, pages: 1 }), {
+        status: 200,
+      });
     }
 
     return new Response(JSON.stringify([]), { status: 200 });
@@ -300,10 +299,10 @@ describe('PaneLayout, NovoChatPage (18:8) and ConfigPerfilPage (18:454)', () => 
 
     const saved = window.localStorage.getItem('hydra_layout_state_v1');
     expect(saved).not.toBeNull();
-    expect(JSON.parse(saved!)).toMatchObject({ splitMode: 'split', sidebarWidth: 280 });
+    expect(JSON.parse(saved!)).toMatchObject({ splitMode: 'split', sidebarWidth: 240 });
   });
 
-  it('populates NovoChatPage (18:8) draft from quick action chips and exposes extensible composer slot', async () => {
+  it('starts without predefined prompt chips and preserves the editable composer slot', async () => {
     const user = userEvent.setup();
     useLayoutStore.getState().resetLayout();
     useAuthStore.getState().authenticate('valid-token', 'operator');
@@ -321,13 +320,50 @@ describe('PaneLayout, NovoChatPage (18:8) and ConfigPerfilPage (18:454)', () => 
     expect(screen.getByTestId('novo-chat-page')).toBeInTheDocument();
     expect(screen.getByTestId('novo-chat-composer-slot')).toBeInTheDocument();
 
-    const chip = screen.getByRole('button', { name: /Revise o código e encontre problemas/i });
-    await user.click(chip);
-
     const textarea = screen.getByLabelText('Sua mensagem');
-    expect(textarea).toHaveValue(
-      'Revise o código e encontre problemas',
-    );
+    expect(
+      screen.queryByRole('button', { name: /Revise o código e encontre problemas/i }),
+    ).not.toBeInTheDocument();
+    await user.type(textarea, 'Meu pedido escrito aqui');
+    expect(textarea).toHaveValue('Meu pedido escrito aqui');
+  });
+
+  it('opens the desktop folder picker directly and preserves the draft on cancel', async () => {
+    const user = userEvent.setup();
+    useLayoutStore.getState().resetLayout();
+    useAuthStore.getState().authenticate('valid-token', 'operator');
+    const baseFetch = setupFetchStub();
+    const fetchWithPicker = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/v1/launcher/pick-folder'))
+        return Promise.resolve(new Response(JSON.stringify({ path: null }), { status: 200 }));
+      return baseFetch(input, init);
+    });
+    vi.stubGlobal('fetch', fetchWithPicker);
+    const meta = document.createElement('meta');
+    meta.name = 'hydra-desktop';
+    document.head.append(meta);
+    try {
+      render(
+        <QueryClientProvider client={createHydraQueryClient()}>
+          <MemoryRouter>
+            <NovoChatPage />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      await user.type(screen.getByLabelText('Sua mensagem'), 'Preserve ao cancelar');
+      await user.click(screen.getByRole('button', { name: 'Adicionar pasta' }));
+      await waitFor(() =>
+        expect(
+          fetchWithPicker.mock.calls.filter(([url]) =>
+            String(url).endsWith('/v1/launcher/pick-folder'),
+          ),
+        ).toHaveLength(1),
+      );
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Sua mensagem')).toHaveValue('Preserve ao cancelar');
+    } finally {
+      meta.remove();
+    }
   });
 
   it('renders ConfigPerfilPage (18:454), updates preferences, displays honest capabilities and never leaks token hashes', async () => {

@@ -1,11 +1,8 @@
 import { FormEvent, useState } from 'react';
 import { ArrowRightLeft, Clock, Cpu, ShieldAlert, UserCheck } from 'lucide-react';
 import { StatusBadge } from '@/component/StatusBadge';
-import {
-  formatResetDisplay,
-  ProviderQuotaCardModel,
-  validateAccountIdentifier,
-} from './quotaApi';
+import { ModelCatalog } from './ModelCatalog';
+import { formatResetDisplay, ProviderQuotaCardModel, validateAccountIdentifier } from './quotaApi';
 
 export interface ProviderQuotaCardProps {
   card: ProviderQuotaCardModel;
@@ -66,8 +63,8 @@ export function ProviderQuotaCard({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold text-[#E8E8E8]">{card.displayName}</h2>
-            <p className="font-mono text-[11px] text-[#969696]">
-              {card.windowLabel} · fonte: {card.source}
+            <p className="text-xs text-[#969696]" title={`Fonte: ${card.source}`}>
+              {card.windowLabel}
             </p>
           </div>
           <StatusBadge status={card.status} />
@@ -115,7 +112,7 @@ export function ProviderQuotaCard({
                   data-testid={`provider-reset-at-${card.providerKey}`}
                   className="font-mono text-[#E8E8E8]"
                 >
-                  {resetInfo.label} ({resetInfo.isoTimestamp})
+                  {resetInfo.label}
                 </time>
               ) : (
                 <span className="font-mono text-[#E8E8E8]">{resetInfo.label}</span>
@@ -141,127 +138,128 @@ export function ProviderQuotaCard({
             </p>
           ) : (
             <div className="mt-1.5 flex flex-wrap gap-1">
-              {card.models.map((m) => (
+              {card.models.slice(0, 3).map((m) => (
                 <span
                   key={m.id}
-                  className="rounded border border-[#303030] bg-[#141414] px-1.5 py-0.5 font-mono text-[11px] text-[#E8E8E8]"
+                  title={m.id}
+                  className="max-w-full truncate rounded border border-[#303030] bg-[#141414] px-1.5 py-0.5 font-mono text-xs text-[#E8E8E8]"
                 >
                   {m.id}
                 </span>
               ))}
             </div>
           )}
+          {card.models.length > 0 && (
+            <ModelCatalog models={card.models} title={`Modelos · ${card.displayName}`} />
+          )}
         </div>
       </div>
 
-      <form
-        onSubmit={(e) => void handleSubmit(e)}
-        className="mt-4 space-y-2.5 border-t border-[#303030] pt-3"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-1.5">
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-[#E8E8E8]">
-            <ArrowRightLeft aria-hidden="true" className="h-3.5 w-3.5 text-[#969696]" />
-            <span>Conta OmniRoute</span>
-          </span>
-          <span className="rounded-md border border-[#3B82F6]/40 bg-[#3B82F6]/10 px-2 py-0.5 text-[10px] font-medium text-[#93C5FD]">
-            Aplica apenas às próximas execuções
-          </span>
-        </div>
-
-        {card.activeOverride ? (
-          <div
-            data-testid={`active-override-${card.providerKey}`}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#303030] bg-[#181818] px-2.5 py-1.5 text-[11px]"
-          >
-            <span className="inline-flex items-center gap-1 text-[#E8E8E8]">
-              <UserCheck aria-hidden="true" className="h-3.5 w-3.5 text-[#22C55E]" />
-              <span>
-                Próxima conta: <strong className="font-mono">{card.activeOverride.account_id}</strong>
-              </span>
+      <details className="quota-account-settings">
+        <summary>Conta para próximas execuções</summary>
+        <form
+          onSubmit={(e) => void handleSubmit(e)}
+          className="mt-4 space-y-2.5 border-t border-[#303030] pt-3"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-[#E8E8E8]">
+              <ArrowRightLeft aria-hidden="true" className="h-3.5 w-3.5 text-[#969696]" />
+              <span>Conta OmniRoute</span>
             </span>
-            <span className="font-mono text-[10px] text-[#969696]">
-              {card.activeOverride.applies_to}
+            <span className="rounded-md border border-[#3B82F6]/40 bg-[#3B82F6]/10 px-2 py-0.5 text-[10px] font-medium text-[#93C5FD]">
+              Aplica apenas às próximas execuções
             </span>
           </div>
-        ) : null}
 
-        {card.accounts.length > 0 ? (
+          {card.activeOverride ? (
+            <div
+              data-testid={`active-override-${card.providerKey}`}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#303030] bg-[#181818] px-2.5 py-1.5 text-[11px]"
+            >
+              <span className="inline-flex items-center gap-1 text-[#E8E8E8]">
+                <UserCheck aria-hidden="true" className="h-3.5 w-3.5 text-[#22C55E]" />
+                <span>
+                  Próxima conta:{' '}
+                  <strong className="font-mono">{card.activeOverride.account_id}</strong>
+                </span>
+              </span>
+              <span className="font-mono text-[10px] text-[#969696]">
+                {card.activeOverride.applies_to}
+              </span>
+            </div>
+          ) : null}
+
+          {card.accounts.length > 0 ? (
+            <div>
+              <label htmlFor={`account-select-${card.providerKey}`} className="sr-only">
+                Selecionar conta {card.displayName}
+              </label>
+              <select
+                id={`account-select-${card.providerKey}`}
+                value={resolvedSelectedAccount}
+                disabled={isUpdating}
+                onChange={(e) => {
+                  setSelectedAccountId(e.target.value);
+                  setValidationError(null);
+                }}
+                className="w-full rounded-lg border border-[#303030] bg-[#141414] px-2.5 py-1.5 text-xs text-[#E8E8E8]"
+              >
+                {card.accounts.map((acc) => (
+                  <option key={acc.account_id} value={acc.account_id}>
+                    {acc.label} ({acc.account_id}) ·{' '}
+                    {acc.remaining_percent !== null && acc.status !== 'unknown'
+                      ? `${Math.round(acc.remaining_percent)}%`
+                      : '—'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
           <div>
             <label
-              htmlFor={`account-select-${card.providerKey}`}
-              className="sr-only"
+              htmlFor={`account-input-${card.providerKey}`}
+              className="block text-[11px] text-[#969696]"
             >
-              Selecionar conta {card.displayName}
+              {card.accounts.length > 0
+                ? 'Ou informe outro account_id (sem segredos)'
+                : 'Identificador da conta (account_id, sem segredos)'}
             </label>
-            <select
-              id={`account-select-${card.providerKey}`}
-              value={resolvedSelectedAccount}
+            <input
+              id={`account-input-${card.providerKey}`}
+              type="text"
               disabled={isUpdating}
+              value={manualAccountId}
               onChange={(e) => {
-                setSelectedAccountId(e.target.value);
+                setManualAccountId(e.target.value);
                 setValidationError(null);
               }}
-              className="w-full rounded-lg border border-[#303030] bg-[#141414] px-2.5 py-1.5 text-xs text-[#E8E8E8]"
+              placeholder="ex.: conta-trabalho-1"
+              className="mt-1 w-full rounded-lg border border-[#303030] bg-[#141414] px-2.5 py-1.5 font-mono text-xs text-[#E8E8E8] placeholder:text-[#969696] focus:border-[#3B82F6] focus:outline-none"
+            />
+          </div>
+
+          {activeSecretWarning || validationError ? (
+            <div
+              role="alert"
+              data-testid={`account-error-${card.providerKey}`}
+              className="flex items-start gap-1.5 rounded-lg border border-[#EF4444]/40 bg-[#EF4444]/10 px-2.5 py-1.5 text-xs text-[#FCA5A5]"
             >
-              {card.accounts.map((acc) => (
-                <option key={acc.account_id} value={acc.account_id}>
-                  {acc.label} ({acc.account_id}) ·{' '}
-                  {acc.remaining_percent !== null && acc.status !== 'unknown'
-                    ? `${Math.round(acc.remaining_percent)}%`
-                    : '—'}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
+              <ShieldAlert aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{activeSecretWarning ?? validationError}</span>
+            </div>
+          ) : null}
 
-        <div>
-          <label
-            htmlFor={`account-input-${card.providerKey}`}
-            className="block text-[11px] text-[#969696]"
+          <button
+            type="submit"
+            disabled={isUpdating || effectiveCandidate.length === 0 || Boolean(activeSecretWarning)}
+            data-testid={`apply-account-${card.providerKey}`}
+            className="w-full rounded-lg border border-[#666] bg-[#141414] px-3 py-1.5 text-xs font-medium text-[#E8E8E8] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {card.accounts.length > 0
-              ? 'Ou informe outro account_id (sem segredos)'
-              : 'Identificador da conta (account_id, sem segredos)'}
-          </label>
-          <input
-            id={`account-input-${card.providerKey}`}
-            type="text"
-            disabled={isUpdating}
-            value={manualAccountId}
-            onChange={(e) => {
-              setManualAccountId(e.target.value);
-              setValidationError(null);
-            }}
-            placeholder="ex.: conta-trabalho-1"
-            className="mt-1 w-full rounded-lg border border-[#303030] bg-[#141414] px-2.5 py-1.5 font-mono text-xs text-[#E8E8E8] placeholder:text-[#969696] focus:border-[#3B82F6] focus:outline-none"
-          />
-        </div>
-
-        {activeSecretWarning || validationError ? (
-          <div
-            role="alert"
-            data-testid={`account-error-${card.providerKey}`}
-            className="flex items-start gap-1.5 rounded-lg border border-[#EF4444]/40 bg-[#EF4444]/10 px-2.5 py-1.5 text-xs text-[#FCA5A5]"
-          >
-            <ShieldAlert aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>{activeSecretWarning ?? validationError}</span>
-          </div>
-        ) : null}
-
-        <button
-          type="submit"
-          disabled={
-            isUpdating ||
-            effectiveCandidate.length === 0 ||
-            Boolean(activeSecretWarning)
-          }
-          data-testid={`apply-account-${card.providerKey}`}
-          className="w-full rounded-lg bg-[#E8E8E8] px-3 py-1.5 text-xs font-medium text-[#181818] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isUpdating ? 'Aplicando...' : 'Definir para próximas execuções'}
-        </button>
-      </form>
+            {isUpdating ? 'Aplicando...' : 'Definir para próximas execuções'}
+          </button>
+        </form>
+      </details>
     </article>
   );
 }

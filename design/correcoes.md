@@ -12,6 +12,8 @@ A escolha entre propostas também entra, porque vira calibração do gosto:
 
 <!-- kit-frontend:correcoes -->
 
+- 2026-11-15 | aprovação | “sim aprovo tudo, pode começar o build” | construir a composição compacta das três vistas, com painéis ajustáveis, hierarquia por projeto, catálogos limitados e compositor sem atalhos predefinidos | implementação autorizada da compactação
+
 - 2026-11-15 | densidade e espaço | “sistema apertado”, “tudo ... muito grande”, “aumentar ou diminuir ... ocultar ou mostrar” | propor uma composição de trabalho compacta, tamanhos independentes de interface/texto/editor, painéis ajustáveis e seções recolhíveis; preservar preto predominante e legibilidade | estudo visual antes do planejamento e implementação
 - 2026-11-15 | hierarquia e listas extensas | “conversas, pastas ... deveria poder ocultar”, “separados pelo seu pai”, “lista imensas ... modelos” | agrupar trabalho pelo projeto/pasta pai, expandir filhos sob demanda e limitar prévias de catálogos com abertura de lista pesquisável e paginada | propostas de sidebar, seleção de trabalho e cotas
 - 2026-11-15 | compositor, pastas e catálogo | “tire essas opções rápidas”, “tab ... próximo passo provável”, “setas ... últimos prompts”, “abrir o explorador”, “combos ... disponíveis ... demorando” | remover atalhos de prompts da proposta; prever sugestão discreta aceita por Tab e histórico com setas sem quebrar edição; priorizar seletor nativo de pasta; investigar latência do catálogo sem disparar inferência | estudo visual e diagnóstico, sem alterar produto nesta etapa

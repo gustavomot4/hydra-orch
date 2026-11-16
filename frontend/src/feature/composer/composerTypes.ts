@@ -216,6 +216,7 @@ export function replaceTriggerToken(
 }
 
 export interface PromptComposerProps {
+  completion?: string;
   toolbarStart?: ReactNode;
   draft?: string;
   onDraftChange?: (value: string) => void;

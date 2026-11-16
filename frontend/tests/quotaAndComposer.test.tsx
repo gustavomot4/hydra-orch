@@ -100,10 +100,9 @@ describe('PromptComposer (T33) and QuotaAccountsPage (7:279)', () => {
         );
       }
       if (url.includes('/v1/control-plane/runs')) {
-        return new Response(
-          JSON.stringify({ items: [], total: 0, page: 1, size: 50, pages: 1 }),
-          { status: 200 },
-        );
+        return new Response(JSON.stringify({ items: [], total: 0, page: 1, size: 50, pages: 1 }), {
+          status: 200,
+        });
       }
       return new Response(JSON.stringify([]), { status: 200 });
     });
@@ -306,15 +305,18 @@ describe('PromptComposer (T33) and QuotaAccountsPage (7:279)', () => {
     expect(within(geminiCard).queryByText('0%')).toBeNull();
 
     // Explicit badge "Aplica apenas às próximas execuções"
-    expect(screen.getAllByText('Aplica apenas às próximas execuções').length).toBeGreaterThanOrEqual(
-      1,
-    );
+    expect(
+      screen.getAllByText('Aplica apenas às próximas execuções').length,
+    ).toBeGreaterThanOrEqual(1);
 
     // Both endpoints GET /v1/control-plane/omniroute/inventory and GET /v1/quota were fetched
     const requestedUrls = fetchMock.mock.calls.map((c) => String(c[0]));
-    expect(requestedUrls.some((u) => u.includes('/v1/control-plane/omniroute/inventory'))).toBe(true);
+    expect(requestedUrls.some((u) => u.includes('/v1/control-plane/omniroute/inventory'))).toBe(
+      true,
+    );
     expect(requestedUrls.some((u) => u.endsWith('/v1/quota'))).toBe(true);
 
+    await user.click(within(claudeCard).getByText('Conta para próximas execuções'));
     // Client-side rejection of secret sk-... prefix without sending POST
     const claudeInput = within(claudeCard).getByPlaceholderText('ex.: conta-trabalho-1');
     await user.type(claudeInput, 'sk-ant-secret-999999');

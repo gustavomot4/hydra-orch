@@ -1,17 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  ArrowLeft,
-  ArrowRight,
   LayoutList,
   MessageSquarePlus,
   Network,
   RefreshCw,
   Search,
+  PanelRight,
 } from 'lucide-react';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useLayoutStore } from '@/store/layoutStore';
+import { PanelResizer } from '@/component/PanelResizer';
+import { ProjectWorkTree } from '@/feature/chat/ProjectWorkTree';
+import { useWorkspaceHierarchy } from '@/hook/useWorkspaceHierarchy';
 import { useLiveInvalidation } from '@/hook/useLiveInvalidation';
 import { ConversationSnapshot } from '@/feature/chat/conversationTypes';
 import { RunDetailSnapshot } from '@/feature/chat/chatTypes';
@@ -23,10 +25,16 @@ import './canvas.css';
 type Work = { id: string; title: string };
 export function AgentWorkspacePage() {
   const client = useControlPlaneClient();
+  const { projects } = useWorkspaceHierarchy();
+  const selectHierarchy = useLayoutStore((s) => s.selectHierarchy);
   const project = useLayoutStore((s) => s.selectedProjectId);
+  const inspectorWidth = useLayoutStore((s) => s.inspectorWidth);
+  const inspectorVisible = useLayoutStore((s) => s.inspectorVisible);
+  const statusBarVisible = useLayoutStore((s) => s.statusBarVisible);
+  const setAppearance = useLayoutStore((s) => s.setAppearance);
   const [params, setParams] = useSearchParams();
   const kind = params.has('execucao') ? 'runs' : 'chats';
-  const [page, setPage] = useState(0);
+  const page = 0;
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string | null>('coordinator');
   const [view, setView] = useState<'canvas' | 'list'>(() =>
@@ -40,19 +48,16 @@ export function AgentWorkspacePage() {
     heading.current?.focus();
   }, []);
   useEffect(() => {
-    setPage(0);
-  }, [project, kind]);
-  useEffect(() => {
     if (previousProject.current && previousProject.current !== project) setParams({});
     previousProject.current = project;
   }, [project, setParams]);
   const workList = useQuery({
-    queryKey: ['canvas-work', project, kind, page, search],
+    queryKey: ['canvas-work', project, kind, page],
     queryFn: async ({ signal }) => {
       const base = project ? `&project_id=${encodeURIComponent(project)}` : '';
       if (kind === 'chats')
         return client.request<{ items: Work[]; total: number }>(
-          `/v1/control-plane/conversations?limit=10&offset=${page * 10}&q=${encodeURIComponent(search)}${base}`,
+          `/v1/control-plane/conversations?limit=10&offset=${page * 10}${base}`,
           { signal },
         );
       const result = await client.request<{
@@ -137,11 +142,6 @@ export function AgentWorkspacePage() {
       id &&
       (kind === 'chats' ? conversation.isError && !conversation.data : run.isError && !run.data),
     );
-  const filtered =
-    workList.data?.items.filter(
-      (item) =>
-        kind !== 'runs' || item.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
-    ) ?? [];
   function choose(id: string, mode = kind) {
     setParams({ [mode === 'chats' ? 'chat' : 'execucao']: id });
     if (picker.current) picker.current.open = false;
@@ -161,80 +161,44 @@ export function AgentWorkspacePage() {
         </Link>
       </header>
       <div className="canvas-toolbar">
+        <button
+          className="canvas-icon-button"
+          aria-label={
+            inspectorVisible ? 'Ocultar detalhes dos agentes' : 'Mostrar detalhes dos agentes'
+          }
+          aria-pressed={inspectorVisible}
+          onClick={() => setAppearance({ inspectorVisible: !inspectorVisible })}
+        >
+          <PanelRight size={16} aria-hidden="true" />
+        </button>
         <span className="canvas-live" role="status">
           {live || runLive ? 'Ao vivo' : 'Atualização automática'}
         </span>
         <details ref={picker} className="canvas-work-picker">
           <summary>{title || 'Escolher pedido'}</summary>
           <div className="canvas-work-options">
-            <div className="canvas-switch" aria-label="Origem do trabalho">
-              <button
-                aria-pressed={kind === 'chats'}
-                onClick={() => {
-                  setSearch('');
-                  setPage(0);
-                  setParams({});
-                }}
-              >
-                Conversas
-              </button>
-              <button
-                aria-pressed={kind === 'runs'}
-                onClick={() => {
-                  setSearch('');
-                  setPage(0);
-                  setParams({ execucao: '' });
-                }}
-              >
-                Execuções
-              </button>
-            </div>
             <label className="canvas-search">
               <Search size={16} aria-hidden="true" />
               <input
                 type="search"
-                aria-label={kind === 'chats' ? 'Buscar pedido' : 'Buscar nesta página'}
-                placeholder={kind === 'chats' ? 'Buscar pedido…' : 'Buscar nesta página…'}
+                aria-label="Buscar projeto ou conversa"
+                placeholder="Buscar projeto ou conversa…"
                 value={search}
                 onChange={(event) => {
                   setSearch(event.target.value);
-                  if (kind === 'chats') setPage(0);
                 }}
               />
             </label>
-            {filtered.map((work) => (
-              <button
-                className="canvas-work-option"
-                key={work.id}
-                aria-pressed={work.id === id}
-                onClick={() => choose(work.id)}
-              >
-                {work.title}
-              </button>
-            ))}
-            {!filtered.length && !workList.isLoading && <p>Nenhum pedido encontrado.</p>}
-            {!!workList.data?.total && (
-              <div className="canvas-pagination">
-                <button
-                  aria-label="Página anterior de pedidos"
-                  disabled={page === 0}
-                  onClick={() => setPage((p) => p - 1)}
-                >
-                  <ArrowLeft size={16} />
-                </button>
-                <span>
-                  {page * 10 + 1}–{Math.min((page + 1) * 10, workList.data.total)} de{' '}
-                  {workList.data.total}
-                </span>
-                <button
-                  aria-label="Próxima página de pedidos"
-                  disabled={(page + 1) * 10 >= workList.data.total}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  <ArrowRight size={16} />
-                </button>
-              </div>
-            )}
+            <ProjectWorkTree
+              projects={projects}
+              search={search}
+              selectedId={id}
+              onChoose={(work) => {
+                previousProject.current = work.projectId;
+                selectHierarchy({ projectId: work.projectId, runId: work.id });
+                choose(work.id, work.kind);
+              }}
+            />
           </div>
         </details>
         <div className="canvas-switch" aria-label="Visualização do trabalho">
@@ -299,14 +263,20 @@ export function AgentWorkspacePage() {
               <button onClick={() => void run.refetch()}>Tentar novamente</button>
             </p>
           )}
-          <div className={`canvas-workbench ${selectedNode ? 'with-inspector' : ''}`}>
+          <div
+            className={`canvas-workbench ${selectedNode && inspectorVisible ? 'with-inspector' : ''}`}
+            style={{ '--inspector-width': `${inspectorWidth}px` } as CSSProperties}
+          >
             {view === 'canvas' ? (
               <AgentCanvas
                 key={workKey}
                 graph={graph}
                 workId={workKey}
                 selected={selected}
-                onSelect={setSelected}
+                onSelect={(id) => {
+                  setSelected(id);
+                  if (id) setAppearance({ inspectorVisible: true });
+                }}
               />
             ) : (
               <div className="agent-list" aria-label="Agentes deste trabalho">
@@ -317,7 +287,10 @@ export function AgentWorkspacePage() {
                       key={node.id}
                       className={`agent-list-item ${node.id === selected ? 'is-selected' : ''}`}
                       aria-pressed={node.id === selected}
-                      onClick={() => setSelected(node.id)}
+                      onClick={() => {
+                        setSelected(node.id);
+                        setAppearance({ inspectorVisible: true });
+                      }}
                     >
                       <span className={`canvas-status tone-${meta.tone}`}>
                         {meta.symbol} {meta.label}
@@ -332,21 +305,34 @@ export function AgentWorkspacePage() {
                 })}
               </div>
             )}
-            {selectedNode && (
+            {selectedNode && inspectorVisible && (
+              <PanelResizer
+                label="Redimensionar detalhes dos agentes"
+                value={inspectorWidth}
+                min={260}
+                max={640}
+                reversed
+                onChange={(inspectorWidth) => setAppearance({ inspectorWidth })}
+                onReset={() => setAppearance({ inspectorWidth: 320 })}
+              />
+            )}
+            {selectedNode && inspectorVisible && (
               <AgentInspector
                 node={selectedNode}
                 chat={kind === 'chats' ? conversation.data : undefined}
                 onClose={() => {
-                  setSelected(null);
+                  setAppearance({ inspectorVisible: false });
                   heading.current?.focus();
                 }}
               />
             )}
           </div>
-          <p className="canvas-provenance">
-            Linhas mostram tarefas, dependências e resultados registrados. Selecione um card para
-            inspecionar.
-          </p>
+          {statusBarVisible && (
+            <p className="canvas-provenance">
+              Linhas mostram tarefas, dependências e resultados registrados. Selecione um card para
+              inspecionar.
+            </p>
+          )}
         </>
       )}
     </div>

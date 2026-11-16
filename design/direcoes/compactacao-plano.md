@@ -1,8 +1,8 @@
 # Hydra — plano proposto para espaço, navegação e composição
 
-Data: 2026-11-15. Status: proposta, aguardando escolha visual; não autoriza ou comprova implementação. O pedido foi mostrar imagens primeiro e planejar em seguida. Foram apresentadas três cenas da mesma direção: área de trabalho, conversa/preferências e cotas. São mockups com dados fictícios, sem juízo externo e sem validação funcional. Preto predominante e laranja pontual seguem a preferência vigente; a marca atual será preservada.
+Data: 2026-11-15. Status: direção integralmente aprovada pelo dono em “sim aprovo tudo, pode começar o build”; construção autorizada e registrada no sistema visual. O pedido foi mostrar imagens primeiro e planejar em seguida. Foram apresentadas três cenas da mesma direção: área de trabalho, conversa/preferências e cotas, com dados fictícios e sem juízo externo. As imagens continuam sendo propostas, não evidência de funcionamento. O estado construído e os limites da rodada ficam no [manual Windows](../../doc/j_manual/iniciar_windows.md).
 
-Bases: [primeira ideia](compactacao-primeira-ideia.md), [diagnóstico com medição](compactacao-diagnostico.md), [correções do dono](../correcoes.md), [sistema visual](../../DESIGN.md). Após a escolha, registrar a composição aprovada em `DESIGN.md` e ajustar este plano. Não há mudança de backend, frontend ou launcher nesta entrega.
+Bases: [primeira ideia](compactacao-primeira-ideia.md), [diagnóstico com medição](compactacao-diagnostico.md), [correções do dono](../correcoes.md), [sistema visual](../../DESIGN.md). A aprovação foi registrada no `DESIGN.md`; esta rodada altera frontend, catálogo no backend e seleção nativa no launcher.
 
 ## 1. Densidade e painéis ajustáveis
 
