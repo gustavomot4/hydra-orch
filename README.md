@@ -22,7 +22,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src/launcher/build.ps1
 
 ## Estado da implementação
 
-O núcleo e o control plane dos **Marcos M1 a M4 (`T01`–`T28`, 204 SP, Gate `G-M4`)** estão implementados e validados em suíte hermética offline (`python -m pytest tests -q` → **568 testes aprovados**). O repositório entrega CLI estendida (`hydra` com comandos M1 + **21 subgrupos**), API FastAPI + SSE (`77` paths OpenAPI `3.0.3` com Bearer auth PBKDF2-SHA256, CORS estrito e redaction), persistência SQLite WAL (`migration/0001` + `0002`), isolamento em *Git worktrees*, modos **Swarm (Wave 0+1) / Relay / Persist**, pausas HITL, conflitos 3-way, orçamento 80%/100%, PR packaging, memória consentida, discovery opt-in, SecretRef/MCP, extensões isoladas, preferências/WCAG AA e túnel SSH estrito (`StrictHostKeyChecking=yes`). Permanecem fora da validação offline a certificação real de CLIs/provedores pagos (`driver-certification`, opt-in no CI) e o frontend Web UI (há apenas o contrato em [`doc/b_spc/a_ui/README.md`](doc/b_spc/a_ui/README.md)).
+Os **Marcos M1 a M5 (`T01`–`T38`, 38/38 tasks, 278 SP, Gates `G-M1` a `G-M5`)** estão concluídos conforme [`doc/a_context/backlog.md`](doc/a_context/backlog.md) e [`doc/a_context/roadmap.md`](doc/a_context/roadmap.md). A base M1–M4 (`T01`–`T28`, 204 SP) entrega CLI estendida (`hydra` com comandos M1 + **21 subgrupos**), API FastAPI + SSE (`77` paths OpenAPI `3.0.3` com Bearer auth PBKDF2-SHA256, CORS estrito e redaction), isolamento em *Git worktrees*, modos **Swarm (Wave 0+1) / Relay / Persist**, pausas HITL, conflitos 3-way, orçamento 80%/100%, PR packaging, memória consentida, discovery opt-in, SecretRef/MCP, extensões isoladas, preferências/WCAG AA e túnel SSH estrito (`StrictHostKeyChecking=yes`). O Marco M5 (`T29`–`T38`, 74 SP) adiciona **OmniRoute** como camada de roteamento de IA/quotas, **CLI Interativa (TUI)** em `src/hydra_orch/tui.py`, agendador durável (`scheduler.py`), PTY/ConPTY (`posix_pty` no POSIX e `windows_conpty` nativo no Windows com Job Object tree-kill e fallback `pipe_interactive_bridge`), anexos, preview/busca, módulos de conversação e coordenação, persistência SQLite WAL (`migration/0001_initial_core.sql` a `migration/0006_conversation_coordination.sql` com rollbacks em `migration/rollback/`) e a **GUI Control Plane em `frontend/`** (React/Vite/Vitest/Playwright + `axe-core`, fiel às 18 telas Figma e requisitos `UI01`–`UI11` em [`doc/b_spc/a_ui/README.md`](doc/b_spc/a_ui/README.md)). Permanece fora da validação offline hermética apenas a certificação real de CLIs/provedores pagos (`driver-certification`, opt-in no CI).
 
 Consulte a [configuração de runtime](doc/b_spc/configuracao_runtime.md) e o [backlog](doc/a_context/backlog.md) para os contratos e o estado de cada entrega.
 
@@ -195,25 +195,42 @@ hydra-orch/
 │   ├── i_infra/                    # Infraestrutura, túneis SSH e conectividade
 │   └── j_manual/                   # Manuais de operação, runbooks e guias
 
-├── migration/                      # DDL versionado SQLite (0001_initial_core.sql + 0002_control_plane.sql)
+├── frontend/                       # GUI Control Plane (React, Vite, Vitest, Playwright + axe-core)
+│   ├── package.json                # Dependências e scripts (dev, build, typecheck, lint, test, test:e2e)
+│   ├── vite.config.ts              # Build e proxy/configuração Vite
+│   ├── vitest.config.ts            # Configuração de testes unitários/componentes
+│   ├── playwright.config.ts        # Configuração E2E e acessibilidade WCAG AA
+│   ├── src/                        # App.tsx, component/, feature/, hook/, page/, store/, style/, type/
+│   └── tests/                      # Suíte Vitest e testes E2E (tests/e2e/)
+├── migration/                      # DDL versionado SQLite
+│   ├── 0001_initial_core.sql       # Núcleo inicial (runs, eventos, checkpoints)
+│   ├── 0002_control_plane.sql      # Control plane, áreas, perfis e sessões
+│   ├── 0003_ui_automation.sql      # Agendamentos duráveis e histórico de automações
+│   ├── 0004_conversation.sql       # Conversas e mensagens
+│   ├── 0005_conversation_route.sql # Rotas associadas a conversas
+│   ├── 0006_conversation_coordination.sql # Coordenação de conversas e workers
+│   └── rollback/                   # Scripts de reversão (0002 a 0006)
 ├── ws/                             # Espaço de trabalho operacional delimitado
 │   ├── README.md                   # Diretrizes gerais do workspace
 │   ├── a_input/                    # Entradas, briefs e contratos versionados
 │   │   └── README.md
 │   └── b_output/                   # Saídas locais e evidências (git-ignored)
 │       └── README.md
-├── tests/                          # Suíte offline hermética (568 testes: M1–M4, CI negativo, segurança, a11y)
-│   ├── test_ci_negative_gate.py    # Gate G-M4 (OpenAPI, CLI 21 grupos, negativos e WCAG AA)
-│   └── test_*.py                   # Unit, integração, controle Git, SSE, extensões, budget e CLI/API
+├── tests/                          # Suíte offline hermética Python (M1–M5, CI negativo, segurança, a11y, PTY, agenda, conversação)
+│   ├── test_ci_negative_gate.py    # Gate G-M4 (OpenAPI, CLI grupos, negativos e WCAG AA)
+│   └── test_*.py                   # Unit, integração, Git, SSE, OmniRoute, PTY/ConPTY, TUI, scheduler e conversação
 └── src/
+    ├── launcher/                   # Launcher Windows (HydraLauncher.cs e build.ps1 para Hydra.exe)
     └── hydra_orch/
         ├── __init__.py             # Inicialização do pacote
-        ├── cli.py                  # CLI Typer (M1 + 21 subgrupos, --json/--output, exit codes 0/1/2/3)
+        ├── cli.py                  # CLI Typer (M1 + subgrupos, TUI hydra watch/ui, --json/--output, exit codes 0/1/2/3)
         ├── config.py               # Loader e validação Pydantic estrita de config.yaml
+        ├── desktop_backend.py      # Suporte ao backend desktop/launcher
         ├── model.py                # Contratos canônicos, state machines e enums
-        ├── server.py               # FastAPI OpenAI-compatible + Control Plane & SSE (77 paths)
-        ├── core/                   # RunService, Checkpointer, Git/Conflict, Auth/Redaction, Memory/Discovery, Extensions, Budget/PR, A11y
-        ├── bridge/                 # WorkerRunner (cwd + tree kill), MCP, OmniRoute, SSH Tunnel, TransportRegistry, ExtensionRunner
+        ├── server.py               # FastAPI OpenAI-compatible + Control Plane & SSE
+        ├── tui.py                  # CLI Interativa de Orquestração (TUI ao vivo sobre RunService + SSE)
+        ├── core/                   # RunService, Checkpointer, Conversation (Service/Context/Coordinator/Route), Scheduler, RouteSelector, Attachments, SearchIndex, Git/Conflict, Auth/Redaction, Memory/Discovery, Extensions, Budget/PR, A11y
+        ├── bridge/                 # WorkerRunner (cwd + tree kill), PTYRunner, ConPTY, ConversationRunner, OmniRoute (Client/Daemon/Transport), MCP, SSH Tunnel, TransportRegistry, ExtensionRunner
         ├── engine/                 # Orquestração Swarm (Wave 0+1), Relay, Persist, Healer e Decomposer
         └── adapter/                # Conectores UI CDP, IDE Bridge, API Gateway e Local/Remote
 ```
@@ -225,13 +242,13 @@ Distribuído sob licença MIT. Consulte `LICENSE` para mais detalhes.
 
 ## Contexto de desenvolvimento e investigação
 
-Os marcos **M1 a M4 (`T01`–`T28`)** e o **Gate `G-M4`** foram concluídos e validados em testes herméticos offline (**568 testes**). Para próximos passos pós-M4 (certificação real de drivers externos, eventual frontend Web UI e ideias futuras em Parking Lot), consulte [`doc/a_context/roadmap.md`](doc/a_context/roadmap.md) e [`doc/a_context/ideia_futura.md`](doc/a_context/ideia_futura.md).
+Os marcos **M1 a M5 (`T01`–`T38`, 38/38 tasks, 278 SP)** e os **Gates `G-M1` a `G-M5`** foram concluídos, cobrindo núcleo local, control plane, Swarm Wave 0+1/Relay/Persist, governança, OmniRoute, TUI (`src/hydra_orch/tui.py`) e GUI Control Plane (`frontend/`). Para detalhamento de entregas, certificação opt-in de drivers externos e ideias exploratórias congeladas em Parking Lot, consulte [`doc/a_context/backlog.md`](doc/a_context/backlog.md), [`doc/a_context/roadmap.md`](doc/a_context/roadmap.md) e [`doc/a_context/ideia_futura.md`](doc/a_context/ideia_futura.md).
 
 O [plano de especificação e desenvolvimento](doc/a_context/plano_desenvolvimento.md) registra a revisão do checkout, as lacunas priorizadas e a sequência de entregas com critérios de aceite. O primeiro marco é uma tarefa local com executor, diff e checks verificáveis; a expansão para swarm, retomada e interface visual depende desses gates.
 
 Consulte [Contexto de orquestração e investigação do Alethe](doc/a_context/CONTEXTO-ORQUESTRACAO.md) para o protocolo de comunicação estudado, as evidências disponíveis, as lacunas observadas no Hydra e a sequência proposta de implementação. A referência distingue geração de texto de execução efetiva de agentes em workspaces. A taxonomia oficial do repositório está documentada em [doc/a_context/taxonomia_file_system.md](doc/a_context/taxonomia_file_system.md).
 
-Consulte também a [arquitetura Hydra + OmniRoute + interface visual](doc/g_code/architecture.md) e o [PRD técnico com contratos de execução](doc/b_spc/prd_tecnico.md). O Hydra pode usar o OmniRoute como gateway opcional; a interface visual será construída sobre a API do control plane, sem duplicar a lógica do backend.
+Consulte também a [arquitetura Hydra + OmniRoute + interface visual](doc/g_code/architecture.md) e o [PRD técnico com contratos de execução](doc/b_spc/prd_tecnico.md). O Hydra utiliza o OmniRoute como roteador opcional de IA/quotas, e a interface visual em `frontend/` consome a API do control plane sem duplicar a lógica do backend.
 
 ## Instruções para IAs e versionamento
 
