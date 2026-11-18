@@ -72,7 +72,9 @@ class ConversationRunner:
             driver = conversation["executor"]
             executable = await asyncio.to_thread(resolve_agent_executable, driver)
             if not executable:
-                raise ContractViolation("agent_unavailable", f"Instale {driver} e conecte sua conta antes de enviar novamente.")
+                raise ContractViolation("agent_unavailable", f"O executável de {driver} não foi encontrado no ambiente do backend. "
+                                        "Se o agente já está instalado, reinicie o Hydra para atualizar o PATH. "
+                                        "A autenticação ainda não foi verificada; o histórico foi preservado.")
             session = conversation.get("native_session_id")
             route = conversation.get('route') or {}
             target = route.get('target_ref', '')

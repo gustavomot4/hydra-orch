@@ -135,6 +135,21 @@ class CheckRunner:
         self.runtime_dir = Path(os.path.realpath(rt_candidate))
         self.default_timeout_seconds = default_timeout_seconds
 
+    def diagnostics(self, run_id, scope, results, *, tail_chars=2000):
+        """Bounded redacted excerpts from the canonical check logs."""
+        directory = self.runtime_dir/'run'/_sanitize_token(run_id)/'checks'/_sanitize_token(scope)
+        details = []
+        for result in results:
+            output = []
+            for stream in ('stdout', 'stderr'):
+                path = directory/(_sanitize_token(result.check_id)+'.'+stream+'.log')
+                if path.is_file():
+                    with path.open('rb') as log:
+                        log.seek(max(0, path.stat().st_size-tail_chars*4))
+                        output.append(redact_text(log.read().decode('utf-8', errors='replace')[-tail_chars:]))
+            details.append({**result.model_dump(mode='json'), 'output': '\n'.join(output)})
+        return details
+
     async def run_checks(
         self,
         *,
@@ -146,6 +161,7 @@ class CheckRunner:
         scope_prefix: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
         allowed_env: Optional[Mapping[str, str]] = None,
+        on_check: Optional[Callable] = None,
     ) -> Tuple[Tuple[CheckResult, ...], Tuple[Artifact, ...]]:
         """Execute a sequence of CheckSpecs and return (check_results, artifacts)."""
         ws_real = Path(os.path.realpath(workspace_path))
@@ -185,6 +201,7 @@ class CheckRunner:
             stderr_bytes = b""
             exit_code = -1
             proc: Optional[asyncio.subprocess.Process] = None
+            communication = None
 
             try:
                 kwargs: Dict[str, Any] = {
@@ -200,8 +217,9 @@ class CheckRunner:
                     kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
 
                 proc = await asyncio.create_subprocess_exec(*spec.command, **kwargs)
+                communication = asyncio.create_task(proc.communicate())
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(),
+                    asyncio.shield(communication),
                     timeout=effective_timeout,
                 )
                 exit_code = int(proc.returncode if proc.returncode is not None else 1)
@@ -209,10 +227,17 @@ class CheckRunner:
                 if proc is not None and proc.pid:
                     await cancel_process_tree(proc.pid)
                     await proc.wait()
+                if communication is not None:
+                    await asyncio.gather(communication, return_exceptions=True)
                 raise
             except asyncio.TimeoutError:
                 if proc is not None and proc.pid:
                     await cancel_process_tree(proc.pid)
+                if communication is not None:
+                    try:
+                        stdout_bytes, stderr_bytes = await asyncio.wait_for(communication, timeout=5)
+                    except asyncio.TimeoutError:
+                        pass
                 stderr_bytes = (
                     stderr_bytes
                     + f"\nCheck '{spec.check_id}' timed out after {effective_timeout}s\n".encode("utf-8")
@@ -270,6 +295,8 @@ class CheckRunner:
                     stderr_artifact_id=stderr_art.artifact_id,
                 )
             )
+            if on_check is not None:
+                await on_check(results[-1], (stdout_art, stderr_art))
 
         return tuple(results), tuple(artifacts)
 
@@ -968,6 +995,9 @@ class RunService:
                         ws_record.status = "preserved"
                         await git_ws.save_workspace_record(ws_record)
                         failed_ids = ", ".join(c.check_id for c in failed_checks)
+                        diagnostic = '\n'.join(
+                            f"{c['check_id']}: exit {c['exit_code']}\n{c['output']}"
+                            for c in chk_runner.diagnostics(run_id, attempt_id, failed_checks))
                         result = TaskResult(
                             result_id=result_id,
                             attempt_id=attempt_id,
@@ -976,7 +1006,7 @@ class RunService:
                             process_status=finished_attempt.process_status,
                             exit_code=finished_attempt.exit_code,
                             task_status=TaskStatus.FAILED,
-                            summary=f"Acceptance checks failed: {failed_ids}",
+                            summary=f"Acceptance checks failed: {failed_ids}\n{diagnostic}"[:8000],
                             simulated=False,
                             patch_commit_sha=diff_art.patch_commit_sha,
                             patch_artifact_id=diff_art.artifact.artifact_id,

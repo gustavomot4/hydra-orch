@@ -10,6 +10,7 @@
 ---
 
 Guia de diagnóstico: [temporários isolados do Codex via OmniRoute](codex_temporario_isolado.md).
+Guia de operação: [checkup e diagnóstico da coordenação](checkup_coordenado.md).
 
 ## 0. Manual Operacional M1–M5 (Superfície Validada em T01–T38)
 

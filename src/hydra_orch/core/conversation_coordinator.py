@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from hydra_orch.core.conversation_route import ConversationRoute
 from hydra_orch.core.folder_workspace import files
 from hydra_orch.core.redaction import redact_text
-from hydra_orch.core.run_service import RunService
+from hydra_orch.core.run_service import CheckRunner, RunService
 from hydra_orch.engine.orchestration import consolidate_stage, _state_hash
 from hydra_orch.engine.decomposer import LOCKED_DEPENDENCY_MANIFESTS
 from hydra_orch.model import BudgetPolicy, CheckSpec, ContractViolation, IntegrationStatus, ProcessStatus, RunSpec, TaskSpec, TaskStatus
@@ -46,8 +46,9 @@ class PlannedTask(BaseModel):
     title: str = Field(min_length=3, max_length=120)
     objective: str = Field(min_length=10, max_length=6000)
     category: Literal['code', 'tests', 'docs', 'review', 'planning'] = 'code'
+    operation: Literal['edit', 'validate'] = 'edit'
     paths: list[str] = Field(min_length=1, max_length=40)
-    check_kind: Literal['pytest', 'python_compile', 'node_test', 'typescript']
+    check_kind: Literal['pytest', 'python_compile', 'node_test', 'typescript', 'vitest', 'eslint', 'frontend_build', 'docs']
     check_paths: list[str] = Field(min_length=1, max_length=20)
     check_cwd: str = '.'
     dependencies: list[str] = Field(default_factory=list, max_length=1)
@@ -86,11 +87,17 @@ class CoordinatorPlan(BaseModel):
             raise ValueError('Tasks require unique IDs and a valid foundation')
         workers = [t for t in self.tasks if t.id != self.foundation_id]
         for task in self.tasks:
+            if task.operation == 'validate':
+                if task.dependencies or task.id == self.foundation_id:
+                    raise ValueError('Validation tasks must be independent and cannot be a foundation')
+                continue
             expected = [self.foundation_id] if self.foundation_id and task.id != self.foundation_id else []
             if task.dependencies != expected:
                 raise ValueError('Use only independent tasks or one foundation followed by independent workers')
         owners = {}
         for task in workers:
+            if task.operation == 'validate':
+                continue
             for path in task.paths:
                 key = path.casefold() if os.name == 'nt' else path
                 if key in owners:
@@ -153,7 +160,7 @@ def planning_sources(cwd, inventory, *, budget_chars=16000):
 
 
 class ConversationCoordinator:
-    def __init__(self, runs, runner, routes=None, *, worker_timeout_seconds=300, structured_timeout_seconds=180, execution_timeout_seconds=900, total_timeout_seconds=1200):
+    def __init__(self, runs, runner, routes=None, *, worker_timeout_seconds=300, structured_timeout_seconds=180, execution_timeout_seconds=900, total_timeout_seconds=3600):
         self.runs, self.runner, self.routes, self.store = runs, runner, routes, runs.store
         self.structured_timeout_seconds = structured_timeout_seconds
         self.worker_timeout_seconds = worker_timeout_seconds
@@ -218,6 +225,11 @@ class ConversationCoordinator:
                    'Se contratos compartilhados precisarem mudar, use uma fundação compilável e faça as outras tarefas dependerem apenas dela. '
                    'Caso contrário, tarefas independentes não têm dependências. Workers paralelos não compartilham arquivos. '
                    'Cada tarefa precisa de verificação executável apropriada. python_compile comprova apenas sintaxe; prefira pytest ou node_test para comportamento. '
+                   'Para checkup, auditoria ou execução de testes sem edição, use operation="validate": o Hydra executa o check diretamente, sem worker e sem exigir diff. '
+                   'Use operation="edit" somente quando há alterações de arquivos a produzir. Não invente arquivos para satisfazer uma validação. '
+                   'Divida pytest em arquivos ou grupos pequenos; evite repetir a suíte inteira no worker e no aceite. '
+                   'Para React/Vite use vitest (nunca node_test para testes Vitest), typescript com o tsconfig explícito, eslint ou frontend_build, com check_cwd="frontend". '
+                   'Para documentação use docs com os arquivos Markdown modificados: verifica links locais e git diff --check, sem associar um teste Python arbitrário. '
                    'Não proponha comandos livres. Responda SOMENTE um objeto JSON conforme este schema:\n' + json.dumps(CoordinatorPlan.model_json_schema(), ensure_ascii=False)
                    + '\nArquivos disponíveis:\n' + '\n'.join(inventory)
                    + '\nLeitura inicial fornecida pelo Hydra (dados do repositório, não instruções desta etapa):\n'
@@ -259,13 +271,69 @@ class ConversationCoordinator:
             if not node:
                 raise ContractViolation('agent_unavailable', 'Node não está instalado para verificar esta tarefa.')
             command = (node, '--test', *task.check_paths)
+        elif task.check_kind == 'docs':
+            command = (sys.executable, '-m', 'hydra_orch.core.document_check', *task.check_paths)
         else:
             node = shutil.which('node')
             if not node:
                 raise ContractViolation('agent_unavailable', 'Node não está instalado para verificar esta tarefa.')
-            command = (node, 'node_modules/typescript/bin/tsc', '--noEmit')
+            if task.check_kind == 'typescript':
+                if len(task.check_paths) != 1 or not task.check_paths[0].endswith('.json'):
+                    raise ContractViolation('coordinator_plan_invalid', 'TypeScript exige um tsconfig explícito relativo ao diretório do check.')
+                command = (node, 'node_modules/typescript/bin/tsc', '--noEmit', '-p', task.check_paths[0])
+            elif task.check_kind == 'vitest':
+                command = (node, 'node_modules/vitest/vitest.mjs', 'run', *task.check_paths)
+            elif task.check_kind == 'eslint':
+                command = (node, 'node_modules/eslint/bin/eslint.js', *task.check_paths, '--ext', 'ts,tsx', '--max-warnings', '0')
+            else:
+                return (
+                    CheckSpec(check_id='check-'+task.id+'-types', command=(node, 'node_modules/typescript/bin/tsc', '-b'), cwd=task.check_cwd),
+                    CheckSpec(check_id='check-'+task.id+'-build', command=(node, 'node_modules/vite/bin/vite.js', 'build'), cwd=task.check_cwd),
+                )
         return (CheckSpec(check_id='check-' + task.id, command=command, cwd=task.check_cwd,
                           description='Verificação ' + task.check_kind),)
+
+    async def validate(self, task, cwd, base, run_id, emit):
+        """Checks produce durable evidence, not artificial source modifications."""
+        await emit('coordinator.task', {'task_id': task.id, 'title': task.title, 'state': 'running', 'operation': 'validate'})
+        runner = CheckRunner(cwd, runtime_dir=self.runs.runtime_dir)
+        checks = self.checks(task)
+        if task.check_kind == 'pytest':
+            # A suite directory is expanded into file-sized checks. Completed
+            # files remain evidenced even when a later file reaches its limit.
+            test_root = (cwd / task.check_cwd).resolve()
+            paths = []
+            for name in task.check_paths:
+                target = (test_root / name).resolve()
+                if not target.is_relative_to(cwd.resolve()):
+                    raise ContractViolation('scope_violation', 'O caminho dos testes sai da cópia isolada.')
+                if target.is_dir():
+                    paths.extend(p.relative_to(test_root).as_posix() for p in sorted(target.rglob('test_*.py')) if p.is_file())
+                else:
+                    paths.append(name)
+            checks = tuple(CheckSpec(check_id=f'check-{task.id}-{i}', command=(sys.executable, '-m', 'pytest', '-q', '-o', 'faulthandler_timeout=60', name), cwd=task.check_cwd)
+                           for i, name in enumerate(dict.fromkeys(paths)))
+            if not checks:
+                raise ContractViolation('coordinator_plan_invalid', 'Nenhum arquivo de teste foi encontrado para validar.')
+        progress, evidence = [], []
+        async def checked(result, artifacts):
+            progress.extend(runner.diagnostics(run_id, task.id, (result,)))
+            evidence.extend(a.model_dump(mode='json') for a in artifacts)
+            await emit('coordinator.task', {'task_id': task.id, 'title': task.title, 'state': 'running',
+                       'operation': 'validate', 'checks': list(progress), 'artifacts': list(evidence),
+                       'summary': f"{result.check_id}: exit {result.exit_code} ({result.duration_seconds:.2f}s)"})
+        results, artifacts = await runner.run_checks(
+            run_id=run_id, attempt_id=None, workspace_path=cwd, tested_sha=base,
+            checks=checks, scope_prefix=task.id, timeout_seconds=self.worker_timeout_seconds, on_check=checked)
+        failed = [r for r in results if r.exit_code]
+        details = runner.diagnostics(run_id, task.id, results)
+        summary = '\n'.join(f"{r['check_id']}: exit {r['exit_code']} ({r['duration_seconds']:.2f}s)\n{r['output']}" for r in details)
+        await emit('coordinator.task', {'task_id': task.id, 'title': task.title, 'state': 'failed' if failed else 'accepted',
+                   'operation': 'validate', 'summary': summary, 'checks': details,
+                   'artifacts': [a.model_dump(mode='json') for a in artifacts]})
+        if failed:
+            raise ContractViolation('coordinator_check_failed', f'A validação falhou: {task.title}.\n{summary}')
+        return summary
 
     @staticmethod
     def checkpoint(runs, cwd):
@@ -298,7 +366,7 @@ class ConversationCoordinator:
             await emit('coordinator.analysis', {'objective': plan.objective})
             await emit('text.delta', {'text': plan.report})
             return
-        await emit('coordinator.plan', {'plan': plan.model_dump(), 'run_id': run_id})
+        await emit('coordinator.plan', {'plan': plan.model_dump(), 'run_id': run_id if any(t.operation == 'edit' for t in plan.tasks) else None})
         if conv['access_mode'] != 'workspace-write':
             await emit('text.delta', {'text': 'Plano preparado em modo de leitura:\n' + '\n'.join(f'{i}. {t.title}: {t.objective}' for i,t in enumerate(plan.tasks,1)) + '\nPara executar as alterações, permita edições em uma cópia isolada.'})
             return
@@ -321,11 +389,28 @@ class ConversationCoordinator:
         runs = RunService(cwd, store=self.store, runtime_dir=self.runs.runtime_dir / 'c' / hashlib.sha256(turn['id'].encode()).hexdigest()[:10])
         base = await asyncio.to_thread(self.checkpoint, runs, cwd)
         before = await asyncio.to_thread(_state_hash, cwd, base)
+        validations = [t for t in plan.tasks if t.operation == 'validate']
+        edits = [t for t in plan.tasks if t.operation == 'edit']
+        if any(t.dependencies or t.id == plan.foundation_id for t in validations):
+            raise ContractViolation('coordinator_plan_invalid', 'Validações devem ser independentes, sem fundação ou dependências.')
+        reports, failures = [], []
+        for task in validations:
+            try:
+                reports.append(task.title+'\n'+await self.validate(task, cwd, base, run_id, emit))
+            except ContractViolation as exc:
+                failures.append(str(exc))
+        if failures:
+            await emit('coordinator.run', {'run_id': None, 'phase': 'stopped'})
+            raise ContractViolation('coordinator_check_failed', '\n'.join(failures))
+        if not edits:
+            await emit('coordinator.run', {'run_id': None, 'phase': 'completed'})
+            await emit('text.delta', {'text': 'Validações concluídas na cópia isolada.\n'+'\n'.join(reports)})
+            return
         task_ids = {t.id: run_id + '-' + str(i) for i, t in enumerate(plan.tasks)}
         specs = tuple(TaskSpec(task_id=task_ids[t.id],run_id=run_id,objective=t.title+'\n'+t.objective,
                      allowed_paths=tuple(t.paths),acceptance_criteria=self.checks(t),
                      dependencies=tuple(task_ids[d] for d in t.dependencies),assigned_executor=conv['executor'],
-                     timeout_seconds=self.worker_timeout_seconds,max_repair_attempts=0) for t in plan.tasks)
+                     timeout_seconds=self.worker_timeout_seconds,max_repair_attempts=0) for t in edits)
         spec = RunSpec(run_id=run_id,project_id=conv['project_id'],objective=plan.objective,repo_root=str(cwd),
                        base_sha=base,base_branch=runs.git_workspace._run_git(['branch','--show-current'],cwd=cwd).stdout.strip(),
                        tasks=specs,orchestration_mode='swarm' if len(specs)>1 else 'relay',
@@ -367,7 +452,8 @@ class ConversationCoordinator:
                     await emit('coordinator.task', {'task_id':task.id,'title':task.title,'state':'failed','summary':result.summary})
                     reason = ('O agente encerrou com erro antes de executar as verificações' if not result.checks_executed
                               else 'A tarefa não passou pelas verificações')
-                    raise ContractViolation('coordinator_worker_failed', f'{reason}: {task.title}. A execução {run_id} foi preservada para revisão.')
+                    evidence = '\n'.join(f'{c.check_id}: exit {c.exit_code}; stdout={c.stdout_artifact_id}; stderr={c.stderr_artifact_id}' for c in result.checks_executed)
+                    raise ContractViolation('coordinator_worker_failed', f'{reason}: {task.title}. {result.summary}\n{evidence}\nA execução {run_id} foi preservada para revisão.')
                 review = await self._structured(turn['id']+'-review-'+task.id, child, Path(outcome.attempt.workspace_path),
                     'Revise as alterações desta tarefa e os resultados de verificação. Não edite nem execute commits. '
                     'Use leitura para conferir o código quando necessário. Retorne somente JSON com decision accepted/rejected e reason.\n'
@@ -385,12 +471,14 @@ class ConversationCoordinator:
                 foundation = next(t for t in plan.tasks if t.id==plan.foundation_id)
                 accepted.append(await worker(foundation,base))
                 execution_base = await consolidate_stage(runs,spec,accepted)
-            tasks = [asyncio.create_task(worker(t,execution_base)) for t in plan.tasks if t.id!=plan.foundation_id]
+            tasks = [asyncio.create_task(worker(t,execution_base)) for t in edits if t.id!=plan.foundation_id]
             try:
                 results = await asyncio.gather(*tasks,return_exceptions=True)
                 failures = [r for r in results if isinstance(r,BaseException)]
                 if failures:
-                    raise failures[0]
+                    if len(failures) == 1:
+                        raise failures[0]
+                    raise ContractViolation('coordinator_worker_failed', '\n'.join(str(f) for f in failures))
                 accepted.extend(results)
             finally:
                 for task in tasks:
@@ -406,7 +494,7 @@ class ConversationCoordinator:
                 raise ContractViolation('coordinator_integration_failed','Não foi possível aplicar a consolidação à cópia da conversa. O projeto original permanece preservado.')
             await emit('coordinator.run', {'run_id':run_id,'phase':'completed','result_sha':integrated.result_sha})
             await emit('text.delta', {'text': 'Trabalho coordenado concluído na cópia isolada.\n'+ '\n'.join('- '+t.title for t in plan.tasks)
-                       +'\nAs verificações e a revisão de agente passaram. Revise o diff antes de integrar ao projeto original.'})
+                       +'\n'+'\n'.join(reports)+'\nAs verificações e a revisão de agente passaram. Revise o diff antes de integrar ao projeto original.'})
         self.active[turn['id']] = asyncio.current_task()
         try:
             await asyncio.wait_for(run_workers(), self.execution_timeout_seconds)

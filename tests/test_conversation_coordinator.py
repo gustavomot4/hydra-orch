@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from test_conversation import service, create, ControlledRunner
-from hydra_orch.core.conversation_coordinator import AgentReview, CoordinatorPlan, ConversationCoordinator, planning_sources
+from hydra_orch.core.conversation_coordinator import AgentReview, CoordinatorPlan, ConversationCoordinator, PlannedTask, planning_sources
 from hydra_orch.core.run_service import RunService
 from hydra_orch.model import ContractViolation
 
@@ -232,6 +232,85 @@ async def test_failed_worker_checks_preserve_results_without_integration(service
     assert 'verificações' in snapshot['turns'][0]['error']
     assert not (Path(snapshot['workspace_path'])/'a.py').exists()
     assert snapshot['turns'][0]['coordination']['phase']=='stopped'
+    assert 'SyntaxError' in snapshot['turns'][0]['error']
+    assert 'exit 1' in snapshot['turns'][0]['error']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('broken', [False, True])
+async def test_validation_only_runs_real_checks_without_worker_patch_or_integration(service, tmp_path, broken):
+    if broken:
+        readme = service.runs.repo_root/'README.md'
+        readme.write_text('# Broken\n[Missing](missing-file.md)\n', encoding='utf-8')
+        subprocess.run(['git', 'add', 'README.md'], cwd=service.runs.repo_root, check=True)
+        subprocess.run(['git', 'commit', '-m', 'broken fixture'], cwd=service.runs.repo_root, check=True, capture_output=True)
+    validation = {**task('check-docs'), 'operation': 'validate', 'category': 'review',
+                  'paths': ['README.md'], 'check_kind': 'docs', 'check_paths': ['README.md']}
+    runner = CoordinatedCLI({'objective': 'Check existing documentation without edits', 'tasks': [validation]}, tmp_path/'never-start')
+    async def unexpected(*args, **kwargs):
+        pytest.fail('Validation must not launch a coding worker')
+    runner.invocation = unexpected
+    service.runner = runner
+    cid, _ = await create(service, execution_mode='swarm', access_mode='workspace-write')
+    await service._execute(await service.claim())
+    turn = (await service.snapshot(cid))['turns'][0]
+    assert turn['state'] == ('failed' if broken else 'completed'), turn['error']
+    assert not turn['diff']
+    assert not turn['coordination']['run_id']
+    evidence = turn['coordination']['tasks']['check-docs']
+    assert evidence['operation'] == 'validate'
+    assert evidence['checks'][0]['exit_code'] == int(broken)
+    assert evidence['artifacts']
+    assert not (tmp_path/'never-start').exists()
+    if broken:
+        assert 'missing-file.md' in turn['error']
+    else:
+        assert 'Local Markdown links' in turn['response']
+
+
+def test_frontend_checks_use_project_tools_and_explicit_tsconfig(monkeypatch):
+    monkeypatch.setattr('hydra_orch.core.conversation_coordinator.shutil.which', lambda _: 'node')
+    spec = PlannedTask(**{**task('types'), 'check_kind': 'typescript', 'check_paths': ['tsconfig.json'], 'check_cwd': 'frontend'})
+    check = ConversationCoordinator.checks(spec)[0]
+    assert check.command[-2:] == ('-p', 'tsconfig.json')
+    assert check.cwd == 'frontend'
+    vitest = spec.model_copy(update={'check_kind': 'vitest', 'check_paths': ['tests']})
+    assert ConversationCoordinator.checks(vitest)[0].command == ('node', 'node_modules/vitest/vitest.mjs', 'run', 'tests')
+
+
+@pytest.mark.asyncio
+async def test_mixed_plan_validates_then_integrates_only_the_edit(service, tmp_path):
+    validation = {**task('check-docs'), 'operation': 'validate', 'paths': ['README.md'],
+                  'check_kind': 'docs', 'check_paths': ['README.md']}
+    service.runner = CoordinatedCLI({'objective': 'Validate documentation then implement',
+        'tasks': [validation, task('foundation')]}, tmp_path/'workers')
+    cid, _ = await create(service, execution_mode='swarm', access_mode='workspace-write')
+    await service._execute(await service.claim())
+    snapshot = await service.snapshot(cid)
+    turn = snapshot['turns'][0]
+    assert turn['state'] == 'completed', turn['error']
+    assert 'foundation.py' in turn['diff']
+    assert turn['coordination']['tasks']['check-docs']['checks'][0]['exit_code'] == 0
+    run = await service.store.get_run(turn['coordination']['run_id'])
+    assert len(run['spec'].tasks) == 1
+    assert run['status'] == 'succeeded'
+
+
+@pytest.mark.asyncio
+async def test_validation_splits_pytest_directory_into_evidenced_file_checks(service, tmp_path):
+    directory = tmp_path/'isolated'
+    (directory/'tests').mkdir(parents=True)
+    for name in ['one', 'two']:
+        (directory/'tests'/f'test_{name}.py').write_text('def test_ok():\n    assert 2 + 2 == 4\n', encoding='utf-8')
+    coordinator = ConversationCoordinator(service.runs, ControlledRunner())
+    validation = PlannedTask(**{**task('suite'), 'operation': 'validate', 'check_kind': 'pytest', 'check_paths': ['tests']})
+    events = []
+    async def emit(kind, payload):
+        events.append((kind, payload))
+    await coordinator.validate(validation, directory, 'a'*40, 'cr-file-checks', emit)
+    checks = events[-1][1]['checks']
+    assert len(checks) == 2 and all(c['exit_code'] == 0 for c in checks)
+    assert {c['command'][-1] for c in checks} == {'tests/test_one.py', 'tests/test_two.py'}
 
 
 @pytest.mark.asyncio

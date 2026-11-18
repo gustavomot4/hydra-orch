@@ -15,5 +15,11 @@ export default defineConfig({
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.{ts,tsx}'],
     css: true,
+    // Bound jsdom process pressure on desktop machines also running the backend
+    // and browser checks. More workers made navigation tests exceed 5 seconds.
+    maxWorkers: 2,
+    minWorkers: 1,
+    // These include multi-step app flows, not only isolated unit functions.
+    testTimeout: 15_000,
   },
 });

@@ -266,10 +266,12 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await expect(page.getByRole('button', { name: /^Pasta:/ })).toContainText('plain-folder');
     await page.getByLabel('Sua mensagem').fill('Leia o README desta pasta sem Git');
     await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+    // Includes startup of a real CLI subprocess on Windows. Wait for its
+    // durable terminal state before asserting the completed response.
+    await expect(page.getByText('Resposta concluída', { exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(
       page.getByTestId('conversation-turn-1').getByTestId('agent-response'),
     ).toContainText('Segundo, inicie');
-    await expect(page.getByText('Resposta concluída', { exact: true })).toBeVisible();
   });
   test('keeps a responsive WebSocket terminal while resizing its viewport', async ({ page }) => {
     await loginControlPlane(page);
