@@ -14,7 +14,11 @@ import uuid
 from pydantic import TypeAdapter, ValidationError
 
 from hydra_orch.core.checkpointer import ExecutionStore, OptimisticLockError
-from hydra_orch.core.git_workspace import GitWorkspaceService
+from hydra_orch.core.git_workspace import (
+    GitWorkspaceService,
+    is_link_or_junction,
+    win_long_path,
+)
 from hydra_orch.core.identifier import new_id
 from hydra_orch.core.redaction import redact
 from hydra_orch.model import AbsolutePath, ContractViolation, GitSha, RelativePath
@@ -35,6 +39,26 @@ def _scopes(values: Sequence[str]) -> tuple[str, ...]:
     return tuple(sorted(set(values)))
 
 
+def _matches_allowed_scope(rel_posix: str, patterns: Sequence[str]) -> bool:
+    norm_path = rel_posix.replace("\\", "/").strip("/")
+    check_path = norm_path.casefold() if os.name == "nt" else norm_path
+    for raw_pat in patterns:
+        pat = raw_pat.replace("\\", "/").strip("/")
+        if not pat:
+            continue
+        if os.name == "nt":
+            pat = pat.casefold()
+        if pat in {"**/*", "**", "*"}:
+            return True
+        if fnmatch.fnmatchcase(check_path, pat):
+            return True
+        if pat.endswith("/**"):
+            prefix = pat[:-3].rstrip("/")
+            if check_path == prefix or check_path.startswith(f"{prefix}/"):
+                return True
+    return False
+
+
 class WorkspaceRegistry:
     """Local service; principals are supplied by an authenticated caller, never inferred.
 
@@ -44,11 +68,17 @@ class WorkspaceRegistry:
 
     def __init__(self, store: ExecutionStore, *, allowed_roots: Sequence[Union[str, Path]]):
         self.store = store
-        try:
-            self.allowed_roots = tuple(self._absolute(root).resolve(strict=True) for root in allowed_roots)
-        except OSError:
-            raise ContractViolation("workspace_invalid", "Configured allowlist roots must exist") from None
-        if not self.allowed_roots or any(not root.is_dir() for root in self.allowed_roots):
+        resolved_roots = []
+        for root in allowed_roots:
+            abs_root = self._absolute(root)
+            if is_link_or_junction(abs_root):
+                raise ContractViolation("workspace_invalid", "Configured allowlist roots must not be symlinks or junctions")
+            try:
+                resolved_roots.append(abs_root.resolve(strict=True))
+            except OSError:
+                raise ContractViolation("workspace_invalid", "Configured allowlist roots must exist") from None
+        self.allowed_roots = tuple(resolved_roots)
+        if not self.allowed_roots or any(not win_long_path(root).is_dir() for root in self.allowed_roots):
             raise ContractViolation("workspace_invalid", "Configure existing root directories explicitly")
 
     @staticmethod
@@ -60,10 +90,26 @@ class WorkspaceRegistry:
             raise ContractViolation("workspace_invalid", "Expected an absolute path without traversal") from None
 
     def _canonical_root(self, value: Union[str, Path]) -> Path:
-        candidate = self._absolute(value).resolve()
-        if not any(candidate == root or root in candidate.parents for root in self.allowed_roots):
+        raw_path = self._absolute(value)
+        if is_link_or_junction(raw_path):
+            logger.warning("Registry rejected a symlink or junction repository root")
+            raise ContractViolation("authorization_denied", "Repository root cannot be a symlink or junction")
+        candidate = raw_path.resolve()
+        matched_roots = [root for root in self.allowed_roots if candidate == root or root in candidate.parents]
+        if not matched_roots:
             logger.warning("Registry rejected a repository outside the root allowlist")
             raise ContractViolation("authorization_denied", "Repository is outside the root allowlist")
+        for allowed_root in matched_roots:
+            try:
+                rel_parts = raw_path.relative_to(allowed_root).parts
+            except ValueError:
+                continue
+            cursor = allowed_root
+            for part in rel_parts:
+                cursor = cursor / part
+                if is_link_or_junction(cursor):
+                    logger.warning("Registry rejected a repository traversing a symlink or junction")
+                    raise ContractViolation("authorization_denied", "Repository path traverses a symlink or junction")
         return GitWorkspaceService.resolve_repo_root(candidate)
 
     async def _git_identity(self, root: Union[str, Path], branch: str, sha: Optional[str]):
@@ -306,9 +352,30 @@ class WorkspaceRegistry:
         except ValidationError:
             raise ContractViolation("scope_violation", "Expected a relative path without traversal") from None
         repo = await self.resolve_repository(repository_id, principal_id=principal_id, scope=scope)
-        root = Path(repo["root_canonical"])
-        candidate = (root / relative).resolve()
-        if root not in candidate.parents or not any(fnmatch.fnmatchcase(relative, p) for p in json.loads(repo["allowed_paths_json"])):
+        raw_root = Path(repo["root_canonical"])
+        if is_link_or_junction(raw_root):
+            logger.warning("Registry refused redirected repository root")
+            raise ContractViolation("scope_violation", "Path escapes the repository or its declared file scope")
+        root = raw_root.resolve()
+
+        cursor = root
+        for part in Path(relative).parts:
+            cursor = cursor / part
+            if is_link_or_junction(cursor):
+                logger.warning("Registry refused symlink or junction component in path")
+                raise ContractViolation("scope_violation", "Path escapes the repository or its declared file scope")
+
+        candidate = (root / relative).resolve(strict=False)
+        if candidate == root or not candidate.is_relative_to(root):
+            logger.warning("Registry refused file scope or symlink escape")
+            raise ContractViolation("scope_violation", "Path escapes the repository or its declared file scope")
+
+        resolved_rel = candidate.relative_to(root).as_posix()
+        allowed_patterns = json.loads(repo["allowed_paths_json"])
+        if not (
+            _matches_allowed_scope(relative, allowed_patterns)
+            and _matches_allowed_scope(resolved_rel, allowed_patterns)
+        ):
             logger.warning("Registry refused file scope or symlink escape")
             raise ContractViolation("scope_violation", "Path escapes the repository or its declared file scope")
         return candidate

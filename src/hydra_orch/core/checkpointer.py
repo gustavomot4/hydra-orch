@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections import deque
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
+import dataclasses
 from datetime import datetime, timezone
+from enum import Enum
 import hashlib
 import json
 import logging
 import os
 from pathlib import Path
+import re
 import sqlite3
 import time
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, AsyncGenerator, AsyncIterator, Callable, Deque, Dict, List, Optional, Set, Tuple, Union
 import uuid
+import weakref
 
 import aiosqlite
+import aiosqlite.core
 from pydantic import BaseModel
 
 from hydra_orch.core.redaction import redact
@@ -131,6 +139,495 @@ def _parse_iso_datetime(value: str) -> datetime:
     return dt
 
 
+_LONE_SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
+_BUSY_TIMEOUT_MS = 15000
+_CONNECT_TIMEOUT_SECONDS = 15.0
+_MAX_GENERAL_POOL_SIZE = 4
+_BEGIN_IMMEDIATE_MAX_ATTEMPTS = 3
+
+
+def reject_lone_surrogates(value: Any, _seen: Optional[Set[int]] = None) -> Any:
+    """Recursively reject lone UTF-16 surrogates (U+D800..U+DFFF) with ContractViolation('invalid_unicode')."""
+    if value is None or isinstance(value, (bool, int, float, bytes, bytearray, memoryview)):
+        return value
+    if isinstance(value, str):
+        if _LONE_SURROGATE_RE.search(value) is not None:
+            raise ContractViolation(
+                "invalid_unicode",
+                "Payload contains invalid lone UTF-16 surrogate characters",
+            )
+        return value
+    if isinstance(value, Enum):
+        reject_lone_surrogates(value.value, _seen)
+        return value
+
+    obj_id = id(value)
+    if _seen is None:
+        _seen = set()
+    if obj_id in _seen:
+        return value
+
+    if isinstance(value, BaseModel):
+        _seen.add(obj_id)
+        try:
+            for field_name in type(value).model_fields:
+                reject_lone_surrogates(getattr(value, field_name, None), _seen)
+            extra = getattr(value, "__pydantic_extra__", None)
+            if extra:
+                reject_lone_surrogates(extra, _seen)
+        finally:
+            _seen.discard(obj_id)
+        return value
+
+    if isinstance(value, Mapping):
+        _seen.add(obj_id)
+        try:
+            for k, v in value.items():
+                reject_lone_surrogates(k, _seen)
+                reject_lone_surrogates(v, _seen)
+        finally:
+            _seen.discard(obj_id)
+        return value
+
+    if isinstance(value, (list, tuple, set, frozenset)):
+        _seen.add(obj_id)
+        try:
+            for item in value:
+                reject_lone_surrogates(item, _seen)
+        finally:
+            _seen.discard(obj_id)
+        return value
+
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        _seen.add(obj_id)
+        try:
+            for f in dataclasses.fields(value):
+                reject_lone_surrogates(getattr(value, f.name, None), _seen)
+        finally:
+            _seen.discard(obj_id)
+        return value
+
+    return value
+
+
+class _TaskReentrantLock:
+    """Per-(db_path, event_loop) writer lock that is re-entrant only within the owning asyncio.Task."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._owner: Optional[asyncio.Task[Any]] = None
+        self._depth: int = 0
+
+    def is_owned_by(self, task: Optional[asyncio.Task[Any]]) -> bool:
+        return task is not None and self._owner is task
+
+    @asynccontextmanager
+    async def acquire(self) -> AsyncIterator[None]:
+        current = asyncio.current_task()
+        if current is not None and self._owner is current:
+            self._depth += 1
+            try:
+                yield
+            finally:
+                self._depth -= 1
+            return
+
+        await self._lock.acquire()
+        self._owner = current
+        self._depth = 1
+        try:
+            yield
+        finally:
+            self._depth = 0
+            self._owner = None
+            self._lock.release()
+
+
+_GLOBAL_WRITE_LOCKS: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Dict[str, _TaskReentrantLock]]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _normalize_db_key(db_path: str) -> str:
+    return os.path.normcase(os.path.abspath(db_path))
+
+
+def _get_write_lock(db_path: str, loop: asyncio.AbstractEventLoop) -> _TaskReentrantLock:
+    per_loop = _GLOBAL_WRITE_LOCKS.get(loop)
+    if per_loop is None:
+        per_loop = {}
+        _GLOBAL_WRITE_LOCKS[loop] = per_loop
+    key = _normalize_db_key(db_path)
+    lock = per_loop.get(key)
+    if lock is None:
+        lock = _TaskReentrantLock()
+        per_loop[key] = lock
+    return lock
+
+
+class _ManagedConnection(aiosqlite.Connection):
+    """Persistent aiosqlite Connection with daemon worker thread, surrogate guard, and cursor cleanup."""
+
+    def __init__(self, connector: Callable[[], sqlite3.Connection], iter_chunk_size: int = 64) -> None:
+        super().__init__(connector, iter_chunk_size)
+        self._thread.daemon = True
+        self._tracked_cursors: "weakref.WeakSet[aiosqlite.Cursor]" = weakref.WeakSet()
+
+    @aiosqlite.context.contextmanager
+    async def execute(
+        self, sql: str, parameters: Optional[Any] = None
+    ) -> aiosqlite.Cursor:
+        reject_lone_surrogates(sql)
+        if parameters is None:
+            parameters = []
+        else:
+            reject_lone_surrogates(parameters)
+        raw_cursor = await self._execute(self._conn.execute, sql, parameters)
+        cur = aiosqlite.Cursor(self, raw_cursor)
+        self._tracked_cursors.add(cur)
+        return cur
+
+    @aiosqlite.context.contextmanager
+    async def executemany(
+        self, sql: str, parameters: Any
+    ) -> aiosqlite.Cursor:
+        reject_lone_surrogates(sql)
+        if isinstance(parameters, (list, tuple, set, frozenset)):
+            reject_lone_surrogates(parameters)
+        else:
+            parameters = [reject_lone_surrogates(item) for item in parameters]
+        raw_cursor = await self._execute(self._conn.executemany, sql, parameters)
+        cur = aiosqlite.Cursor(self, raw_cursor)
+        self._tracked_cursors.add(cur)
+        return cur
+
+    @aiosqlite.context.contextmanager
+    async def executescript(self, sql_script: str) -> aiosqlite.Cursor:
+        reject_lone_surrogates(sql_script)
+        raw_cursor = await self._execute(self._conn.executescript, sql_script)
+        cur = aiosqlite.Cursor(self, raw_cursor)
+        self._tracked_cursors.add(cur)
+        return cur
+
+    async def close_open_cursors(self) -> None:
+        if not self._tracked_cursors:
+            return
+        cursors = list(self._tracked_cursors)
+        self._tracked_cursors.clear()
+
+        def _close_all() -> None:
+            for cur in cursors:
+                raw = getattr(cur, "_cursor", None)
+                if raw is not None:
+                    try:
+                        raw.close()
+                    except Exception:
+                        pass
+
+        await self._execute(_close_all)
+
+
+def _stop_connection_sync(conn: Optional[aiosqlite.Connection]) -> None:
+    """Safely close sqlite3 handle and stop worker thread without requiring an active event loop."""
+    if conn is None:
+        return
+    if not getattr(conn, "_running", False) and getattr(conn, "_connection", None) is None:
+        if conn._thread.is_alive():
+            conn._thread.join(timeout=2.0)
+        return
+    conn._running = False
+
+    def _close_and_stop() -> Any:
+        raw_conn = getattr(conn, "_connection", None)
+        if raw_conn is not None:
+            try:
+                if raw_conn.in_transaction:
+                    raw_conn.rollback()
+            except Exception:
+                pass
+            try:
+                raw_conn.close()
+            except Exception:
+                pass
+            conn._connection = None
+        return aiosqlite.core._STOP_RUNNING_SENTINEL
+
+    if conn._thread.is_alive():
+        conn._tx.put_nowait((None, _close_and_stop))
+        conn._thread.join(timeout=2.0)
+    else:
+        _close_and_stop()
+
+
+async def _open_managed_connection(db_path: str) -> _ManagedConnection:
+    db_dir = Path(db_path).parent
+    db_dir.mkdir(parents=True, exist_ok=True)
+
+    def _connector() -> sqlite3.Connection:
+        return sqlite3.connect(db_path, timeout=_CONNECT_TIMEOUT_SECONDS, isolation_level=None)
+
+    conn = _ManagedConnection(_connector)
+    try:
+        await conn
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA journal_mode = WAL;")
+        await conn.execute(f"PRAGMA busy_timeout = {_BUSY_TIMEOUT_MS};")
+        await conn.execute("PRAGMA foreign_keys = ON;")
+        await conn.execute("PRAGMA synchronous = NORMAL;")
+        return conn
+    except BaseException as exc:
+        _stop_connection_sync(conn)
+        if isinstance(exc, sqlite3.OperationalError):
+            msg = str(exc)
+            if "locked" in msg.lower() or "busy" in msg.lower():
+                raise StorageLockError(f"Database locked at {db_path}: {msg}") from exc
+        raise
+
+
+class _LoopPool:
+    """Per-EventLoop pool holding 1 dedicated writer connection and up to 4 reusable reader/general connections."""
+
+    def __init__(self, db_path: str, loop: asyncio.AbstractEventLoop) -> None:
+        self.db_path = db_path
+        self.loop_ref = weakref.ref(loop)
+        self._init_lock = asyncio.Lock()
+        self._started = False
+        self.closed = False
+        self._watcher: Optional[AsyncGenerator[None, None]] = None
+
+        self._writer_conn: Optional[_ManagedConnection] = None
+        self._cond = asyncio.Condition()
+        self._idle: Deque[_ManagedConnection] = deque()
+        self._general_all: List[_ManagedConnection] = []
+        self._general_allocated: int = 0
+        self._active_tasks: Dict[asyncio.Task[Any], int] = {}
+
+    def is_stale_for(self, current_loop: asyncio.AbstractEventLoop) -> bool:
+        loop_obj = self.loop_ref()
+        return self.closed or loop_obj is None or loop_obj.is_closed() or loop_obj is not current_loop
+
+    def is_loop_dead(self) -> bool:
+        loop_obj = self.loop_ref()
+        return self.closed or loop_obj is None or loop_obj.is_closed()
+
+    async def ensure_started(self) -> None:
+        if self._started:
+            return
+        async with self._init_lock:
+            if self._started or self.closed:
+                return
+            pool_ref = weakref.ref(self)
+
+            async def _loop_lifecycle_watcher() -> AsyncGenerator[None, None]:
+                try:
+                    yield
+                finally:
+                    pool = pool_ref()
+                    if pool is not None and not pool.closed:
+                        try:
+                            running = asyncio.get_running_loop()
+                        except RuntimeError:
+                            running = None
+                        if running is not None and not running.is_closed():
+                            await pool.close_async()
+                        else:
+                            pool.close_sync()
+
+            self._watcher = _loop_lifecycle_watcher()
+            await self._watcher.__anext__()
+            self._started = True
+
+    async def acquire_writer(self) -> _ManagedConnection:
+        """Must be called while holding the per-(db_path, loop) _TaskReentrantLock."""
+        await self.ensure_started()
+        conn = self._writer_conn
+        if conn is not None and conn._running and conn._connection is not None:
+            return conn
+        if conn is not None:
+            _stop_connection_sync(conn)
+            self._writer_conn = None
+        conn = await _open_managed_connection(self.db_path)
+        if self.closed:
+            _stop_connection_sync(conn)
+            raise StorageError("storage_closed", "ExecutionStore was closed during writer checkout")
+        self._writer_conn = conn
+        return conn
+
+    async def release_writer(self, conn: _ManagedConnection) -> None:
+        """Clean up writer connection state while still holding _TaskReentrantLock."""
+        healthy = not self.closed and conn._running and conn._connection is not None
+        if healthy:
+            try:
+                await conn.close_open_cursors()
+                if conn.in_transaction:
+                    await conn.execute("ROLLBACK")
+                conn.row_factory = aiosqlite.Row
+            except BaseException:
+                healthy = False
+        if not healthy:
+            if self._writer_conn is conn:
+                self._writer_conn = None
+            _stop_connection_sync(conn)
+
+    async def acquire_general(self, write_lock: _TaskReentrantLock) -> Tuple[_ManagedConnection, bool]:
+        """Return (conn, is_ephemeral) from the reusable WAL connection pool."""
+        await self.ensure_started()
+        task = asyncio.current_task()
+        allocate_new = False
+
+        async with self._cond:
+            while True:
+                if self.closed:
+                    raise StorageError("storage_closed", "ExecutionStore is closed")
+
+                while self._idle:
+                    cand = self._idle.popleft()
+                    if cand._running and cand._connection is not None:
+                        if task is not None:
+                            self._active_tasks[task] = self._active_tasks.get(task, 0) + 1
+                        return cand, False
+                    if cand in self._general_all:
+                        self._general_all.remove(cand)
+                    self._general_allocated = max(0, self._general_allocated - 1)
+
+                if self._general_allocated < _MAX_GENERAL_POOL_SIZE:
+                    self._general_allocated += 1
+                    allocate_new = True
+                    break
+
+                # Prevent lock-order or re-entrant pool self-deadlock if a task already holds a slot or writer lock.
+                if (task is not None and self._active_tasks.get(task, 0) > 0) or write_lock.is_owned_by(task):
+                    allocate_new = False
+                    break
+
+                await self._cond.wait()
+
+        if allocate_new:
+            try:
+                conn = await _open_managed_connection(self.db_path)
+            except BaseException:
+                async with self._cond:
+                    self._general_allocated = max(0, self._general_allocated - 1)
+                    self._cond.notify()
+                raise
+            async with self._cond:
+                if self.closed:
+                    _stop_connection_sync(conn)
+                    self._general_allocated = max(0, self._general_allocated - 1)
+                    self._cond.notify()
+                    raise StorageError("storage_closed", "ExecutionStore was closed during connection checkout")
+                self._general_all.append(conn)
+                if task is not None:
+                    self._active_tasks[task] = self._active_tasks.get(task, 0) + 1
+                return conn, False
+
+        conn = await _open_managed_connection(self.db_path)
+        return conn, True
+
+    async def release_general(self, conn: _ManagedConnection, is_ephemeral: bool) -> None:
+        task = asyncio.current_task()
+        if is_ephemeral:
+            try:
+                if conn._running and conn._connection is not None and conn.in_transaction:
+                    await conn.execute("ROLLBACK")
+            except BaseException:
+                pass
+            try:
+                await conn.close()
+                if conn._thread.is_alive():
+                    conn._thread.join(timeout=2.0)
+            except BaseException:
+                _stop_connection_sync(conn)
+            return
+
+        healthy = not self.closed and conn._running and conn._connection is not None
+        if healthy:
+            try:
+                await conn.close_open_cursors()
+                if conn.in_transaction:
+                    await conn.execute("ROLLBACK")
+                conn.row_factory = aiosqlite.Row
+            except BaseException:
+                healthy = False
+
+        async with self._cond:
+            if task is not None and task in self._active_tasks:
+                remaining = self._active_tasks[task] - 1
+                if remaining <= 0:
+                    del self._active_tasks[task]
+                else:
+                    self._active_tasks[task] = remaining
+
+            if healthy and not self.closed:
+                self._idle.append(conn)
+            else:
+                if conn in self._general_all:
+                    self._general_all.remove(conn)
+                self._general_allocated = max(0, self._general_allocated - 1)
+                _stop_connection_sync(conn)
+            self._cond.notify()
+
+    async def close_async(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        async with self._cond:
+            self._idle.clear()
+            conns = list(self._general_all)
+            self._general_all.clear()
+            self._general_allocated = 0
+            self._active_tasks.clear()
+            self._cond.notify_all()
+
+        writer, self._writer_conn = self._writer_conn, None
+        if writer is not None:
+            conns.append(writer)
+
+        for conn in conns:
+            try:
+                if conn._running and conn._connection is not None:
+                    await conn.close_open_cursors()
+                    if conn.in_transaction:
+                        await conn.execute("ROLLBACK")
+                    await conn.close()
+                if conn._thread.is_alive():
+                    conn._thread.join(timeout=2.0)
+            except BaseException:
+                _stop_connection_sync(conn)
+
+        watcher, self._watcher = self._watcher, None
+        if watcher is not None:
+            try:
+                await watcher.aclose()
+            except RuntimeError:
+                pass
+
+    def close_sync(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        self._idle.clear()
+        conns = list(self._general_all)
+        self._general_all.clear()
+        self._general_allocated = 0
+        self._active_tasks.clear()
+        writer, self._writer_conn = self._writer_conn, None
+        if writer is not None:
+            conns.append(writer)
+        for conn in conns:
+            _stop_connection_sync(conn)
+        self._watcher = None
+
+
+def _finalize_store_pools(loop_pools: Dict[int, _LoopPool]) -> None:
+    for pool in list(loop_pools.values()):
+        try:
+            pool.close_sync()
+        except Exception:
+            pass
+    loop_pools.clear()
+
+
 class ExecutionStore:
     """Canonical SQLite WAL store for runs, tasks, attempts, results, reviews, events, and migrations."""
 
@@ -148,52 +645,123 @@ class ExecutionStore:
             self.migrations_dir = Path("migration")
         self._initialized = False
         self._migrations_applied = False
+        self._loop_pools: Dict[int, _LoopPool] = {}
+        weakref.finalize(self, _finalize_store_pools, self._loop_pools)
+
+    def _get_loop_pool(self, loop: asyncio.AbstractEventLoop) -> _LoopPool:
+        stale_keys = [
+            key
+            for key, pool in self._loop_pools.items()
+            if pool.is_loop_dead() or (key == id(loop) and pool.is_stale_for(loop))
+        ]
+        for key in stale_keys:
+            old_pool = self._loop_pools.pop(key, None)
+            if old_pool is not None:
+                old_pool.close_sync()
+
+        loop_id = id(loop)
+        pool = self._loop_pools.get(loop_id)
+        if pool is None or pool.closed:
+            pool = _LoopPool(self.db_path, loop)
+            self._loop_pools[loop_id] = pool
+        return pool
+
+    async def close(self) -> None:
+        """Idempotently close all persistent SQLite connections across active and stale event loops."""
+        try:
+            current_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        pools = list(self._loop_pools.values())
+        self._loop_pools.clear()
+        for pool in pools:
+            pool_loop = pool.loop_ref()
+            if (
+                current_loop is not None
+                and pool_loop is current_loop
+                and not current_loop.is_closed()
+            ):
+                await pool.close_async()
+            else:
+                pool.close_sync()
+
+    async def __aenter__(self) -> "ExecutionStore":
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.close()
 
     @asynccontextmanager
-    async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
-        db_dir = Path(self.db_path).parent
-        db_dir.mkdir(parents=True, exist_ok=True)
+    async def _connect(self, *, write: bool = False) -> AsyncIterator[aiosqlite.Connection]:
+        loop = asyncio.get_running_loop()
+        pool = self._get_loop_pool(loop)
+        write_lock = _get_write_lock(self.db_path, loop)
+
+        if write:
+            async with write_lock.acquire():
+                conn = await pool.acquire_writer()
+                try:
+                    yield conn
+                except sqlite3.OperationalError as exc:
+                    msg = str(exc)
+                    if "locked" in msg.lower() or "busy" in msg.lower():
+                        raise StorageLockError(f"Database locked at {self.db_path}: {msg}") from exc
+                    raise
+                finally:
+                    await pool.release_writer(conn)
+            return
+
+        conn, is_ephemeral = await pool.acquire_general(write_lock)
         try:
-            async with aiosqlite.connect(self.db_path, timeout=5.0, isolation_level=None) as db:
-                db.row_factory = aiosqlite.Row
-                await db.execute("PRAGMA journal_mode = WAL;")
-                await db.execute("PRAGMA busy_timeout = 5000;")
-                await db.execute("PRAGMA foreign_keys = ON;")
-                await db.execute("PRAGMA synchronous = NORMAL;")
-                yield db
+            yield conn
         except sqlite3.OperationalError as exc:
             msg = str(exc)
             if "locked" in msg.lower() or "busy" in msg.lower():
                 raise StorageLockError(f"Database locked at {self.db_path}: {msg}") from exc
             raise
+        finally:
+            await pool.release_general(conn, is_ephemeral)
 
     @asynccontextmanager
     async def _transaction(self, db: aiosqlite.Connection) -> AsyncIterator[aiosqlite.Connection]:
-        try:
-            await db.execute("BEGIN IMMEDIATE")
-        except sqlite3.OperationalError as exc:
-            msg = str(exc)
-            if "locked" in msg.lower() or "busy" in msg.lower():
-                raise StorageLockError(f"Database locked on BEGIN IMMEDIATE: {msg}") from exc
-            raise
+        loop = asyncio.get_running_loop()
+        write_lock = _get_write_lock(self.db_path, loop)
+        async with write_lock.acquire():
+            if isinstance(db, _ManagedConnection) and not db.in_transaction:
+                await db.close_open_cursors()
 
-        try:
-            yield db
-            await db.execute("COMMIT")
-        except Exception as exc:
+            for attempt_idx in range(_BEGIN_IMMEDIATE_MAX_ATTEMPTS):
+                try:
+                    await db.execute("BEGIN IMMEDIATE")
+                    break
+                except sqlite3.OperationalError as exc:
+                    msg = str(exc)
+                    if "locked" in msg.lower() or "busy" in msg.lower():
+                        if attempt_idx + 1 < _BEGIN_IMMEDIATE_MAX_ATTEMPTS:
+                            await asyncio.sleep(0.05 * (2 ** attempt_idx))
+                            continue
+                        raise StorageLockError(f"Database locked on BEGIN IMMEDIATE: {msg}") from exc
+                    raise
+
             try:
-                await db.execute("ROLLBACK")
-            except Exception:
-                pass
-            if isinstance(exc, ContractViolation):
+                yield db
+                await db.execute("COMMIT")
+            except BaseException as exc:
+                try:
+                    if db.in_transaction:
+                        await db.execute("ROLLBACK")
+                except BaseException:
+                    pass
+                if isinstance(exc, ContractViolation):
+                    raise
+                if isinstance(exc, sqlite3.IntegrityError):
+                    raise StorageIntegrityError(str(exc)) from exc
+                if isinstance(exc, sqlite3.OperationalError):
+                    msg = str(exc)
+                    if "locked" in msg.lower() or "busy" in msg.lower():
+                        raise StorageLockError(f"Database lock timeout: {msg}") from exc
                 raise
-            if isinstance(exc, sqlite3.IntegrityError):
-                raise StorageIntegrityError(str(exc)) from exc
-            if isinstance(exc, sqlite3.OperationalError):
-                msg = str(exc)
-                if "locked" in msg.lower() or "busy" in msg.lower():
-                    raise StorageLockError(f"Database lock timeout: {msg}") from exc
-            raise
 
     async def initialize(self, apply_migrations: bool = True) -> None:
         """Initialize the SQLite WAL database, preserve legacy tables, and apply pending migrations."""
@@ -202,12 +770,14 @@ class ExecutionStore:
         if not apply_migrations and self._initialized:
             return
 
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             if apply_migrations:
-                await self._apply_migrations(db)
-                self._migrations_applied = True
+                if not self._migrations_applied:
+                    await self._apply_migrations(db)
+                    self._migrations_applied = True
             else:
-                await self._ensure_legacy_tables(db)
+                if not self._initialized:
+                    await self._ensure_legacy_tables(db)
 
         self._initialized = True
         logger.info(f"ExecutionStore initialized at {self.db_path} (WAL mode)")
@@ -353,8 +923,8 @@ class ExecutionStore:
             import os
             fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             os.close(fd)
-            async with aiosqlite.connect(self.db_path) as source:
-                async with aiosqlite.connect(target) as destination:
+            async with aiosqlite.connect(self.db_path, timeout=_CONNECT_TIMEOUT_SECONDS) as source:
+                async with aiosqlite.connect(target, timeout=_CONNECT_TIMEOUT_SECONDS) as destination:
                     await source.backup(destination)
                     result = await (await destination.execute("PRAGMA integrity_check")).fetchone()
                     if result is None or result[0] != "ok":
@@ -415,6 +985,15 @@ class ExecutionStore:
                 for current in pending:
                     if current["version"] == "0001":
                         await self._preserve_legacy_tables_in_tx(db)
+                    elif current["version"] == "0004":
+                        await db.execute(
+                            "UPDATE events SET payload_json = json_set("
+                            "CASE WHEN json_valid(payload_json) AND json_type(payload_json) = 'object' "
+                            "THEN payload_json ELSE '{}' END, "
+                            "'$.content', ''"
+                            ") WHERE type = 'thread.message' AND session_id IS NOT NULL "
+                            "AND json_extract(payload_json, '$.content') IS NULL"
+                        )
                     for statement in _split_sql_statements(current["sql"]):
                         await db.execute(statement)
                     violations = await (await db.execute("PRAGMA foreign_key_check")).fetchall()
@@ -446,7 +1025,7 @@ class ExecutionStore:
         current: Optional[Dict[str, Any]] = None
         backup = None
         reverted: List[str] = []
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             await self._ensure_migration_metadata(db)
             try:
                 async with self._transaction(db):
@@ -460,6 +1039,18 @@ class ExecutionStore:
                         current = pending[0]
                         backup = await self._migration_backup(backup_path)
                     for current in pending:
+                        if current["version"] == "0005":
+                            guard_row = await (
+                                await db.execute(
+                                    "SELECT 1 FROM conversation_turns "
+                                    "WHERE native_session_id IS NOT NULL OR route_revision <> 0 "
+                                    "LIMIT 1"
+                                )
+                            ).fetchone()
+                            if guard_row is not None:
+                                raise MigrationError(
+                                    "Refusing rollback of migration 0005: conversation_turns contains non-empty native_session_id or route_revision"
+                                )
                         for statement in _split_sql_statements(current["down"]):
                             await db.execute(statement)
                         if await (await db.execute("PRAGMA foreign_key_check")).fetchall():
@@ -513,17 +1104,19 @@ class ExecutionStore:
     @staticmethod
     def compute_request_hash(payload: Union[BaseModel, Dict[str, Any], str, bytes]) -> str:
         """Compute deterministic SHA-256 hash for idempotency verification."""
+        if not isinstance(payload, (bytes, str, BaseModel, dict)):
+            raise TypeError(f"Unsupported payload type for hashing: {type(payload).__name__}")
+        reject_lone_surrogates(payload)
         if isinstance(payload, bytes):
             raw = payload
         elif isinstance(payload, str):
             raw = payload.encode("utf-8")
         elif isinstance(payload, BaseModel):
             dumped = payload.model_dump(mode="json")
+            reject_lone_surrogates(dumped)
             raw = json.dumps(dumped, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        elif isinstance(payload, dict):
-            raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         else:
-            raise TypeError(f"Unsupported payload type for hashing: {type(payload).__name__}")
+            raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return hashlib.sha256(raw).hexdigest()
 
     async def _insert_event_in_tx(
@@ -539,6 +1132,7 @@ class ExecutionStore:
         session_id: Optional[str] = None,
         thread_id: Optional[str] = None,
     ) -> RunEvent:
+        reject_lone_surrogates((run_id, event_type, payload, correlation_id, task_id, attempt_id, session_id, thread_id))
         if thread_id and not session_id:
             raise StorageIntegrityError("Thread events require a session")
         if session_id:
@@ -609,8 +1203,9 @@ class ExecutionStore:
         status: str = "completed",
     ) -> Tuple[bool, Optional[str]]:
         """Record an idempotent command or return (False, existing_run_id) if already recorded with the same hash."""
+        reject_lone_surrogates((idempotency_key, request_hash, run_id, scope, response_payload, status))
         await self.initialize()
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 return await self._record_command_in_tx(
                     db,
@@ -633,6 +1228,7 @@ class ExecutionStore:
         response_payload: Optional[Dict[str, Any]] = None,
         status: str = "completed",
     ) -> Tuple[bool, Optional[str]]:
+        reject_lone_surrogates((idempotency_key, request_hash, run_id, scope, response_payload, status))
         cur = await db.execute(
             "SELECT id, request_hash, run_id, response_json, status FROM commands WHERE scope = ? AND idempotency_key = ?",
             (scope, idempotency_key),
@@ -779,11 +1375,12 @@ class ExecutionStore:
         request_hash: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Persist project, run, budget policy, tasks, DAG dependencies, command, and run.created event atomically."""
+        reject_lone_surrogates((run_spec, initial_status, correlation_id, request_hash))
         await self.initialize()
         status_enum = initial_status if isinstance(initial_status, RunStatus) else RunStatus(initial_status)
         req_hash = request_hash or self.compute_request_hash(run_spec)
 
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 cur = await db.execute(
                     "SELECT request_hash, run_id FROM commands WHERE scope = 'run' AND idempotency_key = ?",
@@ -819,6 +1416,7 @@ class ExecutionStore:
         correlation_id: Optional[str] = None,
     ) -> Tuple[bool, Dict[str, Any]]:
         """Submit a RunSpec idempotently. Returns (created, run_record) or raises IdempotencyConflictError on payload mismatch."""
+        reject_lone_surrogates((run_spec, request_hash, initial_status, correlation_id))
         await self.initialize()
         status_enum = initial_status if isinstance(initial_status, RunStatus) else RunStatus(initial_status)
         req_hash = request_hash or self.compute_request_hash(run_spec)
@@ -826,7 +1424,7 @@ class ExecutionStore:
         created = False
         target_run_id = run_spec.run_id
 
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 cur = await db.execute(
                     "SELECT request_hash, run_id FROM commands WHERE scope = 'run' AND idempotency_key = ?",
@@ -867,8 +1465,9 @@ class ExecutionStore:
         thread_id: Optional[str] = None,
     ) -> RunEvent:
         """Allocate next monotonic sequence number for run_id and persist RunEvent in a transaction."""
+        reject_lone_surrogates((run_id, event_type, payload, correlation_id, task_id, attempt_id, session_id, thread_id))
         await self.initialize()
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 return await self._insert_event_in_tx(
                     db,
@@ -900,10 +1499,11 @@ class ExecutionStore:
         correlation_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Transition RunStatus with optimistic concurrency check and emit RunEvent in the same transaction."""
+        reject_lone_surrogates((run_id, new_status, event_type, event_payload, correlation_id))
         await self.initialize()
         target_status = new_status if isinstance(new_status, RunStatus) else RunStatus(new_status)
 
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 cur = await db.execute(
                     "SELECT status, revision FROM runs WHERE id = ?",
@@ -964,10 +1564,11 @@ class ExecutionStore:
         attempt_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Transition TaskStatus with optimistic concurrency check and emit RunEvent in the same transaction."""
+        reject_lone_surrogates((task_id, new_status, event_type, event_payload, correlation_id, attempt_id))
         await self.initialize()
         target_status = new_status if isinstance(new_status, TaskStatus) else TaskStatus(new_status)
 
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 cur = await db.execute(
                     "SELECT run_id, status, revision FROM tasks WHERE id = ?",
@@ -1027,9 +1628,10 @@ class ExecutionStore:
         correlation_id: Optional[str] = None,
     ) -> TaskAttempt:
         """Create or update a TaskAttempt and emit its correlated RunEvent atomically."""
+        reject_lone_surrogates((attempt, event_type, event_payload, correlation_id))
         await self.initialize()
 
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 task_cur = await db.execute(
                     "SELECT run_id FROM tasks WHERE id = ?",
@@ -1188,10 +1790,11 @@ class ExecutionStore:
         correlation_id: Optional[str] = None,
     ) -> Artifact:
         """Persist an Artifact record (and optional artifact.created RunEvent) atomically."""
+        reject_lone_surrogates((artifact, correlation_id))
         await self.initialize()
         art = artifact if isinstance(artifact, Artifact) else Artifact.model_validate(artifact)
 
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 await self._upsert_artifact_in_tx(db, art)
                 if emit_event:
@@ -1221,11 +1824,12 @@ class ExecutionStore:
         correlation_id: Optional[str] = None,
     ) -> TaskResult:
         """Validate attribution, persist artifacts/checks/result, update task & attempt status, and emit RunEvent atomically."""
+        reject_lone_surrogates((task_spec, attempt, result, correlation_id))
         await self.initialize()
         require_acceptance = result.task_status in {TaskStatus.READY_FOR_REVIEW, TaskStatus.ACCEPTED}
         validate_result(task_spec, attempt, result, require_acceptance=require_acceptance)
 
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 task_cur = await db.execute(
                     "SELECT status, revision FROM tasks WHERE id = ? AND run_id = ?",
@@ -1381,9 +1985,10 @@ class ExecutionStore:
         correlation_id: Optional[str] = None,
     ) -> TaskResult:
         """Validate and persist an explicit ReviewDecision, updating result and task atomically."""
+        reject_lone_surrogates((task_spec, attempt, decision, correlation_id))
         await self.initialize()
 
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 res_cur = await db.execute(
                     "SELECT revision, result_json FROM results WHERE id = ?",
@@ -1490,9 +2095,10 @@ class ExecutionStore:
         correlation_id: Optional[str] = None,
     ) -> HandoffCheckpoint:
         """Persist a canonical HandoffCheckpoint and emit attempt.handoff_created atomically."""
+        reject_lone_surrogates((checkpoint, run_id, correlation_id))
         await self.initialize()
 
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 att_cur = await db.execute(
                     "SELECT task_id, run_id FROM attempts WHERE id = ?",
@@ -1558,10 +2164,11 @@ class ExecutionStore:
         reason: str = "process_interrupted_on_restart",
     ) -> List[Dict[str, Any]]:
         """Reconcile attempts left in queued/running after crash, marking running tasks as blocked atomically."""
+        reject_lone_surrogates((run_id, reason))
         await self.initialize()
         reconciled: List[Dict[str, Any]] = []
 
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 if run_id is not None:
                     cur = await db.execute(
@@ -1934,9 +2541,10 @@ class ExecutionStore:
         reset_at: Optional[float] = None,
         metadata: Optional[str] = None,
     ) -> None:
+        reject_lone_surrogates((session_id, task_id, provider, prompt, accumulated_content, status, metadata))
         await self.initialize()
         now = time.time()
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 await db.execute(
                     """
@@ -1974,10 +2582,11 @@ class ExecutionStore:
         return None
 
     async def record_provider_limit(self, provider: str, reset_in_seconds: int, reason: str = "") -> None:
+        reject_lone_surrogates((provider, reason))
         await self.initialize()
         now = time.time()
         resets_at = now + reset_in_seconds
-        async with self._connect() as db:
+        async with self._connect(write=True) as db:
             async with self._transaction(db):
                 await db.execute(
                     """
@@ -2063,4 +2672,5 @@ __all__ = [
     "StorageIntegrityError",
     "StorageLockError",
     "MigrationError",
+    "reject_lone_surrogates",
 ]

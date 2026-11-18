@@ -15,8 +15,14 @@ import uuid
 
 from pydantic import Field
 
+from hydra_orch.bridge.worker_runner import filter_worker_env
 from hydra_orch.core.budget import BudgetGovernor
 from hydra_orch.core.checkpointer import ExecutionStore
+from hydra_orch.core.git_workspace import (
+    build_hardened_git_prefix,
+    ensure_empty_git_hooks_dir,
+    win_long_path,
+)
 from hydra_orch.core.identifier import new_id
 from hydra_orch.core.metrics import MetricsService
 from hydra_orch.core.redaction import redact, redact_text
@@ -44,26 +50,38 @@ def _sanitize_token(value: str) -> str:
 
 def _write_bytes_atomic(target_path: Path, data: bytes) -> Tuple[str, int]:
     """Write bytes atomically via temp file + fsync + os.replace; return (sha256, size_bytes)."""
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = target_path.with_name(f".{target_path.name}.{uuid.uuid4().hex[:8]}.tmp")
-    with open(tmp_path, "wb") as handle:
+    win_long_path(target_path.parent).mkdir(parents=True, exist_ok=True)
+    short_stem = target_path.name[:24]
+    tmp_path = target_path.with_name(f".{short_stem}.{uuid.uuid4().hex[:8]}.tmp")
+    lp_tmp = win_long_path(tmp_path)
+    with open(lp_tmp, "wb") as handle:
         handle.write(data)
         handle.flush()
         os.fsync(handle.fileno())
-    os.replace(tmp_path, target_path)
+    os.replace(lp_tmp, win_long_path(target_path))
     return hashlib.sha256(data).hexdigest(), len(data)
 
 
-def _run_git(args: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    env = {
-        **os.environ,
-        "GIT_TERMINAL_PROMPT": "0",
-        "LC_ALL": "C",
-    }
+def _run_git(
+    args: Sequence[str],
+    cwd: Path,
+    *,
+    hooks_dir: Optional[Path] = None,
+) -> subprocess.CompletedProcess[str]:
+    cwd_path = Path(cwd)
+    preferred_hooks = hooks_dir
+    if preferred_hooks is None:
+        orch_dir = cwd_path / ".orchestrator"
+        if win_long_path(orch_dir).is_dir():
+            preferred_hooks = orch_dir / "empty_git_hooks"
+    managed_hooks = ensure_empty_git_hooks_dir(preferred_hooks)
+    env = filter_worker_env(allowed_env={"GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})
+    prefix = build_hardened_git_prefix(managed_hooks)
     return subprocess.run(
-        ["git", *args],
-        cwd=str(cwd),
+        ["git", *prefix, *args],
+        cwd=str(cwd_path),
         env=env,
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -125,16 +143,27 @@ class PRPackager:
         self.store = store
         self.metrics = metrics or MetricsService(store)
 
+    _run_git = staticmethod(_run_git)
+
     @staticmethod
     def _validate_branch_name(branch: str) -> str:
+        if not isinstance(branch, str):
+            raise ContractViolation("packaging_invalid", f"Invalid PR branch name: '{branch}'")
         clean = branch.strip()
+        parts = clean.split("/") if clean else []
         if (
             not clean
-            or clean.startswith("-")
-            or clean.startswith("/")
-            or clean.endswith("/")
+            or clean != branch
+            or clean in {"@", "HEAD"}
+            or clean.startswith(("-", "/", "."))
+            or clean.endswith(("/", ".", ".lock"))
             or ".." in clean
-            or any(ch.isspace() or ch == "\x00" for ch in clean)
+            or "//" in clean
+            or "@{" in clean
+            or "\\" in clean
+            or any(ch in clean for ch in ("~", "^", ":", "?", "*", "[", "\x00"))
+            or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in clean)
+            or any(not seg or seg.startswith(".") or seg.endswith(".lock") for seg in parts)
         ):
             raise ContractViolation("packaging_invalid", f"Invalid PR branch name: '{branch}'")
         return clean
@@ -698,9 +727,10 @@ class PRPackager:
                         correlation_id=correlation_id,
                     )
         except Exception:
-            if artifact_file.exists():
+            lp_art = win_long_path(artifact_file)
+            if lp_art.exists():
                 try:
-                    artifact_file.unlink()
+                    lp_art.unlink()
                 except OSError:
                     pass
             raise
@@ -767,29 +797,44 @@ class PRPackager:
             if isinstance(outcome, str) and len(outcome) in (40, 64):
                 pushed_sha = outcome
         else:
-            if not repo_root.exists() or not (repo_root / ".git").exists():
+            if not win_long_path(repo_root).exists() or not win_long_path(repo_root / ".git").exists():
                 raise ContractViolation(
                     "workspace_invalid",
                     f"Cannot push PR branch '{pkg.pr_branch}': '{repo_root}' is not a Git repository",
                 )
-            remote_url_res = _run_git(["remote", "get-url", clean_remote], repo_root)
+            remote_url_res = self._run_git(["remote", "get-url", "--", clean_remote], repo_root)
             resolved_url = remote_url_res.stdout.strip() if remote_url_res.returncode == 0 else clean_remote
             if os.environ.get("HYDRA_OFFLINE_CI") == "1" and _REMOTE_URL_SCHEME_RE.match(resolved_url):
                 raise ContractViolation(
                     "publish_not_authorized",
                     "External network git push is disabled under HYDRA_OFFLINE_CI=1",
                 )
-            rev_res = _run_git(["rev-parse", "--verify", f"refs/heads/{pkg.pr_branch}^{{commit}}"], repo_root)
+            rev_res = self._run_git(
+                ["rev-parse", "--verify", "--end-of-options", f"refs/heads/{pkg.pr_branch}^{{commit}}"],
+                repo_root,
+            )
             if rev_res.returncode != 0:
                 raise ContractViolation(
                     "packaging_git_failed",
                     f"Local PR branch '{pkg.pr_branch}' does not exist in '{repo_root}'",
                 )
             pushed_sha = rev_res.stdout.strip()
-            push_res = _run_git(
-                ["push", clean_remote, f"refs/heads/{pkg.pr_branch}:refs/heads/{pkg.pr_branch}"],
-                repo_root,
+            push_cmd: list[str] = []
+            if (
+                not _REMOTE_URL_SCHEME_RE.match(resolved_url)
+                and not resolved_url.lower().startswith("file:")
+                and win_long_path(Path(resolved_url)).is_dir()
+            ):
+                push_cmd.extend(["-c", "protocol.file.allow=user"])
+            push_cmd.extend(
+                [
+                    "push",
+                    "--no-verify",
+                    clean_remote,
+                    f"refs/heads/{pkg.pr_branch}:refs/heads/{pkg.pr_branch}",
+                ]
             )
+            push_res = self._run_git(push_cmd, repo_root)
             if push_res.returncode != 0:
                 raise ContractViolation(
                     "packaging_git_failed",
@@ -839,8 +884,9 @@ class PRPackager:
         run_rec = await self.store.get_run(pkg.run_id)
         if run_rec is not None and pkg.artifact_path and pkg.artifact_sha256:
             art_file = Path(run_rec["spec"].repo_root) / pkg.artifact_path
-            if art_file.exists():
-                actual_sha = hashlib.sha256(art_file.read_bytes()).hexdigest()
+            lp_art_file = win_long_path(art_file)
+            if lp_art_file.exists():
+                actual_sha = hashlib.sha256(lp_art_file.read_bytes()).hexdigest()
                 if actual_sha != pkg.artifact_sha256:
                     raise ContractViolation(
                         "artifact_tampered",

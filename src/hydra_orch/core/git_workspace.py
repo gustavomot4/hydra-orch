@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -17,7 +18,101 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence, Tuple, Union
 
-from hydra_orch.bridge.worker_runner import is_process_alive
+
+def _strip_win_long_prefix(path_str: str) -> str:
+    if path_str.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + path_str[8:]
+    if path_str.startswith("\\\\?\\"):
+        return path_str[4:]
+    return path_str
+
+
+def win_long_path(p: Path) -> Path:
+    """Return a `\\\\?\\`-prefixed Path on Windows when the resolved path length is >= 240."""
+    if os.name != "nt":
+        return p
+    raw = str(p)
+    if raw.startswith("\\\\?\\"):
+        return p
+    abs_str = os.path.abspath(raw)
+    needs_prefix = len(abs_str) >= 240
+    if not needs_prefix:
+        try:
+            resolved_str = _strip_win_long_prefix(str(p.resolve(strict=False)))
+            needs_prefix = len(resolved_str) >= 240
+        except OSError:
+            needs_prefix = False
+    if not needs_prefix:
+        return p
+    if abs_str.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + abs_str[2:])
+    return Path("\\\\?\\" + abs_str)
+
+
+def is_link_or_junction(path: Union[Path, os.DirEntry[str], str]) -> bool:
+    """Return True if `path` is a symbolic link or an NTFS junction point."""
+    try:
+        if isinstance(path, os.DirEntry):
+            if path.is_symlink():
+                return True
+            is_junc_entry = getattr(path, "is_junction", None)
+            if callable(is_junc_entry) and is_junc_entry():
+                return True
+            p = Path(path.path)
+        else:
+            p = path if isinstance(path, Path) else Path(path)
+        lp = win_long_path(p)
+        if lp.is_symlink():
+            return True
+        is_junc = getattr(lp, "is_junction", None)
+        if callable(is_junc) and is_junc():
+            return True
+        return False
+    except OSError:
+        return False
+
+
+def ensure_empty_git_hooks_dir(preferred_dir: Optional[Path] = None) -> Path:
+    """Ensure and return a verified, empty directory for `core.hooksPath`."""
+    candidate = preferred_dir
+    if candidate is not None and os.name == "nt" and len(os.path.abspath(str(candidate))) >= 220:
+        candidate = None
+    if candidate is None:
+        candidate = Path(tempfile.gettempdir()) / f"hydra_orch_empty_git_hooks_{os.getpid()}"
+    if is_link_or_junction(candidate):
+        raise RuntimeError(f"Refusing symlink/junction git hooks directory: {candidate}")
+    lp = win_long_path(candidate)
+    lp.mkdir(parents=True, exist_ok=True)
+    with os.scandir(lp) as entries:
+        for entry in entries:
+            entry_p = win_long_path(candidate / entry.name)
+            if is_link_or_junction(entry):
+                try:
+                    entry_p.unlink()
+                except OSError:
+                    os.rmdir(entry_p)
+            elif entry.is_dir(follow_symlinks=False):
+                shutil.rmtree(entry_p, ignore_errors=True)
+            else:
+                entry_p.unlink(missing_ok=True)
+    return Path(_strip_win_long_prefix(os.path.realpath(lp)))
+
+
+def build_hardened_git_prefix(hooks_dir: Path) -> Tuple[str, ...]:
+    """Global hardened `git -c ...` options disabling hooks, fsmonitor, and `file://` transport."""
+    return (
+        "-c",
+        f"core.hooksPath={hooks_dir.as_posix()}",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "protocol.file.allow=never",
+        "-c",
+        "core.longpaths=true",
+    )
+
+
+from hydra_orch.bridge.worker_runner import filter_worker_env, is_process_alive
 from hydra_orch.core.checkpointer import ExecutionStore
 from hydra_orch.model import (
     Artifact,
@@ -204,9 +299,10 @@ class GitWorkspaceService:
         runtime_candidate = Path(runtime_dir)
         if not runtime_candidate.is_absolute():
             runtime_candidate = self.repo_root / runtime_candidate
-        self.runtime_dir = Path(os.path.realpath(runtime_candidate))
+        self.runtime_dir = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(runtime_candidate))))
         self.worktree_base_dir = self.runtime_dir / worktree_subdir
         self.lock_dir = self.runtime_dir / "lock"
+        self.empty_hooks_dir = self.runtime_dir / "empty_git_hooks"
         self.store = store
         self.git_author_name = git_author_name
         self.git_author_email = git_author_email
@@ -214,7 +310,7 @@ class GitWorkspaceService:
 
     @classmethod
     def _get_repo_lock(cls, canonical_repo_root: Path) -> asyncio.Lock:
-        key = os.path.normcase(os.path.realpath(canonical_repo_root))
+        key = os.path.normcase(_strip_win_long_prefix(os.path.realpath(win_long_path(canonical_repo_root))))
         lock = cls._repo_locks.get(key)
         if lock is None:
             lock = asyncio.Lock()
@@ -222,17 +318,56 @@ class GitWorkspaceService:
         return lock
 
     @staticmethod
+    def _validate_branch_name(branch: str) -> str:
+        if not isinstance(branch, str):
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="workspace_invalid",
+                    message="Git branch name must be a string",
+                    retryable=False,
+                ),
+                details={"branch": str(branch)},
+            )
+        clean = branch.strip()
+        parts = clean.split("/") if clean else []
+        if (
+            not clean
+            or clean != branch
+            or clean in {"@", "HEAD"}
+            or clean.startswith(("-", "/", "."))
+            or clean.endswith(("/", ".", ".lock"))
+            or ".." in clean
+            or "//" in clean
+            or "@{" in clean
+            or "\\" in clean
+            or any(ch in clean for ch in ("~", "^", ":", "?", "*", "[", "\x00"))
+            or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in clean)
+            or any(not seg or seg.startswith(".") or seg.endswith(".lock") for seg in parts)
+        ):
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="workspace_invalid",
+                    message=f"Invalid Git branch name: '{branch}'",
+                    retryable=False,
+                ),
+                details={"branch": branch},
+            )
+        return clean
+
+    @staticmethod
     def _run_git_cmd(
         args: Sequence[str],
         cwd: Union[str, Path],
         extra_env: Optional[Dict[str, str]] = None,
+        *,
+        hooks_dir: Optional[Path] = None,
     ) -> subprocess.CompletedProcess[str]:
-        env = dict(os.environ)
+        managed_hooks = ensure_empty_git_hooks_dir(hooks_dir)
+        env = filter_worker_env(allowed_env=extra_env)
         env["GIT_TERMINAL_PROMPT"] = "0"
-        if extra_env:
-            env.update(extra_env)
+        prefix = build_hardened_git_prefix(managed_hooks)
         return subprocess.run(
-            ["git", *args],
+            ["git", *prefix, *args],
             cwd=str(cwd),
             env=env,
             stdin=subprocess.DEVNULL,
@@ -248,13 +383,194 @@ class GitWorkspaceService:
         cwd: Optional[Union[str, Path]] = None,
         extra_env: Optional[Dict[str, str]] = None,
     ) -> subprocess.CompletedProcess[str]:
-        return self._run_git_cmd(args, cwd=cwd or self.repo_root, extra_env=extra_env)
+        return self._run_git_cmd(
+            args,
+            cwd=cwd or self.repo_root,
+            extra_env=extra_env,
+            hooks_dir=self.empty_hooks_dir,
+        )
+
+    def _run_git_bytes(
+        self,
+        args: Sequence[str],
+        cwd: Union[str, Path],
+        *,
+        input_bytes: Optional[bytes] = None,
+        check: bool = False,
+    ) -> subprocess.CompletedProcess[bytes]:
+        managed_hooks = ensure_empty_git_hooks_dir(self.empty_hooks_dir)
+        env = filter_worker_env()
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        prefix = build_hardened_git_prefix(managed_hooks)
+        return subprocess.run(
+            ["git", *prefix, *args],
+            cwd=str(cwd),
+            env=env,
+            input=input_bytes,
+            stdin=subprocess.DEVNULL if input_bytes is None else None,
+            capture_output=True,
+            check=check,
+        )
+
+    def _resolve_git_common_dir(self) -> Path:
+        """Resolve the trusted repository's common Git directory (supports standard repos, nested worktrees, and --separate-git-dir)."""
+        repo_dot_git = self.repo_root / ".git"
+        lp_repo_dot_git = win_long_path(repo_dot_git)
+        if lp_repo_dot_git.is_dir():
+            return repo_dot_git
+        if lp_repo_dot_git.is_file():
+            try:
+                raw = lp_repo_dot_git.read_text(encoding="utf-8", errors="strict").strip()
+            except (OSError, UnicodeDecodeError):
+                return repo_dot_git
+            if raw.startswith("gitdir:"):
+                ptr_raw = raw[len("gitdir:"):].strip()
+                gitdir = Path(ptr_raw) if Path(ptr_raw).is_absolute() else (self.repo_root / ptr_raw)
+                commondir_file = win_long_path(gitdir / "commondir")
+                if commondir_file.is_file():
+                    try:
+                        common_rel = commondir_file.read_text(encoding="utf-8", errors="strict").strip()
+                        if common_rel:
+                            return Path(common_rel) if Path(common_rel).is_absolute() else (gitdir / common_rel)
+                    except (OSError, UnicodeDecodeError):
+                        pass
+                return gitdir
+        return repo_dot_git
+
+    def _verify_worktree_git_file(self, worktree_path: Union[str, Path]) -> Path:
+        """Verify `wt / '.git'` is an untampered regular gitdir pointer into `repo_root/.git/worktrees`."""
+        raw_wt = Path(worktree_path)
+        if is_link_or_junction(raw_wt):
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="scope_violation",
+                    message=f"Worktree path '{raw_wt}' was replaced with a symlink or NTFS junction",
+                    retryable=False,
+                ),
+                details={"worktree_path": str(raw_wt)},
+            )
+
+        wt_real = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(raw_wt))))
+        dot_git = wt_real / ".git"
+        lp_dot_git = win_long_path(dot_git)
+        if is_link_or_junction(dot_git):
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="scope_violation",
+                    message=f"Worktree .git entry at '{dot_git}' is a symlink or NTFS junction",
+                    retryable=False,
+                ),
+                details={"worktree_path": str(wt_real), "dot_git": str(dot_git)},
+            )
+
+        try:
+            st = os.lstat(lp_dot_git)
+        except OSError as exc:
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="scope_violation",
+                    message=f"Worktree .git file missing or inaccessible in '{wt_real}'",
+                    retryable=False,
+                ),
+                details={"worktree_path": str(wt_real), "error": str(exc)},
+            ) from exc
+
+        if not stat.S_ISREG(st.st_mode) or st.st_size <= 0 or st.st_size > 4096:
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="scope_violation",
+                    message=f"Worktree .git entry at '{dot_git}' is not a valid regular gitdir file",
+                    retryable=False,
+                ),
+                details={"worktree_path": str(wt_real), "dot_git": str(dot_git)},
+            )
+
+        try:
+            raw_text = lp_dot_git.read_text(encoding="utf-8", errors="strict")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="scope_violation",
+                    message=f"Worktree .git file at '{dot_git}' could not be decoded safely",
+                    retryable=False,
+                ),
+                details={"worktree_path": str(wt_real)},
+            ) from exc
+
+        stripped = raw_text.strip()
+        if (
+            "\x00" in raw_text
+            or "\n" in stripped
+            or "\r" in stripped
+            or not stripped.startswith("gitdir:")
+        ):
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="scope_violation",
+                    message=f"Worktree .git file at '{dot_git}' has tampered gitdir content",
+                    retryable=False,
+                ),
+                details={"worktree_path": str(wt_real)},
+            )
+
+        gitdir_raw = stripped[len("gitdir:"):].strip()
+        if not gitdir_raw:
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="scope_violation",
+                    message=f"Worktree .git file at '{dot_git}' has empty gitdir pointer",
+                    retryable=False,
+                ),
+                details={"worktree_path": str(wt_real)},
+            )
+
+        candidate_gitdir = Path(gitdir_raw) if Path(gitdir_raw).is_absolute() else (wt_real / gitdir_raw)
+        if is_link_or_junction(candidate_gitdir):
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="scope_violation",
+                    message=f"Worktree gitdir target '{candidate_gitdir}' is a symlink or NTFS junction",
+                    retryable=False,
+                ),
+                details={"worktree_path": str(wt_real), "gitdir": str(candidate_gitdir)},
+            )
+
+        admin_root = self._resolve_git_common_dir() / "worktrees"
+        resolved_admin_root = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(admin_root))))
+        resolved_gitdir = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(candidate_gitdir))))
+        norm_admin_root = os.path.normcase(str(resolved_admin_root))
+        norm_gitdir = os.path.normcase(str(resolved_gitdir))
+
+        if (
+            not win_long_path(resolved_admin_root).is_dir()
+            or not win_long_path(resolved_gitdir).is_dir()
+            or norm_gitdir == norm_admin_root
+            or not norm_gitdir.startswith(norm_admin_root + os.sep)
+        ):
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="scope_violation",
+                    message=(
+                        f"Worktree .git pointer '{resolved_gitdir}' escapes authorized "
+                        f"worktrees admin directory '{resolved_admin_root}'"
+                    ),
+                    retryable=False,
+                ),
+                details={
+                    "worktree_path": str(wt_real),
+                    "resolved_gitdir": str(resolved_gitdir),
+                    "expected_admin_root": str(resolved_admin_root),
+                },
+            )
+
+        return wt_real
 
     @classmethod
     def resolve_repo_root(cls, repo_root: Union[str, Path]) -> Path:
         """Resolve and validate that repo_root is the canonical root of a real Git repository."""
         raw_path = Path(repo_root)
-        if not raw_path.exists() or not raw_path.is_dir():
+        lp_raw = win_long_path(raw_path)
+        if not lp_raw.exists() or not lp_raw.is_dir():
             raise GitWorkspaceError(
                 FailureDetail(
                     code="workspace_invalid",
@@ -264,7 +580,7 @@ class GitWorkspaceService:
                 details={"repo_root": str(repo_root)},
             )
 
-        real_candidate = Path(os.path.realpath(raw_path))
+        real_candidate = Path(_strip_win_long_prefix(os.path.realpath(lp_raw)))
         res = cls._run_git_cmd(["rev-parse", "--show-toplevel"], cwd=real_candidate)
         if res.returncode != 0:
             raise GitWorkspaceError(
@@ -280,7 +596,7 @@ class GitWorkspaceService:
                 stderr=res.stderr,
             )
 
-        git_toplevel = Path(os.path.realpath(res.stdout.strip()))
+        git_toplevel = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(Path(res.stdout.strip())))))
         if os.path.normcase(str(git_toplevel)) != os.path.normcase(str(real_candidate)):
             raise GitWorkspaceError(
                 FailureDetail(
@@ -297,16 +613,33 @@ class GitWorkspaceService:
 
     def resolve_commit_sha(self, ref: str = "HEAD", cwd: Optional[Union[str, Path]] = None) -> str:
         """Resolve a Git reference or commit SHA to a verified 40-hex commit SHA."""
-        clean_ref = ref.strip()
-        if not clean_ref:
+        if not isinstance(ref, str):
             raise GitWorkspaceError(
                 FailureDetail(
                     code="workspace_invalid",
-                    message="Git reference cannot be empty",
+                    message="Git reference must be a string",
                     retryable=False,
                 )
             )
-        res = self._run_git(["rev-parse", "--verify", f"{clean_ref}^{{commit}}"], cwd=cwd)
+        clean_ref = ref.strip()
+        if (
+            not clean_ref
+            or clean_ref.startswith("-")
+            or "\x00" in clean_ref
+            or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in clean_ref)
+        ):
+            raise GitWorkspaceError(
+                FailureDetail(
+                    code="workspace_invalid",
+                    message=f"Invalid or unsafe Git reference '{ref}'",
+                    retryable=False,
+                ),
+                details={"ref": ref},
+            )
+        res = self._run_git(
+            ["rev-parse", "--verify", "--end-of-options", f"{clean_ref}^{{commit}}"],
+            cwd=cwd,
+        )
         sha = res.stdout.strip().lower()
         if res.returncode != 0 or not _COMMIT_SHA_RE.match(sha):
             raise GitWorkspaceError(
@@ -457,31 +790,36 @@ class GitWorkspaceService:
         safe_attempt = _sanitize_token(attempt_id)
 
         raw_wt_name = f"{safe_run}_{safe_task}_{safe_attempt}"
+        digest = hashlib.sha256(f"{run_id}:{task_id}:{attempt_id}".encode("utf-8")).hexdigest()[:8]
         if len(raw_wt_name) > 44:
-            digest = hashlib.sha256(f"{run_id}:{task_id}:{attempt_id}".encode("utf-8")).hexdigest()[:8]
             wt_dir_name = f"{safe_run[:12]}_{safe_task[:12]}_{digest}"
         else:
             wt_dir_name = raw_wt_name
 
-        if branch_name:
-            branch = branch_name
+        if os.name == "nt":
+            if len(str(self.repo_root)) > 165:
+                wt_dir_name = f"w{digest[:6]}"
+            elif len(str(self.worktree_base_dir)) + 1 + len(wt_dir_name) > 210:
+                wt_dir_name = f"wt_{digest}"
+
+        if branch_name is not None:
+            branch = self._validate_branch_name(branch_name)
         else:
             raw_branch = f"hydra/{safe_run}/{safe_task}/{safe_attempt}"
             if len(raw_branch) > 48:
-                digest = hashlib.sha256(f"{run_id}:{task_id}:{attempt_id}".encode("utf-8")).hexdigest()[:8]
                 branch = f"hydra/{safe_run[:12]}/{safe_task[:12]}/{digest}"
             else:
                 branch = raw_branch
+            branch = self._validate_branch_name(branch)
 
         ws_id = workspace_id or f"ws_{wt_dir_name}"
 
-        if os.name == "nt":
-            self._run_git(["config", "core.longpaths", "true"], cwd=self.repo_root)
+        self._run_git(["config", "core.longpaths", "true"], cwd=self.repo_root)
 
-        self.worktree_base_dir.mkdir(parents=True, exist_ok=True)
+        win_long_path(self.worktree_base_dir).mkdir(parents=True, exist_ok=True)
         worktree_path = self.worktree_base_dir / wt_dir_name
 
-        if worktree_path.exists():
+        if win_long_path(worktree_path).exists():
             raise GitWorkspaceError(
                 FailureDetail(
                     code="workspace_invalid",
@@ -496,8 +834,8 @@ class GitWorkspaceService:
             cwd=self.repo_root,
         )
         if res.returncode != 0:
-            if worktree_path.exists():
-                shutil.rmtree(worktree_path, ignore_errors=True)
+            if win_long_path(worktree_path).exists():
+                shutil.rmtree(win_long_path(worktree_path), ignore_errors=True)
             raise GitWorkspaceError(
                 FailureDetail(
                     code="workspace_invalid",
@@ -514,9 +852,9 @@ class GitWorkspaceService:
             )
 
         git_marker = worktree_path / ".git"
-        if not worktree_path.is_dir() or not git_marker.exists():
-            if worktree_path.exists():
-                shutil.rmtree(worktree_path, ignore_errors=True)
+        if not win_long_path(worktree_path).is_dir() or not win_long_path(git_marker).exists():
+            if win_long_path(worktree_path).exists():
+                shutil.rmtree(win_long_path(worktree_path), ignore_errors=True)
             raise GitWorkspaceError(
                 FailureDetail(
                     code="workspace_invalid",
@@ -525,6 +863,8 @@ class GitWorkspaceService:
                 ),
                 details={"worktree_path": str(worktree_path)},
             )
+
+        self._run_git(["config", "core.longpaths", "true"], cwd=worktree_path)
 
         wt_head = self.resolve_commit_sha("HEAD", cwd=worktree_path)
         if wt_head != verified_sha:
@@ -537,7 +877,7 @@ class GitWorkspaceService:
                 details={"worktree_head": wt_head, "base_sha": verified_sha},
             )
 
-        canonical_wt = Path(os.path.realpath(worktree_path))
+        canonical_wt = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(worktree_path))))
         record = WorkspaceRecord(
             workspace_id=ws_id,
             attempt_id=attempt_id,
@@ -629,18 +969,21 @@ class GitWorkspaceService:
 
     @staticmethod
     def _matches_any_pattern(rel_posix_path: str, patterns: Iterable[str]) -> bool:
-        pure_path = PurePosixPath(rel_posix_path)
+        check_path = rel_posix_path.casefold() if os.name == "nt" else rel_posix_path
+        pure_path = PurePosixPath(check_path)
         for raw_pat in patterns:
             pat = _normalize_rel_posix(raw_pat)
             if not pat:
                 continue
+            if os.name == "nt":
+                pat = pat.casefold()
             if pat in {"**/*", "**", "*"}:
                 return True
-            if fnmatch.fnmatchcase(rel_posix_path, pat) or pure_path.match(pat):
+            if fnmatch.fnmatchcase(check_path, pat) or pure_path.match(pat):
                 return True
             if pat.endswith("/**"):
                 prefix = pat[:-3].rstrip("/")
-                if rel_posix_path == prefix or rel_posix_path.startswith(f"{prefix}/"):
+                if check_path == prefix or check_path.startswith(f"{prefix}/"):
                     return True
             if "/" not in pat and fnmatch.fnmatchcase(pure_path.name, pat):
                 return True
@@ -653,8 +996,8 @@ class GitWorkspaceService:
         allowed_paths: Sequence[str] = ("**/*",),
         forbidden_paths: Sequence[str] = (),
     ) -> ScopeValidationResult:
-        """Validate changed files in worktree against allowed_paths, forbidden_paths, and symlink escapes."""
-        wt_real = Path(os.path.realpath(worktree_path))
+        """Validate changed files in worktree against allowed_paths, forbidden_paths, and symlink/junction escapes."""
+        wt_real = self._verify_worktree_git_file(worktree_path)
         wt_norm = os.path.normcase(str(wt_real))
         changed = self.list_changed_files(wt_real, base_sha=base_sha)
 
@@ -663,21 +1006,41 @@ class GitWorkspaceService:
         forbidden_hits: List[str] = []
 
         candidates_to_check = set(changed)
-        for root, dirs, files in os.walk(wt_real, followlinks=False):
+        walk_root = win_long_path(wt_real)
+        for root, dirs, files in os.walk(walk_root, followlinks=False):
             if ".git" in dirs:
                 dirs.remove(".git")
-            root_path = Path(root)
-            for entry_name in [*dirs, *files]:
-                full_entry = root_path / entry_name
-                if full_entry.is_symlink():
-                    rel_sym = _normalize_rel_posix(str(full_entry.relative_to(wt_real)))
+            clean_root = Path(_strip_win_long_prefix(str(root)))
+            for dir_name in list(dirs):
+                full_dir = clean_root / dir_name
+                if is_link_or_junction(full_dir):
+                    rel_sym = _normalize_rel_posix(str(full_dir.relative_to(wt_real)))
+                    candidates_to_check.add(rel_sym)
+                    dirs.remove(dir_name)
+            for file_name in files:
+                full_file = clean_root / file_name
+                if is_link_or_junction(full_file):
+                    rel_sym = _normalize_rel_posix(str(full_file.relative_to(wt_real)))
                     candidates_to_check.add(rel_sym)
 
         for rel_path in sorted(candidates_to_check):
+            cursor = wt_real
+            escaped_via_link = False
+            traversed_link = False
+            for part in Path(rel_path).parts:
+                cursor = cursor / part
+                if is_link_or_junction(cursor):
+                    traversed_link = True
+                    link_target = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(cursor))))
+                    link_norm = os.path.normcase(str(link_target))
+                    if not (link_norm == wt_norm or link_norm.startswith(wt_norm + os.sep)):
+                        escaped_via_link = True
+                        break
+
             candidate = wt_real / Path(rel_path)
-            resolved_target = Path(os.path.realpath(candidate))
+            resolved_target = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(candidate))))
             resolved_norm = os.path.normcase(str(resolved_target))
-            if not (
+            if escaped_via_link or not (
                 resolved_norm == wt_norm
                 or resolved_norm.startswith(wt_norm + os.sep)
             ):
@@ -685,12 +1048,26 @@ class GitWorkspaceService:
                 violations.append(rel_path)
                 continue
 
-            if rel_path in changed:
-                if forbidden_paths and self._matches_any_pattern(rel_path, forbidden_paths):
+            resolved_rel: Optional[str] = None
+            if traversed_link and resolved_norm != wt_norm:
+                try:
+                    resolved_rel = _normalize_rel_posix(str(resolved_target.relative_to(wt_real)))
+                except ValueError:
+                    symlink_escapes.append(rel_path)
+                    violations.append(rel_path)
+                    continue
+
+            if rel_path in changed or traversed_link:
+                if forbidden_paths and (
+                    self._matches_any_pattern(rel_path, forbidden_paths)
+                    or (resolved_rel is not None and self._matches_any_pattern(resolved_rel, forbidden_paths))
+                ):
                     forbidden_hits.append(rel_path)
                     violations.append(rel_path)
                     continue
-                if not self._matches_any_pattern(rel_path, allowed_paths):
+                if not self._matches_any_pattern(rel_path, allowed_paths) or (
+                    resolved_rel is not None and not self._matches_any_pattern(resolved_rel, allowed_paths)
+                ):
                     violations.append(rel_path)
 
         unique_violations = tuple(sorted(set(violations)))
@@ -714,6 +1091,12 @@ class GitWorkspaceService:
         Validate scope, commit all worktree changes to the task branch, and write a SHA-256 patch artifact.
         Preserves the worktree and raises GitWorkspaceError(code='scope_violation') if scope validation fails.
         """
+        try:
+            self._verify_worktree_git_file(record.canonical_path)
+        except GitWorkspaceError:
+            record.status = "preserved"
+            raise
+
         scope_res = self.validate_worktree_scope(
             record.canonical_path,
             base_sha=record.base_sha,
@@ -764,7 +1147,12 @@ class GitWorkspaceService:
                 "GIT_COMMITTER_EMAIL": self.git_author_email,
             }
             commit_res = self._run_git(
-                ["commit", "-m", commit_message.strip() or f"feat({record.task_id}): apply task changes"],
+                [
+                    "commit",
+                    "--no-verify",
+                    "-m",
+                    commit_message.strip() or f"feat({record.task_id}): apply task changes",
+                ],
                 cwd=record.canonical_path,
                 extra_env=git_env,
             )
@@ -808,13 +1196,13 @@ class GitWorkspaceService:
         safe_run = _sanitize_token(record.run_id)
         safe_attempt = _sanitize_token(record.attempt_id)
         patches_dir = self.runtime_dir / "run" / safe_run / "patches"
-        patches_dir.mkdir(parents=True, exist_ok=True)
+        win_long_path(patches_dir).mkdir(parents=True, exist_ok=True)
 
         patch_file = patches_dir / f"{safe_attempt}.patch"
         patch_bytes = diff_res.stdout.encode("utf-8")
         temp_patch = patches_dir / f".{safe_attempt}.patch.tmp"
-        temp_patch.write_bytes(patch_bytes)
-        temp_patch.replace(patch_file)
+        win_long_path(temp_patch).write_bytes(patch_bytes)
+        os.replace(win_long_path(temp_patch), win_long_path(patch_file))
 
         sha256_hex = hashlib.sha256(patch_bytes).hexdigest()
         try:
@@ -860,8 +1248,8 @@ class GitWorkspaceService:
         Safely remove a task worktree inside worktree_base_dir.
         Refuses to delete a dirty worktree with uncommitted changes unless force_discard=True (GAP A05).
         """
-        wt_real = Path(os.path.realpath(record.canonical_path))
-        base_norm = os.path.normcase(str(os.path.realpath(self.worktree_base_dir)))
+        wt_real = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(record.canonical_path))))
+        base_norm = os.path.normcase(_strip_win_long_prefix(os.path.realpath(win_long_path(self.worktree_base_dir))))
         wt_norm = os.path.normcase(str(wt_real))
 
         if not wt_norm.startswith(base_norm + os.sep):
@@ -874,7 +1262,7 @@ class GitWorkspaceService:
                 details={"worktree_path": str(wt_real)},
             )
 
-        if wt_real.exists():
+        if win_long_path(wt_real).exists():
             status_res = self._run_git(["status", "--porcelain=v1", "-uall"], cwd=wt_real)
             is_dirty = status_res.returncode != 0 or bool(status_res.stdout.strip())
             if is_dirty and not force_discard:
@@ -899,8 +1287,8 @@ class GitWorkspaceService:
                 rm_args.append("--force")
             rm_args.append(str(wt_real))
             rm_res = self._run_git(rm_args, cwd=self.repo_root)
-            if rm_res.returncode != 0 and force_discard and wt_real.exists():
-                shutil.rmtree(wt_real, ignore_errors=True)
+            if rm_res.returncode != 0 and force_discard and win_long_path(wt_real).exists():
+                shutil.rmtree(win_long_path(wt_real), ignore_errors=True)
             elif rm_res.returncode != 0:
                 record.status = "preserved"
                 raise GitWorkspaceError(
@@ -924,7 +1312,7 @@ class GitWorkspaceService:
 
     def create_lock_file(self, lock_name: str, pid: Optional[int] = None) -> Path:
         """Create a PID-stamped lock file inside .orchestrator/lock/."""
-        self.lock_dir.mkdir(parents=True, exist_ok=True)
+        win_long_path(self.lock_dir).mkdir(parents=True, exist_ok=True)
         safe_name = _sanitize_token(lock_name)
         lock_path = self.lock_dir / f"{safe_name}.lock"
         payload = {
@@ -932,7 +1320,7 @@ class GitWorkspaceService:
             "created_at": datetime.now(timezone.utc).isoformat(),
             "repo_root": str(self.repo_root),
         }
-        lock_path.write_text(json.dumps(payload), encoding="utf-8")
+        win_long_path(lock_path).write_text(json.dumps(payload), encoding="utf-8")
         return lock_path
 
     def cleanup_stale_locks(self) -> Tuple[Path, ...]:
@@ -941,11 +1329,13 @@ class GitWorkspaceService:
         owned by dead processes and pruning stale worktree metadata.
         """
         removed: List[Path] = []
-        if self.lock_dir.exists():
-            for lock_file in sorted(self.lock_dir.glob("*.lock")):
+        lp_lock_dir = win_long_path(self.lock_dir)
+        if lp_lock_dir.exists():
+            for lock_entry in sorted(lp_lock_dir.glob("*.lock")):
+                lock_file = self.lock_dir / lock_entry.name
                 should_remove = False
                 try:
-                    data = json.loads(lock_file.read_text(encoding="utf-8"))
+                    data = json.loads(lock_entry.read_text(encoding="utf-8"))
                     lock_pid = int(data.get("pid", -1))
                     if lock_pid <= 0 or not is_process_alive(lock_pid):
                         should_remove = True
@@ -954,24 +1344,26 @@ class GitWorkspaceService:
 
                 if should_remove:
                     try:
-                        lock_file.unlink()
+                        lock_entry.unlink()
                         removed.append(lock_file)
                     except OSError:
                         pass
 
         git_worktrees_admin = self.repo_root / ".git" / "worktrees"
-        if git_worktrees_admin.exists():
-            for wt_admin in sorted(git_worktrees_admin.iterdir()):
-                if not wt_admin.is_dir():
+        lp_admin = win_long_path(git_worktrees_admin)
+        if lp_admin.exists():
+            for wt_admin_entry in sorted(lp_admin.iterdir()):
+                if not wt_admin_entry.is_dir():
                     continue
-                gitdir_file = wt_admin / "gitdir"
-                locked_file = wt_admin / "locked"
+                wt_admin = git_worktrees_admin / wt_admin_entry.name
+                gitdir_file = wt_admin_entry / "gitdir"
+                locked_file = wt_admin_entry / "locked"
                 if locked_file.exists() and gitdir_file.exists():
                     try:
                         target_git = Path(gitdir_file.read_text(encoding="utf-8").strip())
-                        if not target_git.exists():
+                        if not win_long_path(target_git).exists():
                             locked_file.unlink()
-                            removed.append(locked_file)
+                            removed.append(wt_admin / "locked")
                     except OSError:
                         pass
 
@@ -986,24 +1378,47 @@ class GitWorkspaceService:
             allowed_paths=allowed_paths, forbidden_paths=forbidden_paths)
         if not scope.valid:
             raise ContractViolation("handoff_scope_violation", "Unsafe source state requires manual reconciliation")
-        patch = subprocess.run(["git", "diff", "--binary", "--no-ext-diff", target.base_sha],
-            cwd=source, capture_output=True, check=True).stdout
+        patch = self._run_git_bytes(
+            ["diff", "--binary", "--no-ext-diff", target.base_sha],
+            cwd=source,
+            check=True,
+        ).stdout
         if patch:
-            applied = subprocess.run(["git", "apply", "--binary", "-"], cwd=target.canonical_path,
-                input=patch, capture_output=True)
+            applied = self._run_git_bytes(
+                ["apply", "--binary", "-"],
+                cwd=target.canonical_path,
+                input_bytes=patch,
+            )
             if applied.returncode:
                 raise ContractViolation("handoff_conflict", "Cannot restore partial patch; both worktrees are preserved")
-        untracked = subprocess.run(["git", "ls-files", "--others", "--exclude-standard", "-z"],
-            cwd=source, capture_output=True, check=True).stdout
+        untracked = self._run_git_bytes(
+            ["ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=source,
+            check=True,
+        ).stdout
         for raw in untracked.split(b"\0"):
             if not raw:
                 continue
             relative = raw.decode("utf-8")
             src, dest = source / relative, target.canonical_path / relative
-            if src.is_symlink() or not src.is_file() or dest.exists():
+            src_cursor = source
+            dest_cursor = target.canonical_path
+            has_link_parent = False
+            for part in Path(relative).parts:
+                src_cursor = src_cursor / part
+                dest_cursor = dest_cursor / part
+                if is_link_or_junction(src_cursor) or is_link_or_junction(dest_cursor):
+                    has_link_parent = True
+                    break
+            if (
+                has_link_parent
+                or is_link_or_junction(src)
+                or not win_long_path(src).is_file()
+                or win_long_path(dest).exists()
+            ):
                 raise ContractViolation("handoff_conflict", "Untracked state cannot be restored safely")
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
+            win_long_path(dest.parent).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(win_long_path(src), win_long_path(dest))
         restored = self.validate_worktree_scope(target.canonical_path, base_sha=target.base_sha,
             allowed_paths=allowed_paths, forbidden_paths=forbidden_paths)
         if not restored.valid:
@@ -1087,8 +1502,15 @@ class GitWorkspaceService:
         verified_base = self.resolve_commit_sha(expected_base_sha, cwd=self.repo_root)
         safe_run = _sanitize_token(run_id)
         int_id = integration_id or f"int_{safe_run}"
-        branch = target_branch or (f"integrate/{safe_run}-{_sanitize_token(int_id)}" if integration_id else f"integrate/{safe_run}")
-        int_wt_path = self.worktree_base_dir / f"integrate_{safe_run[:32]}_{hashlib.sha256(int_id.encode()).hexdigest()[:12]}"
+        raw_branch = target_branch if target_branch is not None else (
+            f"integrate/{safe_run}-{_sanitize_token(int_id)}" if integration_id else f"integrate/{safe_run}"
+        )
+        branch = self._validate_branch_name(raw_branch)
+        int_hash = hashlib.sha256(int_id.encode()).hexdigest()[:12]
+        int_dir_name = f"integrate_{safe_run[:32]}_{int_hash}"
+        if os.name == "nt" and len(str(self.worktree_base_dir)) + 1 + len(int_dir_name) > 210:
+            int_dir_name = f"int_{int_hash[:10]}"
+        int_wt_path = self.worktree_base_dir / int_dir_name
 
         for allowed_base in verified_base_shas:
             if self.store is None:
@@ -1101,8 +1523,10 @@ class GitWorkspaceService:
         for result in results:
             self._validate_integrable_result(result, expected_base_sha=verified_base, verified_base_shas=verified_base_shas)
 
-        self.worktree_base_dir.mkdir(parents=True, exist_ok=True)
-        if int_wt_path.exists():
+        self._run_git(["config", "core.longpaths", "true"], cwd=self.repo_root)
+
+        win_long_path(self.worktree_base_dir).mkdir(parents=True, exist_ok=True)
+        if win_long_path(int_wt_path).exists():
             raise ContractViolation("integration_workspace_exists", "Prior integration evidence is preserved; choose a new integration ID")
         existing_branch = self._run_git(["show-ref", "--verify", f"refs/heads/{branch}"])
         if existing_branch.returncode == 0:
@@ -1122,7 +1546,8 @@ class GitWorkspaceService:
                 stderr=add_res.stderr,
             )
 
-        int_wt_real = Path(os.path.realpath(int_wt_path))
+        int_wt_real = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(int_wt_path))))
+        self._run_git(["config", "core.longpaths", "true"], cwd=int_wt_real)
         status = transition_status(IntegrationStatus.NOT_INTEGRATED, IntegrationStatus.INTEGRATING)
         merged_ids: List[str] = []
         git_env = {
@@ -1141,6 +1566,7 @@ class GitWorkspaceService:
             merge_res = self._run_git(
                 [
                     "merge",
+                    "--no-verify",
                     "--no-ff",
                     result.patch_commit_sha,
                     "-m",
@@ -1519,16 +1945,22 @@ class GitWorkspaceService:
         ).hexdigest()[:8]
 
         wt_dir_name = f"{safe_prefix}_{safe_conflict[:12]}_{attempt_ordinal}_{digest}"
-        branch = branch_name or f"merge_repair/{safe_run[:16]}/{safe_conflict[:12]}/att_{attempt_ordinal}_{digest}"
+        if os.name == "nt" and len(str(self.worktree_base_dir)) + 1 + len(wt_dir_name) > 210:
+            wt_dir_name = f"rp_{digest}"
+        raw_branch = (
+            branch_name
+            if branch_name is not None
+            else f"merge_repair/{safe_run[:16]}/{safe_conflict[:12]}/att_{attempt_ordinal}_{digest}"
+        )
+        branch = self._validate_branch_name(raw_branch)
         attempt_id = f"{safe_prefix}_{safe_conflict[:16]}_{attempt_ordinal}_{digest}"
         ws_id = f"ws_{wt_dir_name}"
 
-        if os.name == "nt":
-            self._run_git(["config", "core.longpaths", "true"], cwd=self.repo_root)
+        self._run_git(["config", "core.longpaths", "true"], cwd=self.repo_root)
 
-        self.worktree_base_dir.mkdir(parents=True, exist_ok=True)
+        win_long_path(self.worktree_base_dir).mkdir(parents=True, exist_ok=True)
         worktree_path = self.worktree_base_dir / wt_dir_name
-        if worktree_path.exists():
+        if win_long_path(worktree_path).exists():
             raise GitWorkspaceError(
                 FailureDetail(
                     code="workspace_invalid",
@@ -1543,8 +1975,8 @@ class GitWorkspaceService:
             cwd=self.repo_root,
         )
         if res.returncode != 0:
-            if worktree_path.exists():
-                shutil.rmtree(worktree_path, ignore_errors=True)
+            if win_long_path(worktree_path).exists():
+                shutil.rmtree(win_long_path(worktree_path), ignore_errors=True)
             raise GitWorkspaceError(
                 FailureDetail(
                     code="workspace_invalid",
@@ -1555,7 +1987,8 @@ class GitWorkspaceService:
                 stderr=res.stderr,
             )
 
-        canonical_wt = Path(os.path.realpath(worktree_path))
+        canonical_wt = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(worktree_path))))
+        self._run_git(["config", "core.longpaths", "true"], cwd=canonical_wt)
         ws_status: WorkspaceStatusLiteral = "ready"
         if populate_conflict and theirs_resolved is not None:
             git_env = {
@@ -1565,7 +1998,7 @@ class GitWorkspaceService:
                 "GIT_COMMITTER_EMAIL": self.git_author_email,
             }
             merge_res = self._run_git(
-                ["merge", "--no-commit", "--no-ff", theirs_resolved],
+                ["merge", "--no-verify", "--no-commit", "--no-ff", theirs_resolved],
                 cwd=canonical_wt,
                 extra_env=git_env,
             )
@@ -1609,11 +2042,12 @@ class GitWorkspaceService:
         }
         for norm in paths_to_check:
             target = wt_real / norm
+            lp_target = win_long_path(target)
             has_markers = False
             readable_text = False
-            if target.is_file():
+            if lp_target.is_file():
                 try:
-                    raw_bytes = target.read_bytes()
+                    raw_bytes = lp_target.read_bytes()
                     if b"\x00" not in raw_bytes:
                         content = raw_bytes.decode("utf-8", errors="replace")
                         readable_text = True
@@ -1640,7 +2074,7 @@ class GitWorkspaceService:
         candidate_files: Sequence[str] = (),
     ) -> str:
         """Verify conflicts are resolved, stage, commit in the isolated worktree, and return HEAD SHA."""
-        wt_real = Path(os.path.realpath(worktree_path))
+        wt_real = self._verify_worktree_git_file(worktree_path)
         remaining = self.inspect_worktree_conflicts(wt_real, candidate_files=candidate_files)
         if remaining:
             raise GitWorkspaceError(
@@ -1675,7 +2109,7 @@ class GitWorkspaceService:
                 "GIT_COMMITTER_EMAIL": self.git_author_email,
             }
             commit_res = self._run_git(
-                ["commit", "-m", commit_message.strip() or "fix(merge): resolve conflict"],
+                ["commit", "--no-verify", "-m", commit_message.strip() or "fix(merge): resolve conflict"],
                 cwd=wt_real,
                 extra_env=git_env,
             )

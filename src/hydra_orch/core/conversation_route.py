@@ -71,12 +71,14 @@ class ConversationRoutes:
         self._settings_loaded = False
 
     async def settings(self):
+        from hydra_orch.bridge.omniroute_client import validate_omniroute_base_url
         from hydra_orch.core.preferences import PreferenceService
         saved = await PreferenceService(self.store).get_preference('user', 'operator', 'integration.omniroute')
         if saved:
             value = json.loads(saved.value_json)
-            self.gateway.base_url = value['base_url']
-            self.gateway.quota_api_url = value['base_url'].removesuffix('/v1') + '/api/usage/quota'
+            validated_url = validate_omniroute_base_url(value['base_url'])
+            self.gateway.base_url = validated_url
+            self.gateway.quota_api_url = validated_url.removesuffix('/v1') + '/api/usage/quota'
             self.gateway.enabled = value['enabled']
         self._settings_loaded = True
         return {'base_url': self.gateway.base_url, 'enabled': self.gateway.enabled,
@@ -84,19 +86,10 @@ class ConversationRoutes:
                 'credential_env': self.gateway.api_key_env, 'version': saved.version if saved else 0}
 
     async def save_settings(self, *, base_url, enabled, expected_version, idempotency_key):
-        from urllib.parse import urlsplit
+        from hydra_orch.bridge.omniroute_client import validate_omniroute_base_url
         from hydra_orch.core.preferences import PreferenceService
-        try:
-            url = urlsplit(base_url)
-        except ValueError as exc:
-            raise ContractViolation('route_invalid', 'Use um endereço HTTP/HTTPS válido.') from exc
-        if url.scheme not in {'http', 'https'} or not url.hostname or url.username or url.password or url.query or url.fragment:
-            raise ContractViolation('route_invalid', 'Use um endereço HTTP/HTTPS sem credenciais, consulta ou fragmento.')
-        try:
-            url.port
-        except ValueError as exc:
-            raise ContractViolation('route_invalid', 'A porta do endereço não é válida.') from exc
-        value = {'base_url': base_url.rstrip('/'), 'enabled': enabled}
+        clean_base_url = validate_omniroute_base_url(base_url)
+        value = {'base_url': clean_base_url, 'enabled': enabled}
         await PreferenceService(self.store).set_preference('user', 'operator', 'integration.omniroute', value,
             expected_version=expected_version, idempotency_key=idempotency_key)
         self._cache = self._combo_cache = None
@@ -105,16 +98,31 @@ class ConversationRoutes:
     async def version(self, executor):
         async with self._version_locks.setdefault(executor, asyncio.Lock()):
             if executor not in self._versions:
-                from hydra_orch.bridge.agent_executable import resolve_agent_executable
+                from hydra_orch.bridge.agent_executable import (
+                    resolve_agent_executable,
+                    resolve_npm_node_script,
+                    run_windows_cmd_sync,
+                )
                 exe = await asyncio.to_thread(resolve_agent_executable, executor)
                 def read():
                     if not exe:
                         return 'not-installed'
                     try:
-                        p = subprocess.run([exe, '--version'], capture_output=True, timeout=10, stdin=subprocess.DEVNULL,
-                                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+                        if os.name == 'nt' and str(exe).lower().endswith(('.cmd', '.bat')):
+                            npm_target = resolve_npm_node_script(exe)
+                            if npm_target is not None:
+                                p = subprocess.run([npm_target[0], npm_target[1], '--version'],
+                                                   capture_output=True, timeout=10, stdin=subprocess.DEVNULL,
+                                                   creationflags=flags)
+                            else:
+                                p = run_windows_cmd_sync([exe, '--version'], capture_output=True,
+                                                         timeout=10, stdin=subprocess.DEVNULL, creationflags=flags)
+                        else:
+                            p = subprocess.run([exe, '--version'], capture_output=True, timeout=10, stdin=subprocess.DEVNULL,
+                                               creationflags=flags)
                         return p.stdout.decode('utf-8', errors='replace').strip()[:100] if p.returncode == 0 else 'unknown'
-                    except (OSError, subprocess.TimeoutExpired):
+                    except (OSError, ValueError, subprocess.TimeoutExpired):
                         return 'unknown'
                 self._versions[executor] = await asyncio.to_thread(read)
             return self._versions[executor]
@@ -315,3 +323,6 @@ class ConversationRoutes:
                 raise ContractViolation('route_certification_failed', 'O teste do modelo excedeu o tempo limite. A combinação continua bloqueada; confira a disponibilidade no OmniRoute ou escolha outra rota.') from exc
             finally:
                 await runner.cancel(run_id)
+
+
+ConversationRouteStore = ConversationRoutes

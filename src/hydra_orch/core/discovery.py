@@ -12,6 +12,7 @@ from typing import Literal
 import yaml
 
 from hydra_orch.core.checkpointer import ExecutionStore
+from hydra_orch.core.git_workspace import is_link_or_junction, win_long_path
 from hydra_orch.core.identifier import new_id
 from hydra_orch.core.redaction import redact, redact_text
 from hydra_orch.model import ContractViolation, ExecutionModel, Identifier, Sha256, UtcTimestamp
@@ -48,12 +49,14 @@ class DiscoveryService:
             path = Path(value)
             if not path.is_absolute() or '..' in path.parts:
                 raise ValueError('Discovery roots must be absolute without traversal')
+            if is_link_or_junction(path):
+                raise ValueError('Discovery roots must not be symlinks or junctions')
             canonical = path.resolve(strict=True)
-            if not canonical.is_dir():
+            if not win_long_path(canonical).is_dir():
                 raise ValueError('Discovery roots must be directories')
             roots.append(canonical)
         self.roots = tuple(dict.fromkeys(roots))
-        self.identities = {root: (root.stat().st_dev, root.stat().st_ino) for root in self.roots}
+        self.identities = {root: (win_long_path(root).stat().st_dev, win_long_path(root).stat().st_ino) for root in self.roots}
         if self.enabled and not self.roots:
             raise ValueError('Enabled discovery requires an explicit root allowlist')
 
@@ -67,12 +70,21 @@ class DiscoveryService:
         path = Path(path)
         if not path.is_absolute() or '..' in path.parts:
             raise ContractViolation('discovery_scope', 'Discovery requires an authorized absolute path')
+        if is_link_or_junction(path):
+            raise ContractViolation('discovery_scope', 'Symlink or redirected resource is not allowed')
         resolved = path.resolve(strict=True)
         if resolved != path:
             raise ContractViolation('discovery_scope', 'Symlink or redirected resource is not allowed')
         for root in self.roots:
             if resolved == root or root in resolved.parents:
-                info = root.stat()
+                if is_link_or_junction(root):
+                    raise ContractViolation('discovery_scope', 'Symlink or redirected resource is not allowed')
+                cursor = root
+                for part in path.relative_to(root).parts:
+                    cursor = cursor / part
+                    if is_link_or_junction(cursor):
+                        raise ContractViolation('discovery_scope', 'Symlink or redirected resource is not allowed')
+                info = win_long_path(root).stat()
                 if self.identities[root] == (info.st_dev, info.st_ino):
                     return root
         raise ContractViolation('discovery_scope', 'Path is outside the current discovery allowlist')
@@ -94,7 +106,7 @@ class DiscoveryService:
                     descriptors.append(directory)
                 fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
             else:
-                fd = os.open(path, os.O_RDONLY | getattr(os, 'O_BINARY', 0))
+                fd = os.open(win_long_path(path), os.O_RDONLY | getattr(os, 'O_BINARY', 0))
             descriptors.append(fd)
             before = os.fstat(fd)
             if not stat.S_ISREG(before.st_mode) or before.st_size > self.max_bytes:
@@ -107,7 +119,7 @@ class DiscoveryService:
                 data += chunk
             after = os.fstat(fd)
             self._root_for(path)
-            observed = path.stat()
+            observed = win_long_path(path).stat()
             if (len(data) > self.max_bytes or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns)
                     or (observed.st_dev, observed.st_ino) != (after.st_dev, after.st_ino)):
                 raise ContractViolation('discovery_changed', 'Manifest changed while being read')
@@ -145,18 +157,22 @@ class DiscoveryService:
         stack, files, visited, skipped = [(Path(requested), 0)], [], 0, 0
         while stack and visited < self.max_entries:
             directory, depth = stack.pop()
-            with os.scandir(directory) as entries:
+            if is_link_or_junction(directory):
+                skipped += 1
+                continue
+            with os.scandir(win_long_path(directory)) as entries:
                 for entry in entries:
                     visited += 1
                     if visited > self.max_entries:
                         break
-                    if entry.is_symlink():
+                    entry_path = directory / entry.name
+                    if is_link_or_junction(entry) or is_link_or_junction(entry_path):
                         skipped += 1
                     elif entry.is_dir(follow_symlinks=False):
                         if depth < self.max_depth and entry.name not in SKIP_DIRS:
-                            stack.append((Path(entry.path), depth + 1))
+                            stack.append((entry_path, depth + 1))
                     elif entry.is_file(follow_symlinks=False) and entry.name in NAMES:
-                        files.append(Path(entry.path))
+                        files.append(entry_path)
         return sorted(files), skipped, visited >= self.max_entries
 
     async def _audit(self, db, event, principal_id, resource_id=None, **details):

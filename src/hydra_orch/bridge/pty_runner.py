@@ -16,12 +16,20 @@ import shutil
 import signal
 import struct
 import subprocess
+import time
 from typing import Any, AsyncIterator, Deque, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union
 
 from pydantic import Field
 
 import threading
 
+from hydra_orch.bridge.agent_executable import (
+    format_windows_cmd_commandline,
+    get_windows_comspec,
+    resolve_agent_executable,
+    resolve_npm_node_script,
+    spawn_windows_cmd_subprocess,
+)
 from hydra_orch.bridge.conpty import ConPtyError, ConPtyProcess, conpty_available
 from hydra_orch.bridge.worker_runner import cancel_process_tree, filter_worker_env, is_process_alive
 from hydra_orch.core.identifier import new_id
@@ -196,6 +204,7 @@ class _PtySessionState:
     detached: bool = False
     exit_code: Optional[int] = None
     finished_at: Optional[datetime] = None
+    finished_monotonic: Optional[float] = None
     master_fd: Optional[int] = None
     master_closed: bool = False
     last_seq: int = 0
@@ -270,12 +279,61 @@ class PtyRunner:
         *,
         max_scrollback_chunks: int = 2000,
         max_scrollback_bytes: int = 2 * 1024 * 1024,
+        max_closed_sessions: int = 32,
+        closed_ttl_seconds: float = 600.0,
     ) -> None:
         if max_scrollback_chunks < 1 or max_scrollback_bytes < 1024:
             raise ContractViolation("invalid_pty_config", "Scrollback limits must be positive")
+        if max_closed_sessions < 0 or closed_ttl_seconds < 0:
+            raise ContractViolation("invalid_pty_config", "Closed session retention limits must be non-negative")
         self.max_scrollback_chunks = max_scrollback_chunks
         self.max_scrollback_bytes = max_scrollback_bytes
+        self.max_closed_sessions = max_closed_sessions
+        self.closed_ttl_seconds = float(closed_ttl_seconds)
         self._sessions: Dict[str, _PtySessionState] = {}
+
+    def prune_closed_sessions(
+        self,
+        *,
+        now_monotonic: Optional[float] = None,
+        exclude_sid: Optional[str] = None,
+    ) -> int:
+        """Evict expired or excess closed PTY sessions (LRU/TTL) and free scrollback memory."""
+        now = time.monotonic() if now_monotonic is None else float(now_monotonic)
+        pruned = 0
+
+        # 1. TTL eviction for finished sessions with no active stream subscribers
+        for sid, st in list(self._sessions.items()):
+            if sid == exclude_sid or st.status == "running" or st.subscribers:
+                continue
+            fin = st.finished_monotonic
+            if fin is not None and (now - fin) >= self.closed_ttl_seconds:
+                st.scrollback.clear()
+                st.scrollback_bytes = 0
+                st.reader_tasks.clear()
+                self._sessions.pop(sid, None)
+                pruned += 1
+
+        # 2. Bounded count eviction (oldest finished first)
+        closed_all = [
+            (sid, st)
+            for sid, st in self._sessions.items()
+            if st.status != "running" and not st.subscribers
+        ]
+        if len(closed_all) > self.max_closed_sessions:
+            evictable = sorted(
+                [(sid, st) for sid, st in closed_all if sid != exclude_sid],
+                key=lambda item: item[1].finished_monotonic if item[1].finished_monotonic is not None else 0.0,
+            )
+            excess = len(closed_all) - self.max_closed_sessions
+            for sid, st in evictable[:excess]:
+                st.scrollback.clear()
+                st.scrollback_bytes = 0
+                st.reader_tasks.clear()
+                self._sessions.pop(sid, None)
+                pruned += 1
+
+        return pruned
 
     @property
     def backend_kind(self) -> str:
@@ -313,6 +371,7 @@ class PtyRunner:
         sid = session_id or new_id()
         if not isinstance(sid, str) or not sid.strip() or "\x00" in sid:
             raise ContractViolation("invalid_session_id", "session_id must be a valid non-empty identifier")
+        self.prune_closed_sessions(exclude_sid=sid)
         if sid in self._sessions and self._sessions[sid].status == "running":
             raise ContractViolation("pty_session_conflict", f"PTY session '{sid}' is already running")
 
@@ -455,14 +514,21 @@ class PtyRunner:
     ) -> _PtySessionState:
         exec_command = list(command)
         # CreateProcessW skips PATHEXT (.cmd/.bat npm shims) unless resolved explicitly.
-        from hydra_orch.bridge.agent_executable import resolve_agent_executable
-        resolved = await asyncio.to_thread(resolve_agent_executable,exec_command[0],path=env.get("PATH"))
+        resolved = await asyncio.to_thread(resolve_agent_executable, exec_command[0], path=env.get("PATH"))
         if resolved:
             exec_command[0] = resolved
+        if exec_command[0].lower().endswith((".cmd", ".bat")):
+            npm_target = await asyncio.to_thread(resolve_npm_node_script, exec_command[0], path=env.get("PATH"))
+            if npm_target is not None:
+                exec_command = [npm_target[0], npm_target[1], *exec_command[1:]]
         if len(exec_command) == 1 and await asyncio.to_thread(_bundled_codex_needs_no_daemon, exec_command[0]):
             exec_command.append("--no-daemon")
         try:
             conpty = ConPtyProcess(exec_command, cwd=cwd, env=env, cols=cols, rows=rows)
+        except ValueError as exc:
+            raise ContractViolation(
+                "invalid_pty_command", f"Invalid terminal command arguments: {redact_text(str(exc))}"
+            ) from exc
         except ConPtyError as exc:
             logger.warning("Windows ConPTY spawn failed (%s); falling back to pipe_interactive_bridge", exc)
             if exc.errno == 2 or "WinError 2:" in str(exc):
@@ -504,8 +570,9 @@ class PtyRunner:
         return state
 
     async def _pump_windows_conpty(self, state: _PtySessionState) -> None:
-        assert state.conpty is not None
         conpty = state.conpty
+        if conpty is None:
+            return
         loop = asyncio.get_running_loop()
         raw_queue: asyncio.Queue[Optional[bytes]] = asyncio.Queue()
 
@@ -542,8 +609,9 @@ class PtyRunner:
 
     async def _close_conpty_on_exit(self, state: _PtySessionState) -> None:
         """ConPTY keeps the output pipe open after the child exits; close it so readers reach EOF."""
-        assert state.conpty is not None
         conpty = state.conpty
+        if conpty is None:
+            return
         loop = asyncio.get_running_loop()
         await _thread_future(loop, conpty.wait_blocking, name=f"conpty-exit-{state.session_id}")
         await _thread_future(loop, conpty.close_console, name=f"conpty-close-{state.session_id}")
@@ -573,15 +641,38 @@ class PtyRunner:
             spawn_kwargs["start_new_session"] = True
 
         exec_command = list(command)
+        use_windows_cmd_shim = False
         if os.name == "nt" and exec_command:
             # Windows CreateProcessW skips PATHEXT (.cmd/.bat, e.g. npm shims) unless resolved explicitly.
-            from hydra_orch.bridge.agent_executable import resolve_agent_executable
-            resolved = await asyncio.to_thread(resolve_agent_executable,exec_command[0],path=env.get("PATH"))
+            resolved = await asyncio.to_thread(resolve_agent_executable, exec_command[0], path=env.get("PATH"))
             if resolved:
                 exec_command[0] = resolved
+            if exec_command[0].lower().endswith((".cmd", ".bat")):
+                npm_target = await asyncio.to_thread(resolve_npm_node_script, exec_command[0], path=env.get("PATH"))
+                if npm_target is not None:
+                    exec_command = [npm_target[0], npm_target[1], *exec_command[1:]]
+                else:
+                    use_windows_cmd_shim = True
 
         try:
-            process = await asyncio.create_subprocess_exec(*exec_command, **spawn_kwargs)
+            if use_windows_cmd_shim:
+                try:
+                    cmd_inner = format_windows_cmd_commandline(exec_command)
+                except ValueError as val_exc:
+                    raise ContractViolation(
+                        "invalid_pty_command", f"Invalid terminal command arguments: {redact_text(str(val_exc))}"
+                    ) from val_exc
+                comspec = get_windows_comspec(env)
+                process = await spawn_windows_cmd_subprocess(
+                    comspec,
+                    cmd_inner,
+                    exec_fn=asyncio.create_subprocess_exec,
+                    **spawn_kwargs,
+                )
+            else:
+                process = await asyncio.create_subprocess_exec(*exec_command, **spawn_kwargs)
+        except ContractViolation:
+            raise
         except Exception as exc:
             raise ContractViolation("pty_spawn_failed", f"Failed to spawn terminal process: {redact_text(str(exc))}") from exc
 
@@ -726,19 +817,27 @@ class PtyRunner:
             else:
                 state.status = "exited"
             state.finished_at = datetime.now(timezone.utc)
+            state.finished_monotonic = time.monotonic()
         except asyncio.CancelledError:
             raise
         except Exception:  # pragma: no cover - defensive state finalization
             state.status = "crashed"
             state.finished_at = datetime.now(timezone.utc)
+            state.finished_monotonic = time.monotonic()
         finally:
             self._close_master_fd(state)
-            if state.conpty is not None:
+            conpty_ref, state.conpty = state.conpty, None
+            if conpty_ref is not None:
                 with suppress(Exception):
-                    state.conpty.close()
+                    await asyncio.to_thread(conpty_ref.close)
+            if state.process.stdin is not None and not state.process.stdin.is_closing():
+                with suppress(Exception):
+                    state.process.stdin.close()
+            state.reader_tasks.clear()
             state.eof_reached = True
             for queue in list(state.subscribers):
                 queue.put_nowait(_EOF_SENTINEL)
+            self.prune_closed_sessions(exclude_sid=state.session_id)
 
     def _require_session(self, session_id: str) -> _PtySessionState:
         state = self._sessions.get(session_id)
@@ -960,14 +1059,24 @@ class PtyRunner:
                     state.exit_code = state.process.returncode
                     state.status = "cancelled"
                     state.finished_at = datetime.now(timezone.utc)
+                    state.finished_monotonic = time.monotonic()
             else:
                 state.status = "cancelled"
                 state.finished_at = state.finished_at or datetime.now(timezone.utc)
+                state.finished_monotonic = state.finished_monotonic or time.monotonic()
+            conpty_ref, state.conpty = state.conpty, None
+            if conpty_ref is not None:
+                with suppress(Exception):
+                    await asyncio.to_thread(conpty_ref.close)
         else:
             self._close_master_fd(state)
             if state.wait_task is not None and not state.wait_task.done():
                 with suppress(asyncio.CancelledError, asyncio.TimeoutError):
                     await asyncio.wait_for(state.wait_task, timeout=1.0)
+            conpty_ref, state.conpty = state.conpty, None
+            if conpty_ref is not None:
+                with suppress(Exception):
+                    await asyncio.to_thread(conpty_ref.close)
 
         state.eof_reached = True
         for queue in list(state.subscribers):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from contextlib import suppress
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -16,6 +17,11 @@ import uuid
 
 from pydantic import Field
 
+from hydra_orch.core.git_workspace import (
+    _strip_win_long_prefix,
+    is_link_or_junction,
+    win_long_path,
+)
 from hydra_orch.core.identifier import new_id
 from hydra_orch.core.redaction import redact_text
 from hydra_orch.model import (
@@ -222,18 +228,22 @@ _WINDOWS_RESERVED_NAMES = frozenset(
 
 _EXECUTABLE_MAGICS = (b"MZ", b"\x7fELF", b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe", b"\x00asm")
 
-_SCRIPT_BLOCK_RE = re.compile(r"<\s*script\b[^>]*>.*?<\s*/\s*script\s*>", re.IGNORECASE | re.DOTALL)
-_STRAY_SCRIPT_TAG_RE = re.compile(r"<\s*/?\s*script\b[^>]*>", re.IGNORECASE)
-_DANGEROUS_EMBED_RE = re.compile(
-    r"<\s*(?:iframe|object|embed|svg|math)\b[^>]*>.*?<\s*/\s*(?:iframe|object|embed|svg|math)\s*>",
-    re.IGNORECASE | re.DOTALL,
+_OPEN_SCRIPT_HEAD_RE = re.compile(r"<\s*script\b", re.IGNORECASE)
+_CLOSE_SCRIPT_RE = re.compile(r"<\s*/\s*script\s*>", re.IGNORECASE)
+_STRAY_SCRIPT_RE = re.compile(r"<\s*/?\s*script\b(?>[^>]*>|[^>]*$)", re.IGNORECASE)
+
+_OPEN_EMBED_HEAD_RE = re.compile(r"<\s*(?:iframe|object|embed|svg|math)\b", re.IGNORECASE)
+_CLOSE_EMBED_RE = re.compile(r"<\s*/\s*(?:iframe|object|embed|svg|math)\s*>", re.IGNORECASE)
+_STRAY_EMBED_RE = re.compile(r"<\s*/?\s*(?:iframe|object|embed|svg|math)\b(?>[^>]*>|[^>]*$)", re.IGNORECASE)
+_STRAY_DANGEROUS_ALL_RE = re.compile(
+    r"<\s*/?\s*(?:script|iframe|object|embed|svg|math)\b(?>[^>]*>|[^>]*$)",
+    re.IGNORECASE,
 )
-_SELF_CLOSING_EMBED_RE = re.compile(r"<\s*/?\s*(?:iframe|object|embed|svg|math)\b[^>]*>", re.IGNORECASE)
 _INLINE_EVENT_HANDLER_RE = re.compile(
-    r"""(?i)(?<=[\s<])on[a-z]{1,32}\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)"""
+    r"""(?i)(?<=[\s<])on[a-z]{1,32}\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>'"]+)"""
 )
 _DANGEROUS_URI_IN_ATTR_RE = re.compile(
-    r"""(?i)((?:href|src|action|formaction|poster|xlink:href)\s*=\s*)(["']?)\s*(?:javascript\s*:|vbscript\s*:|data\s*:\s*text/html\b)[^"'>\s]*\2"""
+    r"""(?i)((?:href|src|action|formaction|poster|xlink:href)\s*=\s*)(?:"\s*(?:javascript\s*:|vbscript\s*:|data\s*:\s*text/html\b)[^"]*"|'\s*(?:javascript\s*:|vbscript\s*:|data\s*:\s*text/html\b)[^']*'|\s*(?:javascript\s*:|vbscript\s*:|data\s*:\s*text/html\b)[^\s>'"]*)"""
 )
 _DANGEROUS_URI_IN_MD_LINK_RE = re.compile(
     r"""(?i)(\]\(\s*)(?:javascript\s*:|vbscript\s*:|data\s*:\s*text/html\b)[^)]*\)"""
@@ -319,30 +329,38 @@ def _validate_attachment_filename(filename: str) -> str:
 
 
 def _ensure_within_root(root_dir: Path, target_path: Path) -> Path:
-    """Assert `target_path` and all existing ancestors stay within `root_dir` without symlink escape."""
-    canon_root = root_dir.resolve(strict=True)
+    """Assert `target_path` and all existing ancestors stay within `root_dir` without symlink/junction escape."""
+    canon_root = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(root_dir))))
+    if not win_long_path(canon_root).is_dir():
+        raise ContractViolation("workspace_invalid", f"Attachment root directory does not exist: {root_dir}")
     rel_parts = target_path.relative_to(root_dir).parts if target_path.is_absolute() else target_path.parts
     cursor = canon_root
+    norm_root = os.path.normcase(str(canon_root))
     for part in rel_parts:
         cursor = cursor / part
-        if cursor.is_symlink():
-            resolved_link = Path(os.path.realpath(cursor))
-            if resolved_link != canon_root and canon_root not in resolved_link.parents:
-                raise ContractViolation("path_traversal_blocked", "Symlink escape outside allowed root directory")
-    resolved_target = Path(os.path.realpath(canon_root.joinpath(*rel_parts)))
-    if resolved_target == canon_root or canon_root not in resolved_target.parents:
+        if is_link_or_junction(cursor):
+            resolved_link = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(cursor))))
+            norm_link = os.path.normcase(str(resolved_link))
+            if norm_link != norm_root and not norm_link.startswith(norm_root + os.sep):
+                raise ContractViolation("path_traversal_blocked", "Symlink or junction escape outside allowed root directory")
+    joined = canon_root.joinpath(*rel_parts)
+    resolved_target = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(joined))))
+    norm_target = os.path.normcase(str(resolved_target))
+    if norm_target == norm_root or not norm_target.startswith(norm_root + os.sep):
         raise ContractViolation("path_traversal_blocked", "Target path resolves outside allowed root directory")
     return resolved_target
 
 
 def _atomic_write_bytes(target_path: Path, data: bytes) -> None:
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = target_path.with_name(f".{target_path.name}.{uuid.uuid4().hex[:8]}.tmp")
-    with open(tmp_path, "wb") as handle:
+    win_long_path(target_path.parent).mkdir(parents=True, exist_ok=True)
+    short_name = target_path.name[:24]
+    tmp_path = target_path.with_name(f".{short_name}.{uuid.uuid4().hex[:8]}.tmp")
+    lp_tmp = win_long_path(tmp_path)
+    with open(lp_tmp, "wb") as handle:
         handle.write(data)
         handle.flush()
         os.fsync(handle.fileno())
-    os.replace(tmp_path, target_path)
+    os.replace(lp_tmp, win_long_path(target_path))
 
 
 def _has_executable_magic(data: bytes) -> bool:
@@ -354,18 +372,75 @@ def _looks_like_active_web_markup(data: bytes) -> bool:
     return head.startswith((b"<svg", b"<!doctype html", b"<html", b"<script", b"<?xml"))
 
 
+def _strip_tag_family(
+    text: str,
+    open_head_re: re.Pattern[str],
+    close_re: re.Pattern[str],
+    stray_re: re.Pattern[str],
+) -> str:
+    if "</" not in text:
+        return stray_re.sub("", text)
+    if close_re.search(text) is None:
+        return stray_re.sub("", text)
+
+    pieces: list[str] = []
+    pos = 0
+    n = len(text)
+    while pos < n:
+        m_open = open_head_re.search(text, pos)
+        if m_open is None:
+            pieces.append(stray_re.sub("", text[pos:]))
+            break
+        if m_open.start() > pos:
+            pieces.append(stray_re.sub("", text[pos:m_open.start()]))
+        gt = text.find(">", m_open.end())
+        if gt == -1:
+            break
+        if gt > m_open.end() and text[gt - 1] == "/":
+            pos = gt + 1
+            continue
+        m_close = close_re.search(text, gt + 1)
+        if m_close is None:
+            pieces.append(stray_re.sub("", text[gt + 1:]))
+            break
+        pos = m_close.end()
+    return "".join(pieces)
+
+
+def _strip_dangerous_html_tags(text: str) -> str:
+    """Linear O(N) C-accelerated removal of closed and orphaned dangerous HTML/SVG/MathML tags."""
+    if "<" not in text:
+        return text
+    if "</" not in text:
+        return _STRAY_DANGEROUS_ALL_RE.sub("", text)
+    text = _strip_tag_family(text, _OPEN_SCRIPT_HEAD_RE, _CLOSE_SCRIPT_RE, _STRAY_SCRIPT_RE)
+    if "<" in text:
+        text = _strip_tag_family(text, _OPEN_EMBED_HEAD_RE, _CLOSE_EMBED_RE, _STRAY_EMBED_RE)
+    return text
+
+
+def _replace_dangerous_attr_uri(match: re.Match[str]) -> str:
+    prefix = match.group(1)
+    full = match.group(0)
+    rhs = full[len(prefix):]
+    if rhs.startswith('"'):
+        return f'{prefix}"#blocked-uri"'
+    if rhs.startswith("'"):
+        return f"{prefix}'#blocked-uri'"
+    return f"{prefix}#blocked-uri"
+
+
 def sanitize_markdown_content(raw_markdown: str) -> tuple[str, bool, bool]:
-    """Redact secrets and strip active script/XSS payloads from Markdown text."""
+    """Redact secrets and strip active script/XSS payloads from Markdown text in O(N) time."""
     redacted_text = redact_text(raw_markdown)
     redacted_flag = redacted_text != raw_markdown
 
-    sanitized = _SCRIPT_BLOCK_RE.sub("", redacted_text)
-    sanitized = _STRAY_SCRIPT_TAG_RE.sub("", sanitized)
-    sanitized = _DANGEROUS_EMBED_RE.sub("", sanitized)
-    sanitized = _SELF_CLOSING_EMBED_RE.sub("", sanitized)
-    sanitized = _INLINE_EVENT_HANDLER_RE.sub("", sanitized)
-    sanitized = _DANGEROUS_URI_IN_ATTR_RE.sub(r"\1\2#blocked-uri\2", sanitized)
-    sanitized = _DANGEROUS_URI_IN_MD_LINK_RE.sub(r"\1#blocked-uri)", sanitized)
+    sanitized = _strip_dangerous_html_tags(redacted_text)
+    if "=" in sanitized:
+        sanitized = _INLINE_EVENT_HANDLER_RE.sub("", sanitized)
+        sanitized = _DANGEROUS_URI_IN_ATTR_RE.sub(_replace_dangerous_attr_uri, sanitized)
+    if "](" in sanitized:
+        sanitized = _DANGEROUS_URI_IN_MD_LINK_RE.sub(r"\1#blocked-uri)", sanitized)
     script_stripped = sanitized != redacted_text
     return sanitized, script_stripped, redacted_flag
 
@@ -376,21 +451,41 @@ class AttachmentService:
     def __init__(self, root_dir: Union[Path, str], *, max_bytes: int = 10 * 1024 * 1024) -> None:
         if max_bytes <= 0:
             raise ContractViolation("attachment_invalid", "max_bytes must be positive")
-        self.root_dir = Path(root_dir).resolve()
-        self.root_dir.mkdir(parents=True, exist_ok=True)
+        raw_root = Path(root_dir)
+        win_long_path(raw_root).mkdir(parents=True, exist_ok=True)
+        self.root_dir = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(raw_root))))
         self.max_bytes = int(max_bytes)
         self._index_path = self.root_dir / "_index.json"
         self._lock = threading.RLock()
         self._records: Dict[str, AttachmentRef] = {}
+        self._index_mtime_ns: Optional[int] = None
         self._load_index()
+
+    def _sync_index_if_changed(self) -> None:
+        with self._lock:
+            lp_index = win_long_path(self._index_path)
+            if not lp_index.exists():
+                if self._index_mtime_ns is not None:
+                    self._records = {}
+                    self._index_mtime_ns = None
+                return
+            try:
+                current_mtime = lp_index.stat().st_mtime_ns
+            except OSError:
+                return
+            if self._index_mtime_ns != current_mtime:
+                self._load_index()
 
     def _load_index(self) -> None:
         with self._lock:
-            if not self._index_path.exists():
+            lp_index = win_long_path(self._index_path)
+            if not lp_index.exists():
                 self._records = {}
+                self._index_mtime_ns = None
                 return
             try:
-                payload = json.loads(self._index_path.read_text(encoding="utf-8"))
+                stat_res = lp_index.stat()
+                payload = json.loads(lp_index.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 raise ContractViolation("attachment_index_corrupt", f"Cannot read attachment index: {exc}") from exc
             raw_items = payload.get("attachments", {}) if isinstance(payload, dict) else {}
@@ -401,6 +496,7 @@ class AttachmentService:
                 ref = AttachmentRef.model_validate(item)
                 loaded[att_id] = ref
             self._records = loaded
+            self._index_mtime_ns = stat_res.st_mtime_ns
 
     def _persist_index(self) -> None:
         payload = {
@@ -412,6 +508,8 @@ class AttachmentService:
         }
         data = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
         _atomic_write_bytes(self._index_path, data)
+        with suppress(OSError):
+            self._index_mtime_ns = win_long_path(self._index_path).stat().st_mtime_ns
 
     @staticmethod
     def _validate_mime_and_extension(filename: str, mime_type: Optional[str], content: bytes) -> str:
@@ -457,6 +555,13 @@ class AttachmentService:
                     f"Active HTML/SVG markup disguised as '{filename}' is rejected",
                 )
 
+        if ext == ".pdf" or normalized_mime == "application/pdf":
+            if not content.startswith(b"%PDF-"):
+                raise ContractViolation(
+                    "unsupported_attachment_type",
+                    f"Invalid PDF magic header for attachment '{filename}'",
+                )
+
         if ext == ".txt" and normalized_mime == "text/plain" and b"\x00" in content:
             raise ContractViolation(
                 "unsupported_attachment_type",
@@ -464,6 +569,16 @@ class AttachmentService:
             )
 
         return normalized_mime
+
+    @staticmethod
+    def _build_short_storage_rel_path(session_id: str, attachment_id: str, safe_filename: str) -> str:
+        ext = re.sub(r"[^A-Za-z0-9.]+", "", Path(safe_filename).suffix)[:12]
+        stem = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(safe_filename).stem).strip("._-")[:16] or "file"
+        short_name = f"{stem}{ext}"
+        sha12 = hashlib.sha256(
+            f"{session_id}:{attachment_id}:{safe_filename}".encode("utf-8")
+        ).hexdigest()[:12]
+        return f"att/{sha12}_{short_name}"
 
     def save_attachment(
         self,
@@ -493,7 +608,7 @@ class AttachmentService:
 
         resolved_mime = self._validate_mime_and_extension(safe_filename, mime_type, raw_bytes)
         att_id = _validate_safe_scope_id(attachment_id, "attachment_id") if attachment_id else new_id()
-        rel_path = f"files/{sess_id}/{att_id}_{safe_filename}"
+        rel_path = self._build_short_storage_rel_path(sess_id, att_id, safe_filename)
         digest = hashlib.sha256(raw_bytes).hexdigest()
 
         is_local = safe_host == "local"
@@ -514,6 +629,7 @@ class AttachmentService:
         )
 
         with self._lock:
+            self._sync_index_if_changed()
             if att_id in self._records:
                 raise ContractViolation("attachment_conflict", f"Attachment '{att_id}' already exists")
             target_path = _ensure_within_root(self.root_dir, self.root_dir / rel_path)
@@ -526,6 +642,7 @@ class AttachmentService:
         """List all attachments owned by `session_id` in chronological/ID order."""
         sess_id = _validate_safe_scope_id(session_id, "session_id")
         with self._lock:
+            self._sync_index_if_changed()
             return [
                 ref
                 for ref in sorted(self._records.values(), key=lambda item: (item.created_at, item.attachment_id))
@@ -537,6 +654,9 @@ class AttachmentService:
         sess_id = _validate_safe_scope_id(session_id, "session_id")
         with self._lock:
             ref = self._records.get(attachment_id)
+            if ref is None:
+                self._load_index()
+                ref = self._records.get(attachment_id)
             if ref is None:
                 raise ContractViolation("resource_not_found", f"Attachment '{attachment_id}' does not exist")
             if ref.session_id != sess_id:
@@ -550,9 +670,10 @@ class AttachmentService:
         """Read attachment bytes after verifying session scope and SHA-256 integrity."""
         ref = self.get_attachment(attachment_id, session_id=session_id)
         target_path = _ensure_within_root(self.root_dir, self.root_dir / ref.storage_rel_path)
-        if not target_path.is_file():
+        lp_target = win_long_path(target_path)
+        if not lp_target.is_file():
             raise ContractViolation("resource_not_found", f"Attachment payload missing for '{attachment_id}'")
-        data = target_path.read_bytes()
+        data = lp_target.read_bytes()
         if hashlib.sha256(data).hexdigest() != ref.sha256:
             raise ContractViolation("artifact_tampered", f"Attachment '{attachment_id}' failed SHA-256 verification")
         return data
@@ -609,27 +730,35 @@ def _resolve_preview_target(base_dir: Union[Path, str], rel_path: str) -> tuple[
     parts = [p for p in normalized_rel.split("/") if p]
     if not parts or normalized_rel in {".", "./"} or any(part in {".", ".."} for part in parts):
         raise ContractViolation("path_traversal_blocked", "Path traversal segments are blocked in preview")
+    for part in parts:
+        if part.split(".", 1)[0].strip().upper() in _WINDOWS_RESERVED_NAMES:
+            raise ContractViolation("path_traversal_blocked", "Reserved Windows device names are blocked in preview")
 
-    try:
-        canon_base = Path(base_dir).resolve(strict=True)
-    except OSError as exc:
-        raise ContractViolation("workspace_invalid", f"Preview base directory does not exist: {base_dir}") from exc
-    if not canon_base.is_dir():
+    raw_base = Path(base_dir)
+    if not win_long_path(raw_base).exists():
+        raise ContractViolation("workspace_invalid", f"Preview base directory does not exist: {base_dir}")
+    canon_base = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(raw_base))))
+    if not win_long_path(canon_base).is_dir():
         raise ContractViolation("workspace_invalid", f"Preview base path is not a directory: {canon_base}")
 
+    norm_base = os.path.normcase(str(canon_base))
     cursor = canon_base
     for part in parts:
         cursor = cursor / part
-        if cursor.is_symlink():
-            link_target = Path(os.path.realpath(cursor))
-            if link_target != canon_base and canon_base not in link_target.parents:
-                raise ContractViolation("path_traversal_blocked", "Symlink escapes preview base directory")
+        if is_link_or_junction(cursor):
+            link_target = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(cursor))))
+            norm_link = os.path.normcase(str(link_target))
+            if norm_link != norm_base and not norm_link.startswith(norm_base + os.sep):
+                raise ContractViolation("path_traversal_blocked", "Symlink or junction escapes preview base directory")
 
-    resolved_target = Path(os.path.realpath(canon_base.joinpath(*parts)))
-    if resolved_target == canon_base or canon_base not in resolved_target.parents:
+    joined_target = canon_base.joinpath(*parts)
+    resolved_target = Path(_strip_win_long_prefix(os.path.realpath(win_long_path(joined_target))))
+    norm_target = os.path.normcase(str(resolved_target))
+    if norm_target == norm_base or not norm_target.startswith(norm_base + os.sep):
         raise ContractViolation("path_traversal_blocked", "Preview target escapes base directory")
 
-    if not resolved_target.exists() or not resolved_target.is_file():
+    lp_resolved = win_long_path(resolved_target)
+    if not lp_resolved.exists() or not lp_resolved.is_file():
         raise ContractViolation("resource_not_found", f"Preview target does not exist: {normalized_rel}")
 
     return resolved_target, "/".join(parts)
@@ -646,14 +775,15 @@ def build_safe_preview(
         raise ContractViolation("preview_invalid", "max_bytes must be positive")
 
     target_path, clean_rel = _resolve_preview_target(base_dir, rel_path)
-    stat_size = target_path.stat().st_size
+    lp_target = win_long_path(target_path)
+    stat_size = lp_target.stat().st_size
     if stat_size > max_bytes:
         raise ContractViolation(
             "preview_too_large",
             f"Artifact size {stat_size} exceeds safe preview limit of {max_bytes} bytes",
         )
 
-    with open(target_path, "rb") as handle:
+    with open(lp_target, "rb") as handle:
         raw = handle.read(max_bytes + 1)
     if len(raw) > max_bytes:
         raise ContractViolation(
@@ -732,6 +862,18 @@ def build_safe_preview(
                 supported=False,
                 status="unsupported_media_type",
                 reason="disguised_active_markup_blocked",
+            )
+        if not raw.startswith(b"%PDF-"):
+            return ArtifactPreviewResult(
+                rel_path=clean_rel,
+                kind="unsupported",
+                render_mode="unsupported",
+                mime_type="application/octet-stream",
+                size_bytes=size_bytes,
+                sha256=digest,
+                supported=False,
+                status="unsupported_media_type",
+                reason="invalid_pdf_magic",
             )
         return ArtifactPreviewResult(
             rel_path=clean_rel,

@@ -15,9 +15,65 @@ from urllib.parse import urlsplit
 import httpx
 
 from hydra_orch.config import normalize_gemini_argon_target
-from hydra_orch.model import ChatMessage
+from hydra_orch.model import ChatMessage, ContractViolation
 
 logger = logging.getLogger(__name__)
+
+_LOOPBACK_OMNIROUTE_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def is_loopback_omniroute_host(hostname: Optional[str]) -> bool:
+    if not isinstance(hostname, str):
+        return False
+    return hostname.strip().lower().strip("[]") in _LOOPBACK_OMNIROUTE_HOSTS
+
+
+def allowed_omniroute_hosts() -> frozenset[str]:
+    raw = (os.environ.get("HYDRA_OMNIROUTE_ALLOWED_HOSTS") or "").strip()
+    if not raw:
+        return frozenset()
+    items: List[str] = []
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                items = [str(x).strip().lower().strip("[]") for x in parsed if isinstance(x, str) and x.strip()]
+        except ValueError:
+            items = []
+    else:
+        items = [part.strip().lower().strip("[]") for part in raw.split(",") if part.strip()]
+    return frozenset(h for h in items if h)
+
+
+def validate_omniroute_base_url(base_url: str) -> str:
+    if not isinstance(base_url, str) or not base_url.strip() or any(c.isspace() or ord(c) < 32 for c in base_url):
+        raise ContractViolation("route_invalid", "Use um endereço HTTP/HTTPS válido.")
+    try:
+        parsed = urlsplit(base_url)
+    except ValueError as exc:
+        raise ContractViolation("route_invalid", "Use um endereço HTTP/HTTPS válido.") from exc
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ContractViolation("route_invalid", "Use um endereço HTTP/HTTPS sem credenciais, consulta ou fragmento.")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ContractViolation("route_invalid", "A porta do endereço não é válida.") from exc
+    if port is not None and port < 1:
+        raise ContractViolation("route_invalid", "A porta do endereço não é válida.")
+    host = parsed.hostname.strip().lower().strip("[]")
+    if not is_loopback_omniroute_host(host) and host not in allowed_omniroute_hosts():
+        raise ContractViolation(
+            "route_invalid",
+            f"Host '{host}' do OmniRoute não é loopback e não está autorizado em HYDRA_OMNIROUTE_ALLOWED_HOSTS.",
+        )
+    return base_url.rstrip("/")
 
 _QUOTA_PROVIDERS = ("claude_pro", "chatgpt_plus", "gemini_pro")
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
@@ -316,8 +372,8 @@ class OmniRouteClient:
         api_key: Optional[str] = None,
         api_key_env: Optional[str] = "OMNIROUTE_API_KEY",
     ):
-        self.base_url = base_url.rstrip("/")
-        self.quota_api_url = quota_api_url
+        self._base_url = validate_omniroute_base_url(base_url)
+        self._quota_api_url = validate_omniroute_base_url(quota_api_url)
         self.timeout = timeout
         self.enabled = enabled
         self._transport = transport
@@ -325,6 +381,22 @@ class OmniRouteClient:
         self.api_key_env = api_key_env
         self._last_quota: Optional[Dict[str, Any]] = None
         self._last_connection_quotas: Dict[str, Dict[str, Any]] = {}
+
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
+    @base_url.setter
+    def base_url(self, value: str) -> None:
+        self._base_url = validate_omniroute_base_url(value)
+
+    @property
+    def quota_api_url(self) -> str:
+        return self._quota_api_url
+
+    @quota_api_url.setter
+    def quota_api_url(self, value: str) -> None:
+        self._quota_api_url = validate_omniroute_base_url(value)
 
     @property
     def _health_url(self) -> str:
@@ -344,6 +416,9 @@ class OmniRouteClient:
     def _resolve_api_key(self) -> Optional[str]:
         if isinstance(self._explicit_api_key, str) and self._explicit_api_key.strip():
             return self._explicit_api_key.strip()
+        host = urlsplit(self.base_url).hostname
+        if not is_loopback_omniroute_host(host) and os.environ.get("HYDRA_OMNIROUTE_ALLOW_EXTERNAL_AUTH") != "1":
+            return None
         if isinstance(self.api_key_env, str) and self.api_key_env.strip():
             env_val = os.environ.get(self.api_key_env.strip())
             if isinstance(env_val, str) and env_val.strip():

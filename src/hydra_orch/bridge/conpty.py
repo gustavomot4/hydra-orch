@@ -288,12 +288,29 @@ class ConPtyProcess:
             siex.StartupInfo.dwFlags = _STARTF_USESTDHANDLES
             siex.lpAttributeList = ctypes.cast(attr_buf, ctypes.c_void_p)
             pi = _PROCESS_INFORMATION()
-            cmd_str = subprocess.list2cmdline(command)
-            if command and command[0].lower().endswith((".cmd", ".bat")):
-                comspec = env.get("ComSpec") or env.get("COMSPEC") or shutil.which("cmd.exe") or "cmd.exe"
-                comspec_q = f'"{comspec}"' if any(c.isspace() for c in comspec) else comspec
-                # Preserve exact inner quotes for npm/CLI .cmd shims under cmd.exe /s /c.
-                cmd_str = f'{comspec_q} /d /s /c "{cmd_str}"'
+            if not command or not str(command[0]).strip():
+                raise ValueError("ConPtyProcess command must be non-empty")
+            exec_cmd = [str(part) for part in command]
+            if any("\x00" in part for part in exec_cmd):
+                raise ValueError("ConPtyProcess command cannot contain NUL bytes")
+            if exec_cmd[0].lower().endswith((".cmd", ".bat")):
+                from hydra_orch.bridge.agent_executable import (
+                    format_windows_cmd_commandline,
+                    get_windows_comspec,
+                    resolve_npm_node_script,
+                )
+
+                npm_target = resolve_npm_node_script(exec_cmd[0], path=env.get("PATH"))
+                if npm_target is not None:
+                    node_exe, js_script = npm_target
+                    cmd_str = subprocess.list2cmdline([node_exe, js_script, *exec_cmd[1:]])
+                else:
+                    comspec = get_windows_comspec(env)
+                    comspec_q = f'"{comspec}"' if any(c.isspace() for c in comspec) else comspec
+                    inner = format_windows_cmd_commandline(exec_cmd)
+                    cmd_str = f'{comspec_q} /d /s /c "{inner}"'
+            else:
+                cmd_str = subprocess.list2cmdline(exec_cmd)
             cmdline = ctypes.create_unicode_buffer(cmd_str)
             env_block = _environment_block(env)
             flags = _EXTENDED_STARTUPINFO_PRESENT | _CREATE_UNICODE_ENVIRONMENT | _CREATE_SUSPENDED

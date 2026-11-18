@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import time
@@ -13,11 +14,40 @@ from typing import Awaitable, Callable
 
 from hydra_orch.bridge.worker_runner import filter_worker_env, cancel_process_tree
 from hydra_orch.bridge.pty_runner import _bundled_codex_needs_no_daemon
-from hydra_orch.bridge.agent_executable import resolve_agent_executable
+from hydra_orch.bridge.agent_executable import (
+    format_windows_cmd_commandline,
+    get_windows_comspec,
+    resolve_agent_executable,
+    resolve_npm_node_script,
+    run_windows_cmd_sync,
+    spawn_windows_cmd_subprocess,
+)
 from hydra_orch.core.redaction import redact_text
 from hydra_orch.model import ContractViolation
 
 Emit = Callable[[str, dict], Awaitable[None]]
+
+_SAFE_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$")
+_FORBIDDEN_MODEL_HINT_CHARS = frozenset('&|<>()^%!`$;\\"\'')
+
+
+def validate_conversation_session_id(session_id: str) -> str:
+    if not isinstance(session_id, str) or not _SAFE_SESSION_ID_RE.fullmatch(session_id):
+        raise ContractViolation("invalid_session_id", "Identificador de sessão inválido.")
+    return session_id
+
+
+def validate_conversation_model_hint(model_hint: str) -> str:
+    if (
+        not isinstance(model_hint, str)
+        or not model_hint
+        or model_hint != model_hint.strip()
+        or len(model_hint) > 300
+        or model_hint.startswith("-")
+        or any(ord(c) < 32 or ord(c) == 127 or c in _FORBIDDEN_MODEL_HINT_CHARS for c in model_hint)
+    ):
+        raise ContractViolation("route_invalid", "Escolha um nome de modelo ou combo válido.")
+    return model_hint
 
 
 class ConversationRunner:
@@ -35,8 +65,37 @@ class ConversationRunner:
         def check():
             try:
                 command = [executable, "login", "status"] if driver == "codex" else [executable, "auth", "status"]
-                result = subprocess.run(command, capture_output=True, timeout=8, env=filter_worker_env(), stdin=subprocess.DEVNULL,
-                                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                env_clean = filter_worker_env()
+                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                if os.name == "nt" and str(executable).lower().endswith((".cmd", ".bat")):
+                    npm_target = resolve_npm_node_script(executable, path=env_clean.get("PATH"))
+                    if npm_target is not None:
+                        result = subprocess.run(
+                            [npm_target[0], npm_target[1], *command[1:]],
+                            capture_output=True,
+                            timeout=8,
+                            env=env_clean,
+                            stdin=subprocess.DEVNULL,
+                            creationflags=flags,
+                        )
+                    else:
+                        result = run_windows_cmd_sync(
+                            command,
+                            capture_output=True,
+                            timeout=8,
+                            env=env_clean,
+                            stdin=subprocess.DEVNULL,
+                            creationflags=flags,
+                        )
+                else:
+                    result = subprocess.run(
+                        command,
+                        capture_output=True,
+                        timeout=8,
+                        env=env_clean,
+                        stdin=subprocess.DEVNULL,
+                        creationflags=flags,
+                    )
                 if driver == "claude":
                     return result.returncode == 0 and json.loads(result.stdout).get("loggedIn", False)
                 return result.returncode == 0
@@ -75,9 +134,17 @@ class ConversationRunner:
                 raise ContractViolation("agent_unavailable", f"O executável de {driver} não foi encontrado no ambiente do backend. "
                                         "Se o agente já está instalado, reinicie o Hydra para atualizar o PATH. "
                                         "A autenticação ainda não foi verificada; o histórico foi preservado.")
-            session = conversation.get("native_session_id")
+            raw_session = conversation.get("native_session_id")
+            session = validate_conversation_session_id(raw_session) if raw_session else None
             route = conversation.get('route') or {}
             target = route.get('target_ref', '')
+            raw_model_hint = conversation.get("model_hint")
+            if raw_model_hint is not None and raw_model_hint != "":
+                validated_hint = validate_conversation_model_hint(raw_model_hint)
+                if not target:
+                    target = validated_hint
+            if target:
+                target = validate_conversation_model_hint(target)
             allowed_env = {}
             gateway_args = []
             observed = {}
@@ -129,8 +196,17 @@ class ConversationRunner:
                                        ANTHROPIC_MODEL=target, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1',CLAUDE_CONFIG_DIR=str(home),
                                        ANTHROPIC_DEFAULT_OPUS_MODEL=target,ANTHROPIC_DEFAULT_SONNET_MODEL=target,
                                        ANTHROPIC_DEFAULT_HAIKU_MODEL=target,ANTHROPIC_SMALL_FAST_MODEL=target,CLAUDE_CODE_SUBAGENT_MODEL=target)
+            env_filtered = filter_worker_env(allowed_env=allowed_env)
+            npm_target = (
+                await asyncio.to_thread(resolve_npm_node_script, executable, path=env_filtered.get("PATH"))
+                if os.name == "nt" and str(executable).lower().endswith((".cmd", ".bat"))
+                else None
+            )
+            base_cmd = [npm_target[0], npm_target[1]] if npm_target is not None else [executable]
+            prefix_len = len(base_cmd)
+
             if driver == "codex":
-                args = [executable]
+                args = list(base_cmd)
                 if await asyncio.to_thread(_bundled_codex_needs_no_daemon, executable):
                     args += ["--no-daemon"]
                 args += gateway_args
@@ -139,7 +215,7 @@ class ConversationRunner:
                     args += ["--skip-git-repo-check"]
                 # exec resume has a distinct CLI contract; sandbox is a global option.
                 if session:
-                    args[1:1] = ["--sandbox", conversation["access_mode"]]
+                    args[prefix_len:prefix_len] = ["--sandbox", conversation["access_mode"]]
                     args += ["resume"]
                     if conversation.get("workspace_kind") == "folder":
                         args += ["--skip-git-repo-check"]
@@ -149,7 +225,7 @@ class ConversationRunner:
                 if target:
                     args += ['--model', target]
             elif driver == "claude":
-                args = [executable, "--print", "--verbose", "--output-format", "stream-json",
+                args = [*base_cmd, "--print", "--verbose", "--output-format", "stream-json",
                         "--include-partial-messages", "--permission-mode", "dontAsk",
                         "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
                 # Explicit tool allowlist prevents writes in read-only chats.
@@ -164,7 +240,8 @@ class ConversationRunner:
                 raise ContractViolation("agent_unavailable", "Este agente ainda não suporta conversa. Escolha Codex ou Claude Code.")
             if conversation.get("workspace_kind") == "folder":
                 allowed_env['GIT_CEILING_DIRECTORIES'] = str(cwd.parent)
-            return args, filter_worker_env(allowed_env=allowed_env), transport, observed
+                env_filtered = filter_worker_env(allowed_env=allowed_env)
+            return args, env_filtered, transport, observed
         except BaseException:
             await asyncio.to_thread(transport.close)
             raise
@@ -188,7 +265,24 @@ class ConversationRunner:
         else:
             kwargs["start_new_session"] = True
         try:
-            process = await asyncio.create_subprocess_exec(*args, **kwargs)
+            if os.name == "nt" and args and str(args[0]).lower().endswith((".cmd", ".bat")):
+                npm_target = await asyncio.to_thread(resolve_npm_node_script, args[0], path=environment.get("PATH"))
+                if npm_target is not None:
+                    process = await asyncio.create_subprocess_exec(npm_target[0], npm_target[1], *args[1:], **kwargs)
+                else:
+                    try:
+                        cmd_inner = format_windows_cmd_commandline(args)
+                    except ValueError as val_exc:
+                        raise ContractViolation("invalid_driver_invocation", str(val_exc)) from val_exc
+                    comspec = get_windows_comspec(environment)
+                    process = await spawn_windows_cmd_subprocess(
+                        comspec,
+                        cmd_inner,
+                        exec_fn=asyncio.create_subprocess_exec,
+                        **kwargs,
+                    )
+            else:
+                process = await asyncio.create_subprocess_exec(*args, **kwargs)
         except BaseException:
             await asyncio.to_thread(transport.close)
             raise
@@ -225,7 +319,7 @@ class ConversationRunner:
                             await emit('agent.observed', agent)
                     if kind == "thread.started" or kind == "system" and event.get("subtype") == "init":
                         native_id = event.get("thread_id") or event.get("session_id")
-                        if native_id:
+                        if native_id and isinstance(native_id, str) and _SAFE_SESSION_ID_RE.fullmatch(native_id):
                             await emit("session.started", {"session_id": native_id})
                     if driver == "codex":
                         if kind == 'turn.completed' and isinstance(event.get('usage'), dict):

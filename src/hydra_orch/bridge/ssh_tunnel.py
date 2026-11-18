@@ -18,6 +18,7 @@ import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import httpx
 
+from hydra_orch.bridge.worker_runner import filter_worker_env
 from hydra_orch.model import ContractViolation
 
 logger = logging.getLogger(__name__)
@@ -247,6 +248,22 @@ def _validate_session_id(session_id: str) -> str:
     return session_id
 
 
+def _validate_ssh_token(value: Any, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise TransportSecurityError("ssh_invalid_parameter", f"SSH {field_name} must be a non-empty string")
+    if not value or value != value.strip():
+        raise TransportSecurityError(
+            "ssh_invalid_parameter", f"SSH {field_name} cannot be empty or contain leading/trailing whitespace"
+        )
+    if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value):
+        raise TransportSecurityError(
+            "ssh_invalid_parameter", f"SSH {field_name} cannot contain whitespace or control characters"
+        )
+    if value.startswith("-"):
+        raise TransportSecurityError("ssh_invalid_parameter", f"SSH {field_name} cannot start with '-'")
+    return value
+
+
 class SshTunnelManager:
     """Manages hardened SSH/autossh tunnels with strict host key verification and session isolation."""
 
@@ -257,16 +274,46 @@ class SshTunnelManager:
         host_key_verifier: Optional[Callable[[str, int], Union[str, bool]]] = None,
     ):
         self.config = dict(config)
-        target = config.get("ssh_target")
-        if target and "@" in target:
-            self.user, default_host = target.split("@", 1)
+        target_user: Optional[str] = None
+        if "ssh_target" in config and config["ssh_target"] is not None:
+            target = _validate_ssh_token(config["ssh_target"], "ssh_target")
+            if "@" in target:
+                target_user, default_host = target.split("@", 1)
+                _validate_ssh_token(target_user, "user")
+                _validate_ssh_token(default_host, "host")
+            else:
+                default_host = target
         else:
-            self.user = config.get("user", "hydra")
-            default_host = target or "localhost"
+            default_host = "localhost"
 
-        self.host: str = config.get("host") or default_host
+        if "user" in config:
+            self.user: str = _validate_ssh_token(config["user"], "user")
+        elif target_user is not None:
+            self.user = target_user
+        else:
+            self.user = "hydra"
+        if "@" in self.user:
+            raise TransportSecurityError("ssh_invalid_parameter", "SSH user cannot contain '@'")
+
+        if "host" in config and config["host"] is not None:
+            self.host: str = _validate_ssh_token(config["host"], "host")
+        else:
+            self.host = _validate_ssh_token(default_host, "host")
+
+        if "remote_host" in config:
+            self.remote_host: str = _validate_ssh_token(config["remote_host"], "remote_host")
+        else:
+            self.remote_host = "127.0.0.1"
+
         self.port: int = int(config.get("port") or config.get("ssh_port", 22))
-        self.key_file: Optional[str] = config.get("ssh_key") or config.get("key_file")
+        raw_key: Optional[str] = None
+        for key_field in ("key_path", "ssh_key", "key_file"):
+            if key_field in config and config[key_field] is not None:
+                validated_key = _validate_ssh_token(config[key_field], key_field)
+                if raw_key is None:
+                    raw_key = validated_key
+        self.key_file: Optional[str] = raw_key
+        self.key_path: Optional[str] = raw_key
         self.local_port: int = int(config.get("local_port") or config.get("local_bind_port", 11435))
         self.local_bind_port: int = self.local_port
         self.remote_port: int = int(config.get("remote_port", 11434))
@@ -440,6 +487,12 @@ class SshTunnelManager:
     def build_ssh_command(self, *, local_port: Optional[int] = None) -> List[str]:
         """Build the hardened SSH/autossh command line with StrictHostKeyChecking=yes."""
         _validate_strict_host_key_checking(self.strict_host_key_checking)
+        safe_user = _validate_ssh_token(self.user, "user")
+        if "@" in safe_user:
+            raise TransportSecurityError("ssh_invalid_parameter", "SSH user cannot contain '@'")
+        safe_host = _validate_ssh_token(self.host, "host")
+        safe_remote_host = _validate_ssh_token(self.remote_host, "remote_host")
+
         bind_port = self.local_port if local_port is None else int(local_port)
         binary = "autossh" if (self.use_autossh and shutil.which("autossh")) else "ssh"
         cmd = [
@@ -461,19 +514,24 @@ class SshTunnelManager:
                 "GlobalKnownHostsFile=none",
             ])
 
-        cmd.extend([
-            "-N",
-            "-L",
-            f"127.0.0.1:{bind_port}:127.0.0.1:{self.remote_port}",
-            f"{self.user}@{self.host}",
-            "-p",
-            str(self.port),
-        ])
-
-        if self.key_file:
-            expanded_key = os.path.expanduser(self.key_file)
+        key_candidate = self.key_file if self.key_file is not None else self.key_path
+        if key_candidate is not None:
+            validated_key = _validate_ssh_token(key_candidate, "key_path")
+            expanded_key = os.path.expanduser(validated_key)
+            if expanded_key.startswith("-") or any(ord(c) < 32 or ord(c) == 127 for c in expanded_key):
+                raise TransportSecurityError("ssh_invalid_parameter", "Expanded SSH key_path is unsafe")
             if os.path.isfile(expanded_key):
                 cmd.extend(["-o", "IdentitiesOnly=yes", "-i", expanded_key])
+
+        cmd.extend([
+            "-p",
+            str(self.port),
+            "-N",
+            "-L",
+            f"127.0.0.1:{bind_port}:{safe_remote_host}:{self.remote_port}",
+            "--",
+            f"{safe_user}@{safe_host}",
+        ])
         return cmd
 
     def allocate_session_port(
@@ -621,6 +679,7 @@ class SshTunnelManager:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=filter_worker_env(),
             )
             return True
         except Exception as exc:

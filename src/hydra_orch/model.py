@@ -102,13 +102,32 @@ GitSha = Annotated[str, StringConstraints(pattern=r"^(?:[a-f0-9]{40}|[a-f0-9]{64
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
 
 
-def _relative_path(value: str) -> str:
+_WINDOWS_RESERVED_DEVICE_NAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
+)
+
+
+def _validate_relative_path(value: str) -> str:
     value = value.replace("\\", "/")
     if (not value or "\x00" in value or value == "." or PurePosixPath(value).is_absolute()
             or PureWindowsPath(value).drive or ":" in value
             or any(part in {"", ".", ".."} for part in value.split("/"))):
         raise ValueError("Expected a workspace-relative path without traversal")
+    for part in value.split("/"):
+        stem = part.split(".", 1)[0].strip().upper()
+        if stem in _WINDOWS_RESERVED_DEVICE_NAMES:
+            raise ValueError(f"Windows reserved device name '{part}' is not allowed in relative paths")
     return value
+
+
+_relative_path = _validate_relative_path
 
 
 def _absolute_path(value: str) -> str:

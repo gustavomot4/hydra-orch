@@ -138,6 +138,19 @@ def _audit(event, args):
     elif event == "socket.__new__":
         if not (allow_loopback or allow_external):
             _trip("network socket creation denied")
+    elif event in ("socket.getaddrinfo", "socket.gethostbyname", "socket.getnameinfo"):
+        if not (allow_loopback or allow_external):
+            _trip("network address resolution denied")
+        if event == "socket.getaddrinfo" and not allow_external and args:
+            raw_host = args[0]
+            if raw_host is not None:
+                host_str = (
+                    raw_host.decode("utf-8", errors="ignore")
+                    if isinstance(raw_host, bytes)
+                    else str(raw_host)
+                ).strip().lower()
+                if host_str and host_str not in ("127.0.0.1", "::1", "localhost"):
+                    _trip("external network address resolution denied")
     elif event in ("socket.connect", "socket.bind", "socket.sendto"):
         if not (allow_loopback or allow_external):
             _trip("network socket access denied")
@@ -145,9 +158,35 @@ def _audit(event, args):
             host = str(args[1][0]).lower()
             if host not in ("127.0.0.1", "::1", "localhost"):
                 _trip("external network access denied")
+    elif event in ("ctypes.dlopen", "ctypes.dlsym", "ctypes.dlsym/handle"):
+        _trip("ctypes native library access denied")
     elif event in ("subprocess.Popen", "os.system", "os.exec", "os.spawn"):
         if not allow_spawn:
             _trip("subprocess spawn denied")
+
+try:
+    import ctypes as _ctypes_mod
+except ImportError:
+    _ctypes_mod = None
+
+class _BlockedCtypesLoader:
+    def __getattr__(self, _name):
+        _trip("ctypes native library access denied")
+    def __getitem__(self, _name):
+        _trip("ctypes native library access denied")
+    def LoadLibrary(self, _name):
+        _trip("ctypes native library access denied")
+
+def _blocked_dlopen(*_a, **_kw):
+    _trip("ctypes.dlopen denied")
+
+if _ctypes_mod is not None:
+    _blocked_loader = _BlockedCtypesLoader()
+    for _attr in ("cdll", "windll", "oledll", "pythonapi"):
+        if hasattr(_ctypes_mod, _attr):
+            setattr(_ctypes_mod, _attr, _blocked_loader)
+    for _cls_name in ("CDLL", "WinDLL", "OleDLL", "PyDLL", "dlopen"):
+        setattr(_ctypes_mod, _cls_name, _blocked_dlopen)
 
 with open(entrypoint, "rb") as _ep_fh:
     _ep_source = _ep_fh.read()
@@ -211,6 +250,7 @@ class ExtensionPolicy:
     allow_net_loopback: bool = False
     allow_net_external: bool = False
     allow_spawn: bool = False
+    allow_native_binary: bool = False
     api_version: str = "1.0"
 
 
@@ -252,12 +292,17 @@ class ExtensionRunner:
     async def start(self) -> None:
         if self.is_running:
             return
+        is_python = self.policy.entrypoint.suffix.lower() == ".py"
+        if not is_python and not getattr(self.policy, "allow_native_binary", False):
+            raise ContractViolation(
+                "extension_sandbox_unsupported",
+                f"Non-Python extension entrypoint '{self.policy.entrypoint.name}' requires allow_native_binary=True",
+            )
         self.policy.sandbox_workdir.mkdir(parents=True, exist_ok=True)
         env = filter_worker_env(allowed_env=self._allowed_env)
         env["HYDRA_EXTENSION_ISOLATED"] = "1"
         env["PYTHONDONTWRITEBYTECODE"] = "1"
 
-        is_python = self.policy.entrypoint.suffix.lower() == ".py"
         if is_python:
             argv: Sequence[str] = (sys.executable, "-I", "-B", "-c", _SANDBOX_BOOTSTRAP)
         else:

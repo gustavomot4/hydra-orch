@@ -21,6 +21,7 @@ from hydra_orch.core.checkpointer import (
     StreamCheckpointer,
     _compute_migration_checksum,
     _split_sql_statements,
+    reject_lone_surrogates,
 )
 from hydra_orch.engine.checkpointer import EngineCheckpointer
 from hydra_orch.model import (
@@ -28,6 +29,7 @@ from hydra_orch.model import (
     BudgetPolicy,
     CheckResult,
     CheckSpec,
+    ContractViolation,
     HandoffCheckpoint,
     InvalidTransitionError,
     ProcessStatus,
@@ -103,72 +105,77 @@ async def test_checkpointer_lifecycle():
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test_checkpoints.sqlite")
         cp = StreamCheckpointer(db_path=db_path)
-        await cp.initialize()
+        try:
+            await cp.initialize()
 
-        await cp.save_checkpoint(
-            session_id="test-session-1",
-            task_id="task-100",
-            provider="claude_pro",
-            prompt="Write a fastapi backend",
-            accumulated_content="from fastapi import FastAPI...",
-            status="in_progress",
-        )
+            await cp.save_checkpoint(
+                session_id="test-session-1",
+                task_id="task-100",
+                provider="claude_pro",
+                prompt="Write a fastapi backend",
+                accumulated_content="from fastapi import FastAPI...",
+                status="in_progress",
+            )
 
-        record = await cp.get_checkpoint("test-session-1")
-        assert record is not None
-        assert record["session_id"] == "test-session-1"
-        assert record["provider"] == "claude_pro"
-        assert "from fastapi import FastAPI" in record["accumulated_content"]
-        assert await cp.get_checkpoint("non-existent-session") is None
+            record = await cp.get_checkpoint("test-session-1")
+            assert record is not None
+            assert record["session_id"] == "test-session-1"
+            assert record["provider"] == "claude_pro"
+            assert "from fastapi import FastAPI" in record["accumulated_content"]
+            assert await cp.get_checkpoint("non-existent-session") is None
 
-        assert await cp.is_provider_limited("claude_pro") is False
-        assert await cp.get_remaining_limit_seconds("claude_pro") == 0
-        await cp.record_provider_limit("claude_pro", reset_in_seconds=300, reason="5h quota reached")
-        assert await cp.is_provider_limited("claude_pro") is True
-        rem = await cp.get_remaining_limit_seconds("claude_pro")
-        assert rem > 0
+            assert await cp.is_provider_limited("claude_pro") is False
+            assert await cp.get_remaining_limit_seconds("claude_pro") == 0
+            await cp.record_provider_limit("claude_pro", reset_in_seconds=300, reason="5h quota reached")
+            assert await cp.is_provider_limited("claude_pro") is True
+            rem = await cp.get_remaining_limit_seconds("claude_pro")
+            assert rem > 0
 
-        # Expired rate limit transitions provider back to ready
-        await cp.record_provider_limit("claude_pro", reset_in_seconds=-5, reason="expired")
-        assert await cp.is_provider_limited("claude_pro") is False
+            # Expired rate limit transitions provider back to ready
+            await cp.record_provider_limit("claude_pro", reset_in_seconds=-5, reason="expired")
+            assert await cp.is_provider_limited("claude_pro") is False
 
-        prompt_with_diff = cp.build_hot_handoff_prompt(
-            original_prompt="Fix bug",
-            partial_output="step 1 done",
-            failed_provider="claude_pro",
-            git_diff="+fixed line",
-        )
-        assert "Verified Git Diff" in prompt_with_diff
-        prompt_no_diff = cp.build_hot_handoff_prompt(
-            original_prompt="Fix bug",
-            partial_output="step 1 done",
-            failed_provider="claude_pro",
-        )
-        assert "Original Task Objective" in prompt_no_diff
+            prompt_with_diff = cp.build_hot_handoff_prompt(
+                original_prompt="Fix bug",
+                partial_output="step 1 done",
+                failed_provider="claude_pro",
+                git_diff="+fixed line",
+            )
+            assert "Verified Git Diff" in prompt_with_diff
+            prompt_no_diff = cp.build_hot_handoff_prompt(
+                original_prompt="Fix bug",
+                partial_output="step 1 done",
+                failed_provider="claude_pro",
+            )
+            assert "Original Task Objective" in prompt_no_diff
+        finally:
+            await cp.close()
 
 
 @pytest.mark.asyncio
 async def test_pragmas_and_migrations_idempotent(tmp_path: Path):
     db_path = tmp_path / "store.sqlite"
     store = ExecutionStore(db_path=db_path)
+    try:
+        # First initialize without migrations, then with migrations
+        await store.initialize(apply_migrations=False)
+        await store.initialize(apply_migrations=True)
+        # Second call is a fast no-op
+        await store.initialize(apply_migrations=True)
 
-    # First initialize without migrations, then with migrations
-    await store.initialize(apply_migrations=False)
-    await store.initialize(apply_migrations=True)
-    # Second call is a fast no-op
-    await store.initialize(apply_migrations=True)
+        pragmas = await store.get_pragmas()
+        assert pragmas["journal_mode"] == "wal"
+        assert pragmas["foreign_keys"] == 1
+        assert pragmas["busy_timeout"] == 15000
+        assert pragmas["synchronous"] in {1, 2}
 
-    pragmas = await store.get_pragmas()
-    assert pragmas["journal_mode"] == "wal"
-    assert pragmas["foreign_keys"] == 1
-    assert pragmas["busy_timeout"] == 5000
-    assert pragmas["synchronous"] in {1, 2}
-
-    migrations = await store.get_applied_migrations()
-    assert len(migrations) >= 1
-    assert migrations[0]["version"] == "0001"
-    assert migrations[0]["name"] == "0001_initial_core.sql"
-    assert len(migrations[0]["checksum"]) == 64
+        migrations = await store.get_applied_migrations()
+        assert len(migrations) >= 1
+        assert migrations[0]["version"] == "0001"
+        assert migrations[0]["name"] == "0001_initial_core.sql"
+        assert len(migrations[0]["checksum"]) == 64
+    finally:
+        await store.close()
 
 
 @pytest.mark.asyncio
@@ -1303,7 +1310,338 @@ async def test_offline_ci_no_external(tmp_path: Path):
 
     # Verify ExecutionStore runs 100% offline in isolated tmp_path
     store = ExecutionStore(db_path=tmp_path / "offline_ci.sqlite")
-    await store.initialize()
-    pragmas = await store.get_pragmas()
-    assert pragmas["journal_mode"] == "wal"
-    assert pragmas["foreign_keys"] == 1
+    try:
+        await store.initialize()
+        pragmas = await store.get_pragmas()
+        assert pragmas["journal_mode"] == "wal"
+        assert pragmas["foreign_keys"] == 1
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_80_writes_80_reads_bounded_threads_zero_lock_errors(tmp_path: Path):
+    """BE-06: 80 concurrent writers + 80 concurrent readers execute with 0 StorageLockError and bounded OS threads."""
+    import threading
+
+    db_path = tmp_path / "wal_high_concurrency.sqlite"
+    base_threads = threading.active_count()
+    peak_threads = base_threads
+
+    store = ExecutionStore(db_path=db_path)
+    try:
+        spec = _make_run_spec(str(tmp_path), run_id="run-load-001", idempotency_key="idem-load-0001-abcd")
+        await store.save_run_atomic(spec)
+
+        def sample_threads() -> None:
+            nonlocal peak_threads
+            cur_count = threading.active_count()
+            if cur_count > peak_threads:
+                peak_threads = cur_count
+
+        async def writer_coro(idx: int) -> None:
+            sample_threads()
+            if idx % 2 == 0:
+                await store.record_event_atomic(
+                    run_id="run-load-001",
+                    event_type="heartbeat",
+                    payload={"writer_idx": idx, "mode": "dedicated_writer"},
+                )
+            else:
+                # Exercise external caller pattern: _connect() -> SELECT -> _transaction(db)
+                async with store._connect() as db:
+                    cur = await db.execute("SELECT id FROM runs WHERE id = ?", ("run-load-001",))
+                    assert await cur.fetchone() is not None
+                    async with store._transaction(db):
+                        await store._insert_event_in_tx(
+                            db,
+                            run_id="run-load-001",
+                            event_type="heartbeat",
+                            payload={"writer_idx": idx, "mode": "pooled_general_tx"},
+                        )
+            sample_threads()
+
+        async def reader_coro(idx: int) -> None:
+            sample_threads()
+            if idx % 2 == 0:
+                run_rec = await store.get_run("run-load-001")
+                assert run_rec is not None and run_rec["id"] == "run-load-001"
+            else:
+                events_now = await store.get_events("run-load-001", limit=10)
+                assert len(events_now) >= 1
+            sample_threads()
+
+        coros = [writer_coro(i) for i in range(80)] + [reader_coro(i) for i in range(80)]
+        await asyncio.gather(*coros)
+
+        # 1 dedicated writer + up to 4 pooled reader/general connections = at most 5 SQLite threads
+        thread_delta = peak_threads - base_threads
+        assert thread_delta <= 8, f"Expected bounded OS thread growth (<=8), observed delta={thread_delta}"
+
+        all_events = await store.get_events("run-load-001")
+        assert len(all_events) == 81  # 1 run.created + 80 heartbeats
+        assert [ev.seq for ev in all_events] == list(range(1, 82))
+
+        # Verify defensive ROLLBACK when an external caller leaves db.in_transaction=True outside _transaction
+        with pytest.raises(RuntimeError, match="external_uncommitted_error"):
+            async with store._connect() as db:
+                await db.execute("BEGIN IMMEDIATE")
+                await db.execute(
+                    "INSERT INTO checkpoints (session_id, task_id, provider, prompt, accumulated_content, status, created_at, updated_at, reset_at, metadata) "
+                    "VALUES ('uncommitted-sess', '', 'codex', 'p', 'c', 'in_progress', 1.0, 1.0, 0.0, '{}')"
+                )
+                assert db.in_transaction is True
+                raise RuntimeError("external_uncommitted_error")
+
+        assert await store.get_checkpoint("uncommitted-sess") is None
+        async with store._connect() as db:
+            assert db.in_transaction is False
+    finally:
+        await store.close()
+        # Idempotent second close
+        await store.close()
+
+    assert threading.active_count() <= base_threads
+
+
+def test_sequential_asyncio_run_reusing_same_execution_store(tmp_path: Path):
+    """BE-06: Reusing a single ExecutionStore across multiple sequential asyncio.run() loops cleans up old loops cleanly."""
+    import threading
+
+    base_threads = threading.active_count()
+    db_path = tmp_path / "multi_loop_store.sqlite"
+    store = ExecutionStore(db_path=db_path)
+    spec = _make_run_spec(str(tmp_path), run_id="run-loops-001", idempotency_key="idem-loops-0001-abcd")
+
+    # Loop 1: initialize & persist run
+    created, rec1 = asyncio.run(store.submit_run_idempotent(spec))
+    assert created is True
+    assert rec1["id"] == "run-loops-001"
+    assert threading.active_count() <= base_threads
+
+    # Loop 2: transition run & append events
+    async def loop2_work() -> None:
+        await store.update_run_status_atomic("run-loops-001", RunStatus.RUNNING, expected_revision=1, event_type="run.started")
+        await store.record_event_atomic("run-loops-001", "heartbeat", payload={"loop": 2})
+
+    asyncio.run(loop2_work())
+    assert threading.active_count() <= base_threads
+
+    # Loop 3: concurrent reads & writes on the same store instance
+    async def loop3_work() -> None:
+        await asyncio.gather(
+            store.record_event_atomic("run-loops-001", "heartbeat", payload={"loop": 3, "n": 1}),
+            store.record_event_atomic("run-loops-001", "heartbeat", payload={"loop": 3, "n": 2}),
+            store.get_run("run-loops-001"),
+            store.get_events("run-loops-001"),
+        )
+
+    asyncio.run(loop3_work())
+    assert threading.active_count() <= base_threads
+
+    # Loop 4: verify state & explicit idempotent close()
+    async def loop4_verify_and_close() -> None:
+        loaded = await store.get_run("run-loops-001")
+        assert loaded is not None and loaded["status"] == "running" and loaded["revision"] == 2
+        evs = await store.get_events("run-loops-001")
+        assert len(evs) == 5
+        await store.close()
+        await store.close()
+
+    asyncio.run(loop4_verify_and_close())
+    assert threading.active_count() <= base_threads
+
+
+@pytest.mark.asyncio
+async def test_reject_lone_utf16_surrogates(tmp_path: Path):
+    """BE-03: Lone UTF-16 surrogates raise ContractViolation('invalid_unicode') across hashing, runs, events, and conversations."""
+    import subprocess
+    from hydra_orch.core.conversation_service import ConversationService
+    from hydra_orch.core.run_service import RunService
+
+    # Valid supplementary Unicode (emoji, CJK, accents) passes untouched
+    valid_text = "Olá 🚀 日本語 — café"
+    assert reject_lone_surrogates({"msg": [valid_text]}) == {"msg": [valid_text]}
+    assert len(ExecutionStore.compute_request_hash({"msg": valid_text})) == 64
+
+    for bad_input in ("\ud800", "prefix-\udfff-suffix", {"nested": ["ok", "\ud800"]}, {"\udc00": "bad_key"}):
+        with pytest.raises(ContractViolation) as exc_info:
+            reject_lone_surrogates(bad_input)
+        assert exc_info.value.code == "invalid_unicode"
+
+        if isinstance(bad_input, (str, dict)):
+            with pytest.raises(ContractViolation) as hash_exc:
+                ExecutionStore.compute_request_hash(bad_input)
+            assert hash_exc.value.code == "invalid_unicode"
+
+    repo = tmp_path / "repo_surrogate"
+    repo.mkdir()
+    for args in (("init", "-b", "main"), ("config", "user.email", "test@hydra.local"), ("config", "user.name", "Hydra Test")):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+    (repo / "README.md").write_text("# Test\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+    store = ExecutionStore(db_path=tmp_path / "surrogates.sqlite")
+    try:
+        spec = _make_run_spec(str(repo), run_id="run-surr-001", idempotency_key="idem-surr-0001-abcd")
+        await store.save_run_atomic(spec)
+
+        # Unvalidated BaseModel via model_construct containing lone surrogate
+        tampered_spec = RunSpec.model_construct(
+            run_id="run-surr-bad",
+            project_id=spec.project_id,
+            objective="Objective with lone surrogate \ud800",
+            repo_root=str(repo),
+            base_sha=BASE_SHA,
+            base_branch="main",
+            orchestration_mode="relay",
+            budget_policy=spec.budget_policy,
+            idempotency_key="idem-surr-bad-0002",
+            tasks=spec.tasks,
+        )
+        with pytest.raises(ContractViolation) as run_exc:
+            await store.submit_run_idempotent(tampered_spec)
+        assert run_exc.value.code == "invalid_unicode"
+
+        # Event payload with lone surrogate
+        with pytest.raises(ContractViolation) as ev_exc:
+            await store.record_event_atomic("run-surr-001", "heartbeat", payload={"detail": "bad \ud800 char"})
+        assert ev_exc.value.code == "invalid_unicode"
+
+        # Stream checkpoint with lone surrogate
+        with pytest.raises(ContractViolation) as cp_exc:
+            await store.save_checkpoint("s1", "t1", "codex", "prompt", "chunk \udfff")
+        assert cp_exc.value.code == "invalid_unicode"
+
+        # ConversationService create & send with lone surrogate
+        runs = RunService(repo, store=store, runtime_dir=tmp_path / "runtime")
+        conv_svc = ConversationService(runs)
+        with pytest.raises(ContractViolation) as conv_create_exc:
+            await conv_svc.create(
+                project_id=spec.project_id,
+                executor="codex",
+                content="Mensagem com \ud800 inválido",
+                idempotency_key="conv-surr-create-0001",
+            )
+        assert conv_create_exc.value.code == "invalid_unicode"
+
+        valid_conv = await conv_svc.create(
+            project_id=spec.project_id,
+            executor="codex",
+            content="Mensagem válida",
+            idempotency_key="conv-surr-valid-0001",
+        )
+        snap = await conv_svc.snapshot(valid_conv["conversation_id"])
+        with pytest.raises(ContractViolation) as conv_send_exc:
+            await conv_svc.send(
+                valid_conv["conversation_id"],
+                content="Follow-up \ud800 inválido",
+                idempotency_key="conv-surr-send-00001",
+                expected_last_seq=snap["last_seq"],
+            )
+        assert conv_send_exc.value.code == "invalid_unicode"
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_0004_legacy_message_without_content_and_rollback_0005_guards(tmp_path: Path):
+    """BE-12 & BE-14: 0004 coalesces missing/null $.content to ''; rollback 0005 refuses losing native_session_id or route_revision."""
+    import shutil
+
+    old_mig_dir = tmp_path / "mig_0003"
+    old_mig_dir.mkdir()
+    shutil.copytree(Path("migration/rollback"), old_mig_dir / "rollback")
+    for path in Path("migration").glob("000[123]_*.sql"):
+        shutil.copy(path, old_mig_dir)
+
+    db_legacy = tmp_path / "legacy_0004.sqlite"
+    old_store = ExecutionStore(db_path=db_legacy, migrations_dir=old_mig_dir)
+    try:
+        spec = _make_run_spec(str(tmp_path), run_id="legacy-r1", idempotency_key="idem-legacy-r1-0001")
+        await old_store.save_run_atomic(spec)
+        async with old_store._connect() as db:
+            async with old_store._transaction(db):
+                await db.execute("INSERT INTO sessions (id, run_id, origin_ref, state) VALUES ('sess-leg-1', 'legacy-r1', 'codex', 'running')")
+                await db.execute("INSERT INTO threads (id, session_id, state) VALUES ('thr-leg-1', 'sess-leg-1', 'running')")
+                # Event 1: thread.message with empty object '{}' (missing $.content)
+                await db.execute(
+                    "INSERT INTO events (id, run_id, seq, correlation_id, type, payload_json, created_at, session_id, thread_id) "
+                    "VALUES ('ev-no-content', 'legacy-r1', 2, 'c2', 'thread.message', '{}', datetime('now'), 'sess-leg-1', 'thr-leg-1')"
+                )
+                # Event 2: thread.message with explicit null $.content
+                await db.execute(
+                    "INSERT INTO events (id, run_id, seq, correlation_id, type, payload_json, created_at, session_id, thread_id) "
+                    "VALUES ('ev-null-content', 'legacy-r1', 3, 'c3', 'thread.message', '{\"content\": null}', datetime('now'), 'sess-leg-1', 'thr-leg-1')"
+                )
+                # Event 3: thread.message with actual string $.content
+                await db.execute(
+                    "INSERT INTO events (id, run_id, seq, correlation_id, type, payload_json, created_at, session_id, thread_id) "
+                    "VALUES ('ev-with-content', 'legacy-r1', 4, 'c4', 'thread.message', '{\"content\": \"Olá legado\"}', datetime('now'), 'sess-leg-1', 'thr-leg-1')"
+                )
+    finally:
+        await old_store.close()
+
+    # Upgrade to full current schema (including 0004, 0005, 0006)
+    upgraded_store = ExecutionStore(db_path=db_legacy)
+    try:
+        await upgraded_store.initialize()
+        async with upgraded_store._connect() as db:
+            cur = await db.execute(
+                "SELECT id, content, state FROM conversation_turns WHERE conversation_id = 'conversation-sess-leg-1' ORDER BY ordinal ASC"
+            )
+            turns = [dict(r) for r in await cur.fetchall()]
+        assert turns == [
+            {"id": "legacy-message-ev-no-content", "content": "", "state": "completed"},
+            {"id": "legacy-message-ev-null-content", "content": "", "state": "completed"},
+            {"id": "legacy-message-ev-with-content", "content": "Olá legado", "state": "completed"},
+        ]
+
+        # BE-14 Case A: native_session_id populated on conversation_turns blocks rollback of 0005 -> 0004
+        async with upgraded_store._connect() as db:
+            async with upgraded_store._transaction(db):
+                await db.execute(
+                    "UPDATE conversation_turns SET native_session_id = 'native-sess-preserve' WHERE id = 'legacy-message-ev-with-content'"
+                )
+
+        with pytest.raises(MigrationError):
+            await upgraded_store.rollback_migrations("0004")
+
+        async with upgraded_store._connect() as db:
+            row = await (
+                await db.execute(
+                    "SELECT native_session_id FROM conversation_turns WHERE id = 'legacy-message-ev-with-content'"
+                )
+            ).fetchone()
+            assert row is not None and row["native_session_id"] == "native-sess-preserve"
+
+        # BE-14 Case B: route_revision <> 0 on conversation_turns also blocks rollback of 0005 -> 0004
+        async with upgraded_store._connect() as db:
+            async with upgraded_store._transaction(db):
+                await db.execute(
+                    "UPDATE conversation_turns SET native_session_id = NULL, route_revision = 1 WHERE id = 'legacy-message-ev-with-content'"
+                )
+
+        with pytest.raises(MigrationError):
+            await upgraded_store.rollback_migrations("0004")
+
+        async with upgraded_store._connect() as db:
+            row = await (
+                await db.execute(
+                    "SELECT route_revision FROM conversation_turns WHERE id = 'legacy-message-ev-with-content'"
+                )
+            ).fetchone()
+            assert row is not None and int(row["route_revision"]) == 1
+
+        # BE-14 Case C: once both native_session_id IS NULL and route_revision = 0, rollback to 0004 succeeds cleanly
+        async with upgraded_store._connect() as db:
+            async with upgraded_store._transaction(db):
+                await db.execute(
+                    "UPDATE conversation_turns SET route_revision = 0 WHERE id = 'legacy-message-ev-with-content'"
+                )
+
+        reverted = await upgraded_store.rollback_migrations("0004")
+        assert "0005" in reverted
+    finally:
+        await upgraded_store.close()

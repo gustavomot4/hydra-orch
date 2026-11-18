@@ -13,6 +13,7 @@ from typing import Any, AsyncIterator, Dict, List, Literal, Optional, Sequence
 import uuid
 
 from fastapi import APIRouter, FastAPI, Header, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse as BaseJSONResponse, StreamingResponse
@@ -21,8 +22,23 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from hydra_orch.config import ConfigError, HydraConfig, load_config
-from hydra_orch.core.auth import load_cors_origins, load_token_verifier, validate_cors_origins
-from hydra_orch.core.redaction import install_log_redaction, redact
+from hydra_orch.core.auth import (
+    AuthPrincipal,
+    VerifiedTokenCache,
+    default_cors_origins,
+    extract_scoped_token_id,
+    is_trusted_host,
+    load_cors_origins,
+    load_token_verifier,
+    mint_scoped_token,
+    validate_cors_origins,
+)
+from hydra_orch.core.redaction import (
+    StreamingRedactor,
+    install_log_redaction,
+    redact,
+    register_secret,
+)
 from hydra_orch.core.checkpointer import (
     IdempotencyConflictError,
     OptimisticLockError,
@@ -30,7 +46,7 @@ from hydra_orch.core.checkpointer import (
     StorageIntegrityError,
     StorageLockError,
 )
-from hydra_orch.core.git_workspace import GitWorkspaceError
+from hydra_orch.core.git_workspace import GitWorkspaceError, is_link_or_junction
 from hydra_orch.core.router import HydraRouter
 from hydra_orch.core.run_service import RunService
 from hydra_orch.core.session_service import SessionService, SessionState
@@ -89,35 +105,29 @@ from hydra_orch.model import (
     IntegrationStatus,
     ModelCard,
     ModelListResponse,
+    ProcessStatus,
     RunSpec,
     ExecutorCapability,
     Sha256,
+    TaskAttempt,
     TaskSpec,
 )
 
 install_log_redaction()
 logger = logging.getLogger(__name__)
+_MAX_SQLITE_CURSOR = (1 << 53) - 1
 
 
 class JSONResponse(BaseJSONResponse):
     """Sanitize JSON evidence and errors before HTTP exposure."""
 
     def render(self, content: Any) -> bytes:
-        return super().render(redact(content))
+        return super().render(redact(jsonable_encoder(content)))
 
 
-DEFAULT_CORS_ALLOW_ORIGINS: List[str] = [
-    "http://127.0.0.1:8000",
-    "http://localhost:8000",
-    "http://127.0.0.1:3000",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "http://localhost:5173",
-    "http://127.0.0.1:5177",
-    "http://localhost:5177",
-    "http://127.0.0.1:5197",
-    "http://localhost:5197",
-]
+DEFAULT_CORS_ALLOW_ORIGINS: List[str] = list(
+    dict.fromkeys([*default_cors_origins(8000), "http://127.0.0.1:5173", "http://localhost:5173"])
+)
 
 config = load_config()
 router = HydraRouter(config)
@@ -148,9 +158,18 @@ def set_run_service(service: Optional[RunService]) -> None:
 
 
 async def startup_event() -> None:
-    app.state.token_verifier = load_token_verifier()
+    if not (
+        getattr(app.state, "local_desktop_enabled", False)
+        and getattr(app.state, "token_verifier", None) is not None
+    ):
+        app.state.token_verifier = load_token_verifier()
     if app.state.token_verifier is None:
         raise RuntimeError("Configure HYDRA_API_TOKEN_HASH or HYDRA_API_TOKEN before serving HTTP")
+    for env_key in ("HYDRA_API_TOKEN", "OMNIROUTE_API_KEY", config.omniroute.api_key_env):
+        if env_key:
+            secret_val = os.environ.get(env_key)
+            if secret_val:
+                register_secret(secret_val)
     validate_cors_origins(app.state.cors_allow_origins)
     if config.omniroute.auto_start_daemon:
         # Honor a saved address before starting anything. Normal/manual required
@@ -183,11 +202,17 @@ def shutdown_event() -> None:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    shutdown_sig = asyncio.Event()
+    app.state.shutdown_signal = shutdown_sig
     await startup_event()
     await get_conversation_service().start()
     async def reconcile_deadlines():
-        while True:
-            await asyncio.sleep(1)
+        while not shutdown_sig.is_set():
+            try:
+                await asyncio.wait_for(shutdown_sig.wait(), timeout=1.0)
+                break
+            except asyncio.TimeoutError:
+                pass
             try:
                 store = _run_service.store if _run_service is not None else router.checkpointer
                 await HITLService(store).expire_due()
@@ -197,6 +222,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        shutdown_sig.set()
         await get_conversation_service().close()
         deadline_task.cancel()
         with suppress(asyncio.CancelledError):
@@ -204,6 +230,11 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         pty_runner = getattr(app.state, "pty_runner", None)
         if pty_runner is not None:
             await pty_runner.close_all()
+        store = _run_service.store if _run_service is not None else router.checkpointer
+        if hasattr(store, "close"):
+            with suppress(Exception):
+                await store.close()
+        app.state.shutdown_signal = None
         shutdown_event()
 
 
@@ -217,12 +248,15 @@ app = FastAPI(
 
 app.state.cors_allow_origins = load_cors_origins(DEFAULT_CORS_ALLOW_ORIGINS)
 app.state.token_verifier = load_token_verifier()
+app.state.verified_token_caches = {}
+app.state.shutdown_signal = None
 app.state.expired_cursors = {}  # run_id -> min_valid_seq
 app.state.local_principal_id = "operator"  # Identity of the authenticated single local operator.
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=app.state.cors_allow_origins,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "Last-Event-ID"],
@@ -249,8 +283,122 @@ def _error_response(
     return JSONResponse(status_code=status_code, content=payload)
 
 
+def _get_scoped_token_cache(db_path: str) -> VerifiedTokenCache:
+    caches: Dict[str, VerifiedTokenCache] = getattr(app.state, "verified_token_caches", None) or {}
+    app.state.verified_token_caches = caches
+    key = os.path.normcase(os.path.abspath(str(db_path)))
+    cache = caches.get(key)
+    if cache is None:
+        cache = VerifiedTokenCache()
+        caches[key] = cache
+    return cache
+
+
+async def _authenticate_bearer(provided_token: str) -> Optional[AuthPrincipal]:
+    verifier = getattr(app.state, "token_verifier", None)
+    if verifier is None or not provided_token:
+        return None
+
+    from hydra_orch.core.local_desktop import (
+        enabled as desktop_enabled,
+        get_desktop_session_manager,
+    )
+
+    if desktop_enabled(app.state) and provided_token.startswith("hydra_desktop_"):
+        if get_desktop_session_manager(app.state).verify_session_token(provided_token):
+            return AuthPrincipal(
+                principal_id=app.state.local_principal_id,
+                scopes=("read", "write", "admin"),
+                is_master=True,
+            )
+        return None
+
+    if await asyncio.to_thread(verifier.verify, provided_token):
+        return AuthPrincipal(
+            principal_id=app.state.local_principal_id,
+            scopes=("read", "write", "admin"),
+            is_master=True,
+        )
+
+    store = _run_service.store if _run_service is not None else router.checkpointer
+    db_path = str(store.db_path)
+    if not os.path.exists(db_path):
+        return None
+    scoped_cache = _get_scoped_token_cache(db_path)
+    cached = scoped_cache.get(provided_token)
+    if cached is not None:
+        return cached
+
+    try:
+        await store.initialize()
+        extracted_id = extract_scoped_token_id(provided_token)
+        async with store._connect() as db:
+            if extracted_id is not None:
+                rows = await (
+                    await db.execute(
+                        "SELECT id, token_hash, principal_id, scopes_json, expires_at "
+                        "FROM access_tokens WHERE id = ? AND revoked_at IS NULL",
+                        (extracted_id,),
+                    )
+                ).fetchall()
+            else:
+                rows = await (
+                    await db.execute(
+                        "SELECT id, token_hash, principal_id, scopes_json, expires_at "
+                        "FROM access_tokens WHERE revoked_at IS NULL"
+                    )
+                ).fetchall()
+    except Exception:
+        return None
+
+    now_utc = datetime.now(timezone.utc)
+    for row in rows:
+        exp_raw = row["expires_at"]
+        if exp_raw:
+            try:
+                exp_dt = datetime.fromisoformat(str(exp_raw).replace("Z", "+00:00"))
+                if exp_dt.tzinfo is None:
+                    exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                if exp_dt <= now_utc:
+                    continue
+            except ValueError:
+                continue
+        try:
+            row_verifier = TokenVerifier.decode(str(row["token_hash"]))
+        except ValueError:
+            continue
+        if await asyncio.to_thread(row_verifier.verify, provided_token):
+            try:
+                parsed_scopes = tuple(json.loads(row["scopes_json"]))
+            except Exception:
+                parsed_scopes = ()
+            principal = AuthPrincipal(
+                principal_id=str(row["principal_id"]),
+                scopes=parsed_scopes,
+                token_id=str(row["id"]),
+                expires_at=str(exp_raw) if exp_raw else None,
+                is_master=False,
+            )
+            scoped_cache.put(provided_token, principal)
+            return principal
+    return None
+
+
 async def _check_control_plane_security(request: Request) -> Optional[JSONResponse]:
-    """Require Bearer auth for all HTTP routes; validate browser origin first."""
+    """Require Bearer auth for all HTTP routes; validate Host and browser Origin first."""
+    host_candidate = request.headers.get("host") or request.url.hostname
+    client_host = request.client.host if request.client is not None else None
+    server_info = request.scope.get("server")
+    if (
+        isinstance(server_info, (tuple, list))
+        and len(server_info) >= 1
+        and server_info[0] == "testserver"
+        and client_host == "127.0.0.1"
+    ):
+        client_host = "testclient"
+    if not is_trusted_host(host_candidate, client_host=client_host):
+        return _error_response(403, "untrusted_host", "Request Host header is not authorized")
+
     try:
         allowed_origins = validate_cors_origins(app.state.cors_allow_origins)
     except ValueError:
@@ -274,12 +422,25 @@ async def _check_control_plane_security(request: Request) -> Optional[JSONRespon
     auth_headers = request.headers.getlist("authorization")
     auth_header = auth_headers[0] if len(auth_headers) == 1 else ""
     scheme, _, provided_token = auth_header.partition(" ")
-    verifier = getattr(app.state, "token_verifier", None)
-    if (scheme.lower() != "bearer" or verifier is None
-            or not await asyncio.to_thread(verifier.verify, provided_token)):
+    if scheme.lower() != "bearer":
         response = _error_response(401, "unauthorized", "A valid local Bearer token is required")
         response.headers["WWW-Authenticate"] = "Bearer"
         return response
+
+    principal = await _authenticate_bearer(provided_token)
+    if principal is None:
+        response = _error_response(401, "unauthorized", "A valid local Bearer token is required")
+        response.headers["WWW-Authenticate"] = "Bearer"
+        return response
+
+    request.state.principal_id = principal.principal_id
+    request.state.scopes = principal.scopes
+    if not principal.allows(method=request.method, path=request.url.path):
+        return _error_response(
+            403,
+            "insufficient_scope",
+            "Authenticated token does not grant required scope for this route",
+        )
     return None
 
 
@@ -403,7 +564,7 @@ async def change_conversation_route(conversation_id: str, payload: ConversationR
 
 
 @app.get("/v1/control-plane/conversations")
-async def list_conversations(project_id: Optional[str] = None, offset: int = Query(default=0, ge=0), limit: int = Query(default=30, ge=1, le=100), q: Optional[str] = Query(default=None, max_length=100)):
+async def list_conversations(project_id: Optional[str] = None, offset: int = Query(default=0, ge=0, le=_MAX_SQLITE_CURSOR), limit: int = Query(default=30, ge=1, le=100), q: Optional[str] = Query(default=None, max_length=100)):
     return await get_conversation_service().list(project_id, offset, limit, q)
 
 
@@ -425,19 +586,25 @@ async def cancel_conversation_turn(conversation_id: str, turn_id: str):
 
 
 @app.get("/v1/control-plane/conversations/{conversation_id}/events")
-async def conversation_event_stream(conversation_id: str, request: Request, after: int = Query(default=0, ge=0),
+async def conversation_event_stream(conversation_id: str, request: Request, after: int = Query(default=0, ge=0, le=_MAX_SQLITE_CURSOR),
                                     last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID")):
     service = get_conversation_service()
     await service.snapshot(conversation_id)
     try:
-        cursor = max(after, int(last_event_id or 0))
+        parsed_last = int(last_event_id) if last_event_id is not None and last_event_id.strip() != "" else 0
     except ValueError:
         return _error_response(400, "invalid_cursor", "Cursor de conversa inválido.")
+    if parsed_last < 0 or parsed_last > _MAX_SQLITE_CURSOR:
+        return _error_response(400, "invalid_cursor", "Cursor de conversa fora do intervalo suportado.")
+    cursor = max(after, parsed_last)
+    shutdown_sig: Optional[asyncio.Event] = getattr(app.state, "shutdown_signal", None)
 
     async def stream():
         nonlocal cursor
         idle = 0
         while not await request.is_disconnected():
+            if shutdown_sig is not None and shutdown_sig.is_set():
+                break
             events = await service.events(conversation_id, cursor)
             for event in events:
                 cursor = event["seq"]
@@ -445,7 +612,14 @@ async def conversation_event_stream(conversation_id: str, request: Request, afte
             idle += 1
             if idle % 20 == 0:
                 yield ": heartbeat\n\n"
-            await asyncio.sleep(.15)
+            if shutdown_sig is not None:
+                try:
+                    await asyncio.wait_for(shutdown_sig.wait(), timeout=0.15)
+                    break
+                except asyncio.TimeoutError:
+                    pass
+            else:
+                await asyncio.sleep(0.15)
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 class ProjectCreatePayload(BaseModel):
@@ -482,8 +656,8 @@ class BudgetPolicyPayload(BaseModel):
     max_wall_seconds: int = Field(default=3600, ge=1)
     max_tokens_in: Optional[int] = Field(default=None, ge=0)
     max_tokens_out: Optional[int] = Field(default=None, ge=0)
-    max_usd: Optional[float] = Field(default=None, ge=0.0)
-    alert_threshold_pct: float = Field(default=80.0, ge=50.0, le=99.0)
+    max_usd: Optional[float] = Field(default=None, ge=0.0, allow_inf_nan=False)
+    alert_threshold_pct: float = Field(default=80.0, ge=50.0, le=99.0, allow_inf_nan=False)
 
 
 class RunCreatePayload(BaseModel):
@@ -594,19 +768,36 @@ async def create_chat_completion(request: ChatCompletionRequest) -> Any:
     if request.stream:
         async def event_generator() -> AsyncIterator[str]:
             stream_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+            stream_redactor = StreamingRedactor()
             async for chunk in router.stream_chat_completion(request):
-                chunk_obj = ChatCompletionChunk(
+                safe_chunk = stream_redactor.feed(chunk)
+                if safe_chunk:
+                    chunk_obj = ChatCompletionChunk(
+                        id=stream_id,
+                        model=request.model,
+                        choices=[
+                            ChatCompletionChunkChoice(
+                                index=0,
+                                delta=ChatChoiceDelta(content=safe_chunk),
+                                finish_reason=None,
+                            )
+                        ],
+                    )
+                    yield f"data: {chunk_obj.model_dump_json()}\n\n"
+            tail_chunk = stream_redactor.flush()
+            if tail_chunk:
+                tail_obj = ChatCompletionChunk(
                     id=stream_id,
                     model=request.model,
                     choices=[
                         ChatCompletionChunkChoice(
                             index=0,
-                            delta=ChatChoiceDelta(content=chunk),
+                            delta=ChatChoiceDelta(content=tail_chunk),
                             finish_reason=None,
                         )
                     ],
                 )
-                yield f"data: {chunk_obj.model_dump_json()}\n\n"
+                yield f"data: {tail_obj.model_dump_json()}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -734,6 +925,32 @@ async def control_plane_bootstrap() -> Dict[str, Any]:
     }
 
 
+def _enforce_explicit_allowed_roots(target_path: Optional[str | Path]) -> None:
+    """When workspace_allowed_roots is explicitly configured, reject paths outside it."""
+    if not target_path:
+        return
+    configured = getattr(app.state, "workspace_allowed_roots", None)
+    if not configured:
+        env_raw = os.environ.get("HYDRA_ALLOWED_WORKSPACE_ROOTS", "").strip()
+        if env_raw:
+            try:
+                parsed = json.loads(env_raw) if env_raw.startswith("[") else [p.strip() for p in env_raw.split(",") if p.strip()]
+                configured = [str(p) for p in parsed if p]
+            except json.JSONDecodeError:
+                configured = [p.strip() for p in env_raw.split(",") if p.strip()]
+    if not configured:
+        return
+    raw_candidate = Path(target_path)
+    if is_link_or_junction(raw_candidate):
+        raise ContractViolation("authorization_denied", "Symlink or junction root is outside allowed workspace roots")
+    resolved_candidate = raw_candidate.resolve(strict=False)
+    for raw_root in configured:
+        allowed = Path(raw_root).resolve(strict=False)
+        if resolved_candidate == allowed or resolved_candidate.is_relative_to(allowed):
+            return
+    raise ContractViolation("authorization_denied", f"Path '{target_path}' is outside the root allowlist")
+
+
 @app.post("/v1/control-plane/projects", status_code=201)
 @app.post("/projects", status_code=201)
 async def create_project_endpoint(payload: ProjectCreatePayload) -> Dict[str, Any]:
@@ -747,6 +964,7 @@ async def create_project_endpoint(payload: ProjectCreatePayload) -> Dict[str, An
             base_sha=payload.base_sha,
             metadata=payload.metadata,
         )
+    _enforce_explicit_allowed_roots(payload.canonical_root)
     svc = get_run_service()
     return await svc.create_project(
         canonical_root=payload.canonical_root,
@@ -915,7 +1133,7 @@ async def create_run_endpoint(
 async def list_runs_endpoint(
     project_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=1_000_000),
     size: int = Query(default=20, ge=1, le=100),
 ) -> Dict[str, Any]:
     svc = get_run_service()
@@ -1260,6 +1478,13 @@ async def _stream_events_response(
         return _error_response(404, "run_not_found", f"Run '{run_id}' not found", run_id=run_id)
 
     cursor_seq = after_seq or 0
+    if cursor_seq > _MAX_SQLITE_CURSOR:
+        return _error_response(
+            400,
+            "invalid_cursor",
+            f"after_seq exceeds maximum supported value {_MAX_SQLITE_CURSOR}",
+            run_id=run_id,
+        )
     if last_event_id is not None and last_event_id.strip() != "":
         try:
             cursor_seq = int(last_event_id.strip())
@@ -1275,6 +1500,13 @@ async def _stream_events_response(
                 410,
                 "cursor_expired",
                 f"Cursor {cursor_seq} has expired; fetch full run snapshot",
+                run_id=run_id,
+            )
+        if cursor_seq > _MAX_SQLITE_CURSOR:
+            return _error_response(
+                400,
+                "invalid_cursor",
+                f"Last-Event-ID exceeds maximum supported value {_MAX_SQLITE_CURSOR}",
                 run_id=run_id,
             )
 
@@ -1293,6 +1525,7 @@ async def _stream_events_response(
 
     sessions = SessionService(svc.store)
     events = await sessions.replay(run_id, after_seq=cursor_seq, session_id=session_id, thread_id=thread_id, limit=limit)
+    shutdown_sig: Optional[asyncio.Event] = getattr(app.state, "shutdown_signal", None)
 
     async def sse_generator() -> AsyncIterator[str]:
         cursor, batch = cursor_seq, events
@@ -1312,10 +1545,17 @@ async def _stream_events_response(
                     heartbeat_obj["session_id"] = session_id
                 yield f"event: heartbeat\ndata: {json.dumps(heartbeat_obj)}\n\n"
                 heartbeat_at = now + 15
-            if not follow or await request.is_disconnected():
+            if not follow or await request.is_disconnected() or (shutdown_sig is not None and shutdown_sig.is_set()):
                 break
             # Poll SQLite rather than relying on an in-memory queue lost on restart.
-            await asyncio.sleep(0.25)
+            if shutdown_sig is not None:
+                try:
+                    await asyncio.wait_for(shutdown_sig.wait(), timeout=0.25)
+                    break
+                except asyncio.TimeoutError:
+                    pass
+            else:
+                await asyncio.sleep(0.25)
             batch = await sessions.replay(run_id, after_seq=cursor, session_id=session_id, thread_id=thread_id, limit=limit)
 
     return StreamingResponse(sse_generator(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
@@ -1327,7 +1567,7 @@ async def stream_run_events_endpoint(
     request: Request,
     run_id: str,
     last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
-    after_seq: Optional[int] = Query(default=None, ge=0),
+    after_seq: Optional[int] = Query(default=None, ge=0, le=_MAX_SQLITE_CURSOR),
     session_id: Optional[str] = Query(default=None),
     thread_id: Optional[str] = Query(default=None),
     follow: bool = Query(default=False),
@@ -1357,6 +1597,63 @@ async def cancel_run_endpoint(
     run_rec = await svc.store.get_run(run_id)
     if run_rec is None:
         return _error_response(404, "run_not_found", f"Run '{run_id}' not found", run_id=run_id)
+
+    if req.scope == "attempt":
+        if not req.attempt_id:
+            return _error_response(
+                400,
+                "missing_attempt_id",
+                "attempt_id is required when scope='attempt'",
+                run_id=run_id,
+            )
+        att = await svc.store.get_attempt(req.attempt_id)
+        if att is None or att.run_id != run_id:
+            return _error_response(
+                404,
+                "attempt_not_found",
+                f"Attempt '{req.attempt_id}' not found in run '{run_id}'",
+                run_id=run_id,
+            )
+        if att.process_status not in {ProcessStatus.QUEUED, ProcessStatus.RUNNING}:
+            return _error_response(
+                409,
+                "invalid_attempt_state",
+                f"Attempt '{req.attempt_id}' is already in terminal status '{att.process_status.value}'",
+                run_id=run_id,
+            )
+        await svc.worker_runner.cancel(att.attempt_id, reason=req.reason)
+        updated_att = TaskAttempt(
+            attempt_id=att.attempt_id,
+            task_id=att.task_id,
+            run_id=att.run_id,
+            ordinal=att.ordinal,
+            executor_id=att.executor_id,
+            provider=att.provider,
+            model=att.model,
+            base_sha=att.base_sha,
+            workspace_path=att.workspace_path,
+            provider_session=att.provider_session,
+            process_status=ProcessStatus.CANCELLED,
+            exit_code=att.exit_code,
+            started_at=att.started_at,
+            finished_at=datetime.now(timezone.utc),
+            exit_reason=req.reason,
+        )
+        await svc.store.save_attempt_atomic(
+            updated_att,
+            event_type="attempt.finished",
+            event_payload={"cancelled": True, "reason": req.reason},
+        )
+        return {
+            "status": "cancelled",
+            "scope": "attempt",
+            "run_id": run_id,
+            "task_id": att.task_id,
+            "attempt_id": att.attempt_id,
+            "attempt_status": ProcessStatus.CANCELLED.value,
+            "message": f"Attempt '{att.attempt_id}' cancelled",
+            "killed_pids": [],
+        }
 
     if req.scope == "task":
         if not req.task_id:
@@ -1896,7 +2193,7 @@ async def stream_session_events_endpoint(
     request: Request,
     session_id: str,
     last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
-    after_seq: Optional[int] = Query(default=None, ge=0),
+    after_seq: Optional[int] = Query(default=None, ge=0, le=_MAX_SQLITE_CURSOR),
     thread_id: Optional[str] = Query(default=None),
     follow: bool = Query(default=False),
     limit: int = Query(default=1000, ge=1, le=1000),
@@ -2335,6 +2632,29 @@ class TokenCreatePayload(BaseModel):
     redact_token: bool = False
 
 
+@app.get("/v1/control-plane/tokens")
+async def list_tokens_endpoint() -> List[Dict[str, Any]]:
+    store = get_run_service().store
+    await store.initialize()
+    async with store._connect() as db:
+        rows = await (
+            await db.execute(
+                "SELECT id, principal_id, scopes_json, expires_at, revoked_at "
+                "FROM access_tokens ORDER BY rowid DESC"
+            )
+        ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "principal_id": row["principal_id"],
+            "scopes": json.loads(row["scopes_json"]),
+            "expires_at": row["expires_at"],
+            "revoked_at": row["revoked_at"],
+        }
+        for row in rows
+    ]
+
+
 @app.post("/v1/control-plane/tokens", status_code=201)
 async def create_token_endpoint(payload: TokenCreatePayload) -> BaseJSONResponse:
     principal = payload.principal_id.strip()
@@ -2353,7 +2673,7 @@ async def create_token_endpoint(payload: TokenCreatePayload) -> BaseJSONResponse
         raise ContractViolation("token_invalid", "Token expires_at must be in the future")
 
     token_id = str(uuid.uuid4())
-    raw_token = f"hydra_tok_{secrets.token_urlsafe(32)}"
+    raw_token = mint_scoped_token(token_id)
     token_hash = await asyncio.to_thread(lambda: TokenVerifier.from_token(raw_token).encode())
     expires_iso = expires_dt.astimezone(timezone.utc).isoformat()
 
@@ -2429,6 +2749,7 @@ async def revoke_token_endpoint(token_id: str) -> Dict[str, Any]:
                     request_hash=store.compute_request_hash(audit_payload),
                     response_payload=audit_payload,
                 )
+    _get_scoped_token_cache(str(store.db_path)).invalidate_token_id(token_id)
     return {
         "id": row["id"],
         "token_hash": row["token_hash"],
@@ -2539,7 +2860,7 @@ async def discard_conflict_endpoint(
 
 class BudgetExtendPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    additional_usd: Optional[float] = Field(default=None, gt=0)
+    additional_usd: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
     additional_tokens_in: Optional[int] = Field(default=None, gt=0, strict=True)
     additional_tokens_out: Optional[int] = Field(default=None, gt=0, strict=True)
     additional_wall_seconds: Optional[int] = Field(default=None, gt=0, strict=True)
@@ -2644,7 +2965,13 @@ def get_attachment_service() -> AttachmentService:
     root_dir = getattr(app.state, "attachment_root_dir", None)
     if root_dir is None:
         root_dir = get_run_service().runtime_dir / "attachments"
-    return AttachmentService(Path(root_dir))
+    resolved_root = Path(root_dir).resolve(strict=False)
+    cached: Optional[AttachmentService] = getattr(app.state, "attachment_service", None)
+    if cached is not None and cached.root_dir.resolve(strict=False) == resolved_root:
+        return cached
+    service = AttachmentService(resolved_root)
+    app.state.attachment_service = service
+    return service
 
 
 def _get_omniroute_selector() -> RouteSelector:
@@ -2829,6 +3156,7 @@ async def select_omniroute_account_endpoint(payload: OmniRouteAccountPayload) ->
 
 @app.post("/v1/control-plane/pty/sessions", status_code=201)
 async def open_pty_session_endpoint(payload: PtySessionCreatePayload) -> Any:
+    _enforce_explicit_allowed_roots(payload.cwd)
     runner = get_pty_runner()
     return await runner.open_session(
         payload.command,
@@ -2871,7 +3199,7 @@ async def interrupt_pty_session_endpoint(session_id: str) -> Any:
 @app.get("/v1/control-plane/pty/sessions/{session_id}/output")
 async def read_pty_output_endpoint(
     session_id: str,
-    after_seq: int = Query(default=0),
+    after_seq: int = Query(default=0, ge=0, le=_MAX_SQLITE_CURSOR),
 ) -> Dict[str, Any]:
     runner = get_pty_runner()
     chunks = runner.read_output(session_id, after_seq=after_seq)
@@ -2885,7 +3213,7 @@ async def read_pty_output_endpoint(
 @app.get("/v1/control-plane/pty/sessions/{session_id}/stream")
 async def stream_pty_output_endpoint(
     session_id: str,
-    after_seq: Optional[int] = Query(default=None),
+    after_seq: Optional[int] = Query(default=None, ge=0, le=_MAX_SQLITE_CURSOR),
     last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
 ) -> StreamingResponse:
     cursor = 0
@@ -2896,6 +3224,8 @@ async def stream_pty_output_endpoint(
             cursor = int(last_event_id)
         except ValueError as exc:
             raise ContractViolation("invalid_cursor", "Last-Event-ID must be an integer sequence") from exc
+        if cursor < 0 or cursor > _MAX_SQLITE_CURSOR:
+            raise ContractViolation("invalid_cursor", "Last-Event-ID is out of supported integer bounds")
 
     runner = get_pty_runner()
     # Validate existence and cursor before opening SSE stream
@@ -2958,7 +3288,8 @@ async def pty_websocket_endpoint(
             return
         scheme, token = "bearer", auth["token"]
 
-    if scheme.lower() != "bearer" or not await asyncio.to_thread(verifier.verify, token):
+    principal = await _authenticate_bearer(token) if scheme.lower() == "bearer" else None
+    if principal is None or not principal.allows(method="POST", path="/v1/control-plane/pty/sessions"):
         await websocket.close(code=1008)
         return
 
@@ -3045,11 +3376,13 @@ async def get_run_artifact_content_endpoint(
     if target is None:
         raise ContractViolation("resource_not_found", f"Artifact '{artifact_id}' not found in run '{run_id}'")
 
-    candidates: List[Path] = []
-    candidates.append(Path(run_rec['spec'].repo_root))
-    if svc.repo_root not in candidates:
-        candidates.append(svc.repo_root)
-    locations = [(base, target.relative_path) for base in candidates]
+    run_repo_root = Path(run_rec["spec"].repo_root)
+    locations: List[tuple[Path, str]] = [(run_repo_root, target.relative_path)]
+    safe_run = "".join(ch if (ch.isalnum() or ch in "._-") else "_" for ch in run_id)
+    run_runtime_dir = svc.runtime_dir / "run" / safe_run
+    if run_runtime_dir.resolve(strict=False).is_relative_to(svc.runtime_dir.resolve(strict=False)):
+        locations.append((svc.runtime_dir, target.relative_path.removeprefix(".orchestrator/")))
+        locations.append((run_runtime_dir, target.relative_path))
     if run_rec['spec'].integration_policy == 'agent_review_in_isolation' and target.relative_path.startswith('.orchestrator/'):
         await svc._assert_isolated_agent_review(run_id)
         async with svc.store._connect() as db:
@@ -3064,8 +3397,15 @@ async def get_run_artifact_content_endpoint(
 
     last_not_found: Optional[ContractViolation] = None
     for base_dir, relative_path in locations:
+        if not base_dir.is_dir():
+            continue
         try:
             preview = read_safe_preview(base_dir, relative_path, max_bytes=max_bytes)
+            if target.sha256 and preview.get("sha256") and preview["sha256"] != target.sha256:
+                raise ContractViolation(
+                    "artifact_tampered",
+                    f"Artifact '{artifact_id}' content hash does not match recorded SHA-256",
+                )
             preview["artifact_id"] = target.artifact_id
             preview["run_id"] = target.run_id
             return preview
@@ -3384,7 +3724,7 @@ async def request_validation_handler(request: Request, exc: RequestValidationErr
         "validation_error",
         "Request payload validation failed",
         retryable=False,
-        extra={"details": exc.errors()},
+        extra={"details": jsonable_encoder(exc.errors())},
     )
 
 
@@ -3398,21 +3738,47 @@ async def pydantic_validation_handler(request: Request, exc: ValidationError) ->
     )
 
 
+@app.post("/v1/launcher/ticket", include_in_schema=False)
+async def desktop_ticket(request: Request):
+    from hydra_orch.core.local_desktop import enabled, get_desktop_session_manager, loopback_request
+    if not enabled(app.state) or not loopback_request(request):
+        raise HTTPException(404)
+    nonce = get_desktop_session_manager(app.state).issue_bootstrap_ticket()
+    return BaseJSONResponse(
+        {"nonce": nonce},
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
+
+
 @app.post("/v1/launcher/session", include_in_schema=False)
 async def desktop_session(request: Request):
-    from hydra_orch.core.local_desktop import allow_bootstrap
+    from hydra_orch.core.local_desktop import allow_bootstrap, get_desktop_session_manager
     if not allow_bootstrap(request):
         raise HTTPException(403)
-    # Credential transport for the same-origin launcher UI; never log or embed in HTML/URL.
-    return BaseJSONResponse({"token": os.environ["HYDRA_API_TOKEN"]}, headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
+    nonce = request.headers.get("x-hydra-bootstrap-nonce", "").strip()
+    if not nonce:
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if isinstance(body, dict) and isinstance(body.get("nonce"), str):
+            nonce = body["nonce"].strip()
+    session_token = get_desktop_session_manager(app.state).exchange_bootstrap_ticket(nonce)
+    if not session_token:
+        raise HTTPException(403)
+    return BaseJSONResponse(
+        {"token": session_token},
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
 
 
 @app.post("/v1/launcher/stop", include_in_schema=False)
 async def desktop_stop():
-    from hydra_orch.core.local_desktop import enabled
+    from hydra_orch.core.local_desktop import enabled, get_desktop_session_manager
     stop = getattr(app.state, "desktop_shutdown", None)
-    if not enabled() or stop is None:
+    if not enabled(app.state) or stop is None:
         raise HTTPException(404)
+    get_desktop_session_manager(app.state).clear()
     stop()
     return {"stopping": True}
 
@@ -3420,7 +3786,7 @@ async def desktop_stop():
 @app.get("/v1/launcher/ping", include_in_schema=False)
 async def desktop_ping():
     from hydra_orch.core.local_desktop import enabled
-    if not enabled():
+    if not enabled(app.state):
         raise HTTPException(404)
     return {"status": "ready", "omniroute": getattr(router, 'gateway_startup', {'status': 'not_requested', 'ready': False})}
 
@@ -3452,14 +3818,14 @@ async def desktop_pick_folder(request: Request):
 
 @app.get("/{desktop_path:path}", include_in_schema=False)
 async def desktop_frontend(desktop_path: str, request: Request):
-    from hydra_orch.core.local_desktop import public_frontend
+    from hydra_orch.core.local_desktop import SAFE_ROOT_STATIC_FILES, public_frontend
     if not public_frontend(request):
         raise HTTPException(404)
     root = Path(getattr(app.state, "desktop_dist_dir", Path(__file__).resolve().parents[2] / "frontend" / "dist"))
     target = (root / desktop_path).resolve()
     if not target.is_relative_to(root.resolve()):
         raise HTTPException(404)
-    if desktop_path.startswith("assets/"):
+    if desktop_path.startswith("assets/") or f"/{desktop_path}" in SAFE_ROOT_STATIC_FILES:
         if not target.is_file():
             raise HTTPException(404)
         return FileResponse(target)
@@ -3467,11 +3833,24 @@ async def desktop_frontend(desktop_path: str, request: Request):
     if not index.is_file():
         raise HTTPException(503, "A interface ainda precisa ser preparada pelo executável Hydra.")
     html = index.read_text(encoding="utf-8").replace("<head>", '<head><meta name="hydra-desktop" content="local">', 1)
-    return HTMLResponse(html, headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'", "Referrer-Policy": "same-origin"})
+    csp = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; "
+        "font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    )
+    return HTMLResponse(
+        html,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Frame-Options": "DENY",
+            "Content-Security-Policy": csp,
+            "Referrer-Policy": "same-origin",
+        },
+    )
 
 
 def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:
     """Run uvicorn server directly on loopback interface by default."""
     import uvicorn
 
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=host, port=port, timeout_graceful_shutdown=5)

@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -78,6 +79,15 @@ internal static class NativeFolderPicker
 // Local checkout launcher. The access credential exists only in process memory/environment.
 internal sealed class HydraLauncher : Form
 {
+    static readonly Regex TicketNoncePattern = new Regex("\"(?:nonce|ticket|bootstrap_nonce)\"\\s*:\\s*\"([^\"]+)\"", RegexOptions.Compiled);
+    static readonly string[] FrontendRootInputs = new string[] {
+        "index.html",
+        "package.json",
+        "vite.config.ts",
+        "tailwind.config.js",
+        "postcss.config.js"
+    };
+
     readonly string root;
     int port;
     readonly bool chooseFreePort;
@@ -109,7 +119,7 @@ internal sealed class HydraLauncher : Form
         http.Timeout = TimeSpan.FromSeconds(4);
         start.Click += async delegate { try { await StartSystem(true); } catch (Exception e) { ShowError(e); } RefreshButtons(); };
         stop.Click += async delegate { try { await StopSystem(); } catch (Exception e) { ShowError(e); } RefreshButtons(); };
-        open.Click += delegate { OpenBrowser(); };
+        open.Click += async delegate { try { await OpenBrowser(); } catch (Exception e) { ShowError(e); } };
         FormClosing += async delegate(object sender, FormClosingEventArgs e) {
             if (closing || backend == null || backend.HasExited) return;
             e.Cancel = true;
@@ -163,9 +173,24 @@ internal sealed class HydraLauncher : Form
 
     async Task EnsureBuild()
     {
-        string front = Path.Combine(root,"frontend");
-        string index = Path.Combine(front,"dist","index.html");
-        DateTime newest = Directory.GetFiles(Path.Combine(front,"src"),"*",SearchOption.AllDirectories).Select(File.GetLastWriteTimeUtc).Max();
+        string front = Path.Combine(root, "frontend");
+        string index = Path.Combine(front, "dist", "index.html");
+        DateTime newest = DateTime.MinValue;
+        string srcDir = Path.Combine(front, "src");
+        if (Directory.Exists(srcDir)) {
+            string[] srcFiles = Directory.GetFiles(srcDir, "*", SearchOption.AllDirectories);
+            for (int i = 0; i < srcFiles.Length; i++) {
+                DateTime written = File.GetLastWriteTimeUtc(srcFiles[i]);
+                if (written > newest) newest = written;
+            }
+        }
+        for (int i = 0; i < FrontendRootInputs.Length; i++) {
+            string configPath = Path.Combine(front, FrontendRootInputs[i]);
+            if (File.Exists(configPath)) {
+                DateTime written = File.GetLastWriteTimeUtc(configPath);
+                if (written > newest) newest = written;
+            }
+        }
         if (File.Exists(index) && File.GetLastWriteTimeUtc(index) >= newest) return;
         if (!File.Exists(Path.Combine(front,"node_modules","vite","bin","vite.js"))) throw new InvalidOperationException("Falta a preparação inicial da interface: execute npm ci na pasta frontend.");
         state.Text = "Preparando a interface…";
@@ -176,7 +201,7 @@ internal sealed class HydraLauncher : Form
 
     async Task StartSystem(bool showBrowser)
     {
-        if (backend != null && !backend.HasExited) { if (showBrowser) OpenBrowser(); return; }
+        if (backend != null && !backend.HasExited) { if (showBrowser) await OpenBrowser(); return; }
         start.Enabled = false;
         for (int candidate=0; candidate<11; candidate++) {
             bool busy = false;
@@ -220,10 +245,31 @@ internal sealed class HydraLauncher : Form
         if (!ready) { await StopSystem(); throw new InvalidOperationException("O Hydra demorou para iniciar. Tente novamente."); }
         state.Text = "Sistema em execução\n" + Url;
         RefreshButtons();
-        if (showBrowser) OpenBrowser();
+        if (showBrowser) await OpenBrowser();
     }
 
-    void OpenBrowser() { Process.Start(new ProcessStartInfo(Url) { UseShellExecute = true }); }
+    async Task OpenBrowser()
+    {
+        string targetUrl = Url;
+        if (!string.IsNullOrEmpty(credential)) {
+            try {
+                using (var request = new HttpRequestMessage(HttpMethod.Post, Url + "/v1/launcher/ticket")) {
+                    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", credential);
+                    request.Headers.Add("X-Hydra-Desktop", "1");
+                    using (var response = await http.SendAsync(request)) {
+                        if (response.IsSuccessStatusCode) {
+                            string body = await response.Content.ReadAsStringAsync();
+                            Match match = TicketNoncePattern.Match(body ?? "");
+                            if (match.Success && !string.IsNullOrWhiteSpace(match.Groups[1].Value)) {
+                                targetUrl = Url + "/#bootstrap_nonce=" + Uri.EscapeDataString(match.Groups[1].Value);
+                            }
+                        }
+                    }
+                }
+            } catch (HttpRequestException) { } catch (TaskCanceledException) { } catch (ObjectDisposedException) { }
+        }
+        Process.Start(new ProcessStartInfo(targetUrl) { UseShellExecute = true });
+    }
 
     void SavePreview(string target)
     {
@@ -254,8 +300,14 @@ internal sealed class HydraLauncher : Form
 
     static string FindRoot(string[] args)
     {
-        int option = Array.IndexOf(args,"--root");
-        if (option >= 0 && option+1 < args.Length) return Path.GetFullPath(args[option+1]);
+        if (args != null) {
+            int option = Array.IndexOf(args, "--root");
+            if (option >= 0) {
+                if (option + 1 >= args.Length || string.IsNullOrWhiteSpace(args[option + 1]))
+                    throw new ArgumentException("Informe o caminho da pasta após --root.");
+                return Path.GetFullPath(args[option + 1]);
+            }
+        }
         var directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
         while (directory != null) { if (File.Exists(Path.Combine(directory.FullName,"src","hydra_orch","server.py")) && File.Exists(Path.Combine(directory.FullName,"pyproject.toml"))) return directory.FullName; directory=directory.Parent; }
         throw new InvalidOperationException("Mantenha o executável dentro da pasta do projeto Hydra.");
@@ -264,6 +316,8 @@ internal sealed class HydraLauncher : Form
     [STAThread]
     static int Main(string[] args)
     {
+        if (args == null) args = new string[0];
+        bool headlessMode = Array.IndexOf(args, "--smoke") >= 0 || Array.IndexOf(args, "--render") >= 0;
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
         try {
             if (Array.IndexOf(args,"--pick-folder") >= 0) {
@@ -285,27 +339,48 @@ internal sealed class HydraLauncher : Form
                 }
                 return 0;
             }
-            string root = FindRoot(args); int port = 8000; int portOption = Array.IndexOf(args,"--port");
-            if (portOption >= 0) port = int.Parse(args[portOption+1]);
+            string root = FindRoot(args);
+            int port = 8000;
+            int portOption = Array.IndexOf(args, "--port");
+            if (portOption >= 0) {
+                if (portOption + 1 >= args.Length || !int.TryParse(args[portOption + 1], out port))
+                    throw new ArgumentException("Porta inválida.");
+            }
             if (port < 1024 || port > 65535) throw new ArgumentException("Porta inválida.");
-            using (var form = new HydraLauncher(root,port,portOption < 0 || Array.IndexOf(args,"--auto-port") >= 0)) {
-                int render = Array.IndexOf(args,"--render");
-                int smoke = Array.IndexOf(args,"--smoke");
+
+            int render = Array.IndexOf(args, "--render");
+            if (render >= 0 && (render + 1 >= args.Length || string.IsNullOrWhiteSpace(args[render + 1])))
+                throw new ArgumentException("Informe o arquivo de destino após --render.");
+
+            int smoke = Array.IndexOf(args, "--smoke");
+            if (smoke >= 0 && (smoke + 1 >= args.Length || string.IsNullOrWhiteSpace(args[smoke + 1])))
+                throw new ArgumentException("Informe o arquivo de relatório após --smoke.");
+
+            int hold = Array.IndexOf(args, "--hold");
+            int holdSeconds = 0;
+            if (hold >= 0) {
+                if (hold + 1 >= args.Length || !int.TryParse(args[hold + 1], out holdSeconds) || holdSeconds < 0)
+                    throw new ArgumentException("Tempo de espera inválido para --hold.");
+            }
+
+            using (var form = new HydraLauncher(root, port, portOption < 0 || Array.IndexOf(args,"--auto-port") >= 0)) {
                 if (render >= 0 && smoke < 0) {
+                    string renderTarget = args[render + 1];
                     form.Opacity=0; form.ShowInTaskbar=false;
-                    form.Shown += delegate { form.SavePreview(args[render+1]); form.closing=true; form.Close(); };
+                    form.Shown += delegate { form.SavePreview(renderTarget); form.closing=true; form.Close(); };
                     Application.Run(form); return 0;
                 }
                 if (smoke >= 0) {
-                    string report = args[smoke+1];
-                    form.testRuntime = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(report)),"runtime-"+Guid.NewGuid().ToString("N"));
+                    string report = Path.GetFullPath(args[smoke + 1]);
+                    string reportDir = Path.GetDirectoryName(report) ?? root;
+                    form.testRuntime = Path.Combine(reportDir, "runtime-" + Guid.NewGuid().ToString("N"));
                     int result = 0; form.Opacity = 0; form.ShowInTaskbar = false;
                     form.Shown += async delegate {
                         try {
-                            if (render >= 0) form.SavePreview(args[render+1]);
+                            if (render >= 0) form.SavePreview(args[render + 1]);
                             await form.StartSystem(false);
                             File.WriteAllText(report,"{\"started\":true,\"stopped\":false,\"port\":" + form.port + "}");
-                            int hold = Array.IndexOf(args,"--hold"); if (hold >= 0) await Task.Delay(int.Parse(args[hold+1])*1000);
+                            if (hold >= 0 && holdSeconds > 0) await Task.Delay(holdSeconds * 1000);
                             await form.StopSystem(); File.WriteAllText(report,"{\"started\":true,\"stopped\":true,\"port\":" + form.port + "}");
                         } catch (Exception e) { form.KillOwnedBackend(); File.WriteAllText(report,e.Message); result=1; }
                         finally { form.closing=true; form.Close(); }
@@ -322,6 +397,10 @@ internal sealed class HydraLauncher : Form
                 }
             }
             return 0;
-        } catch (Exception e) { MessageBox.Show(e.Message,"Hydra",MessageBoxButtons.OK,MessageBoxIcon.Information); return 1; }
+        } catch (Exception e) {
+            if (headlessMode) Console.Error.WriteLine(e.Message);
+            else MessageBox.Show(e.Message,"Hydra",MessageBoxButtons.OK,MessageBoxIcon.Information);
+            return 1;
+        }
     }
 }

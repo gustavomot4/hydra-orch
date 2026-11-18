@@ -7,14 +7,31 @@ import json
 import logging
 import re
 import time
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 import httpx
 import websockets
 
 from hydra_orch.adapter.base import BaseAdapter, LimitHitException
-from hydra_orch.model import ChatMessage
+from hydra_orch.model import ChatMessage, ContractViolation
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_cdp_origin(raw_url: str) -> Optional[Tuple[str, str, int]]:
+    if not isinstance(raw_url, str) or not raw_url.strip():
+        return None
+    try:
+        parsed = urlsplit(raw_url.strip())
+        port = parsed.port
+    except ValueError:
+        return None
+    scheme = (parsed.scheme or "").lower()
+    hostname = (parsed.hostname or "").lower()
+    if scheme not in {"http", "https"} or not hostname:
+        return None
+    effective_port = port if port is not None else (80 if scheme == "http" else 443)
+    return (scheme, hostname, effective_port)
 
 
 class UiCdpAdapter(BaseAdapter):
@@ -30,32 +47,53 @@ class UiCdpAdapter(BaseAdapter):
         self.session_timeout: int = config.get("session_timeout_seconds", 300)
         self.rate_limit_reset_hours: float = config.get("rate_limit_reset_hours", 5.0)
 
-    async def _get_websocket_url(self) -> Optional[str]:
-        """Fetch active target tab websocket debugger URL from CDP endpoint."""
+    async def _get_websocket_url(self) -> str:
+        """Fetch active target tab websocket debugger URL strictly matching target_url origin."""
+        expected_origin = _parse_cdp_origin(self.target_url)
+        if expected_origin is None:
+            self.last_error = "CDP adapter requires an explicit valid HTTP/HTTPS target_url origin"
+            raise ContractViolation("cdp_target_mismatch", self.last_error)
+
         url = f"http://127.0.0.1:{self.cdp_port}/json"
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 resp = await client.get(url)
-                if resp.status_code == 200:
-                    targets = resp.json()
-                    # Filter page targets matching target_url
-                    for target in targets:
-                        if target.get("type") == "page":
-                            page_url = target.get("url", "")
-                            if not self.target_url or self.target_url in page_url:
-                                return target.get("webSocketDebuggerUrl")
-                    # If target url not matched specifically, return first valid page
-                    for target in targets:
-                        if target.get("type") == "page" and target.get("webSocketDebuggerUrl"):
-                            return target.get("webSocketDebuggerUrl")
         except Exception as e:
             self.last_error = f"CDP connection failed on port {self.cdp_port}: {e}"
-        return None
+            raise ConnectionError(self.last_error) from e
+
+        if resp.status_code != 200:
+            self.last_error = f"CDP endpoint returned HTTP {resp.status_code} on port {self.cdp_port}"
+            raise ConnectionError(self.last_error)
+
+        try:
+            targets = resp.json()
+        except ValueError as e:
+            self.last_error = f"Invalid JSON from CDP endpoint on port {self.cdp_port}: {e}"
+            raise ConnectionError(self.last_error) from e
+
+        if isinstance(targets, list):
+            for target in targets:
+                if not isinstance(target, dict) or target.get("type") != "page":
+                    continue
+                page_url = target.get("url", "")
+                ws_url = target.get("webSocketDebuggerUrl")
+                if not isinstance(ws_url, str) or not ws_url.strip():
+                    continue
+                if _parse_cdp_origin(page_url) == expected_origin:
+                    return ws_url.strip()
+
+        scheme, host, port = expected_origin
+        self.last_error = f"No CDP browser page matched configured origin '{scheme}://{host}:{port}'"
+        raise ContractViolation("cdp_target_mismatch", self.last_error)
 
     async def is_available(self) -> bool:
-        """Check if CDP port is open and browser tab is discoverable."""
-        ws_url = await self._get_websocket_url()
-        self.is_healthy = ws_url is not None
+        """Check if CDP port is open and browser tab matching target_url origin is discoverable."""
+        try:
+            ws_url = await self._get_websocket_url()
+            self.is_healthy = bool(ws_url)
+        except (ContractViolation, ConnectionError, OSError):
+            self.is_healthy = False
         return self.is_healthy
 
     async def _send_cdp_command(

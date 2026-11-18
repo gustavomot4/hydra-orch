@@ -17,6 +17,13 @@ import time
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 import uuid
 
+from hydra_orch.bridge.agent_executable import (
+    format_windows_cmd_commandline,
+    get_windows_comspec,
+    resolve_agent_executable,
+    resolve_npm_node_script,
+    spawn_windows_cmd_subprocess,
+)
 from hydra_orch.model import (
     Artifact,
     ContractViolation,
@@ -244,6 +251,7 @@ def build_invocation(
     extra_args: Sequence[str] = (),
     resume_session: Optional[str] = None,
     custom_command: Optional[Sequence[str]] = None,
+    prefer_stdin: bool = False,
 ) -> InvocationPlan:
     """Construct a deterministic shell-free argv + stdin plan for a CLI agent driver."""
     norm_driver = (driver or "").strip().lower()
@@ -305,6 +313,26 @@ def build_invocation(
             executable=executable,
             argv=argv,
             stdin_bytes=prompt.encode("utf-8"),
+            capabilities=caps,
+        )
+
+    if prefer_stdin:
+        stdin_payload = prompt.encode("utf-8")
+        if norm_driver == "opencode":
+            argv = (executable, "run") + extra
+        elif norm_driver == "agy":
+            argv = (executable, "chat") + extra
+        elif norm_driver in {"gemini", "gemini_cli"}:
+            argv = (executable,) + extra
+        elif norm_driver == "aider":
+            argv = (executable, "--yes-always", "--no-auto-commits") + extra
+        else:
+            argv = (executable,) + extra
+        return InvocationPlan(
+            driver=norm_driver,
+            executable=executable,
+            argv=argv,
+            stdin_bytes=stdin_payload,
             capabilities=caps,
         )
 
@@ -513,7 +541,7 @@ class WorkerRunner:
         executable = _DRIVER_EXECUTABLES.get(target.lower(), target)
         if Path(executable).is_Absolute() if hasattr(Path, "is_Absolute") else Path(executable).is_absolute():
             return Path(executable).is_file()
-        return shutil.which(executable) is not None
+        return resolve_agent_executable(executable) is not None
 
     @staticmethod
     def _Filtered_env(allowed_env: Optional[Mapping[str, str]] = None) -> Dict[str, str]:
@@ -528,6 +556,7 @@ class WorkerRunner:
         extra_args: Sequence[str] = (),
         resume_session: Optional[str] = None,
         custom_command: Optional[Sequence[str]] = None,
+        prefer_stdin: bool = False,
     ) -> InvocationPlan:
         return build_invocation(
             cli_name or self.default_cli,
@@ -535,6 +564,7 @@ class WorkerRunner:
             extra_args=extra_args,
             resume_session=resume_session,
             custom_command=custom_command,
+            prefer_stdin=prefer_stdin,
         )
 
     async def cancel_process_tree(self, pid: int, *, verify_timeout: float = 3.0) -> bool:
@@ -688,49 +718,55 @@ class WorkerRunner:
             custom_command=custom_command,
         )
 
-        if custom_command is None and not self.is_cli_installed(plan.executable):
-            logger.error(f"Worker CLI '{cli}' ('{plan.executable}') not found in PATH (executor_unavailable).")
-            now_dt = datetime.now(timezone.utc)
-            failure = FailureDetail(
-                code="executor_unavailable",
-                message=f"Required CLI '{plan.executable}' is not installed or not in PATH",
-                retryable=False,
-            )
-            crashed_attempt = TaskAttempt(
-                attempt_id=resolved_attempt_id,
-                task_id=task_id,
-                run_id=run_id,
-                ordinal=ordinal,
-                executor_id=plan.capabilities.executor_id,
-                provider=provider,
-                model=model,
-                base_sha=base_sha,
-                workspace_path=str(target_dir),
-                process_status=ProcessStatus.CRASHED,
-                started_at=now_dt,
-                finished_at=now_dt,
-                exit_reason="executor_unavailable",
-            )
-            return {
-                "success": False,
-                "cli": cli,
-                "exit_code": None,
-                "output": "",
-                "stderr": "",
-                "error": "executor_unavailable",
-                "simulated": False,
-                "process_status": ProcessStatus.CRASHED.value,
-                "cwd": str(target_dir),
-                "argv": plan.argv,
-                "attempt_id": resolved_attempt_id,
-                "attempt": crashed_attempt,
-                "failure": failure,
-                "artifacts": (),
-            }
-
         env = filter_worker_env(allowed_env=allowed_env)
         if forbidden_files:
             env["HYDRA_FORBIDDEN_FILES"] = ",".join(forbidden_files)
+
+        resolved_exe: Optional[str] = None
+        if custom_command is None:
+            if Path(plan.executable).is_absolute():
+                resolved_exe = str(plan.executable) if Path(plan.executable).is_file() else None
+            else:
+                resolved_exe = await asyncio.to_thread(resolve_agent_executable, plan.executable, path=env.get("PATH"))
+            if resolved_exe is None:
+                logger.error(f"Worker CLI '{cli}' ('{plan.executable}') not found in PATH (executor_unavailable).")
+                now_dt = datetime.now(timezone.utc)
+                failure = FailureDetail(
+                    code="executor_unavailable",
+                    message=f"Required CLI '{plan.executable}' is not installed or not in PATH",
+                    retryable=False,
+                )
+                crashed_attempt = TaskAttempt(
+                    attempt_id=resolved_attempt_id,
+                    task_id=task_id,
+                    run_id=run_id,
+                    ordinal=ordinal,
+                    executor_id=plan.capabilities.executor_id,
+                    provider=provider,
+                    model=model,
+                    base_sha=base_sha,
+                    workspace_path=str(target_dir),
+                    process_status=ProcessStatus.CRASHED,
+                    started_at=now_dt,
+                    finished_at=now_dt,
+                    exit_reason="executor_unavailable",
+                )
+                return {
+                    "success": False,
+                    "cli": cli,
+                    "exit_code": None,
+                    "output": "",
+                    "stderr": "",
+                    "error": "executor_unavailable",
+                    "simulated": False,
+                    "process_status": ProcessStatus.CRASHED.value,
+                    "cwd": str(target_dir),
+                    "argv": plan.argv,
+                    "attempt_id": resolved_attempt_id,
+                    "attempt": crashed_attempt,
+                    "failure": failure,
+                    "artifacts": (),
+                }
 
         process: Optional[asyncio.subprocess.Process] = None
         active_entry: Optional[_ActiveProcessEntry] = None
@@ -742,6 +778,12 @@ class WorkerRunner:
         communication_task = None
 
         try:
+            actual_exe = resolved_exe if custom_command is None and resolved_exe is not None else plan.argv[0]
+            if os.name == "nt" and not Path(actual_exe).is_absolute():
+                found_custom = await asyncio.to_thread(resolve_agent_executable, actual_exe, path=env.get("PATH"))
+                if found_custom:
+                    actual_exe = found_custom
+
             kwargs: Dict[str, Any] = {
                 "cwd": str(target_dir),
                 "stdin": asyncio.subprocess.PIPE if plan.stdin_bytes is not None else asyncio.subprocess.DEVNULL,
@@ -754,7 +796,33 @@ class WorkerRunner:
             else:
                 kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
 
-            process = await asyncio.create_subprocess_exec(*plan.argv, **kwargs)
+            if os.name == "nt" and actual_exe.lower().endswith((".cmd", ".bat")):
+                npm_target = await asyncio.to_thread(resolve_npm_node_script, actual_exe, path=env.get("PATH"))
+                if npm_target is not None:
+                    node_exe, js_script = npm_target
+                    process = await asyncio.create_subprocess_exec(node_exe, js_script, *plan.argv[1:], **kwargs)
+                else:
+                    if custom_command is None and plan.stdin_bytes is None:
+                        plan = self.build_invocation(
+                            prompt,
+                            cli_name=cli,
+                            extra_args=extra_args,
+                            resume_session=resume_session,
+                            prefer_stdin=True,
+                        )
+                        kwargs["stdin"] = (
+                            asyncio.subprocess.PIPE if plan.stdin_bytes is not None else asyncio.subprocess.DEVNULL
+                        )
+                    comspec = get_windows_comspec(env)
+                    cmd_inner = format_windows_cmd_commandline([actual_exe, *plan.argv[1:]])
+                    process = await spawn_windows_cmd_subprocess(
+                        comspec,
+                        cmd_inner,
+                        exec_fn=asyncio.create_subprocess_exec,
+                        **kwargs,
+                    )
+            else:
+                process = await asyncio.create_subprocess_exec(actual_exe, *plan.argv[1:], **kwargs)
             dispatch_latency_ms = (time.perf_counter() - schedule_t0) * 1000.0
             active_entry = _ActiveProcessEntry(attempt_id=resolved_attempt_id, process=process)
             self._active_attempts[resolved_attempt_id] = active_entry

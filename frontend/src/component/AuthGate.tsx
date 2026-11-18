@@ -5,6 +5,39 @@ import { createControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useAuthStore } from '@/store/authStore';
 import { ControlPlaneApiError } from '@/type/controlPlane';
 
+const BOOTSTRAP_NONCE_STORAGE_KEY = 'hydra_desktop_bootstrap_nonce';
+
+function consumeBootstrapNonce(): string {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  const rawHash = window.location.hash.replace(/^#/, '');
+  if (rawHash) {
+    const params = new URLSearchParams(rawHash);
+    const fromHash = params.get('bootstrap_nonce')?.trim() ?? '';
+    if (fromHash) {
+      params.delete('bootstrap_nonce');
+      const nextHash = params.toString();
+      window.history.replaceState(
+        null,
+        '',
+        `${window.location.pathname}${window.location.search}${nextHash ? `#${nextHash}` : ''}`,
+      );
+      try {
+        window.sessionStorage.setItem(BOOTSTRAP_NONCE_STORAGE_KEY, fromHash);
+      } catch {
+        // Ignore storage quota errors and return in-memory nonce directly.
+      }
+      return fromHash;
+    }
+  }
+  try {
+    return window.sessionStorage.getItem(BOOTSTRAP_NONCE_STORAGE_KEY)?.trim() ?? '';
+  } catch {
+    return '';
+  }
+}
+
 let attemptedDesktopSession = false;
 
 export function AuthGate() {
@@ -24,12 +57,23 @@ export function AuthGate() {
   const connectDesktop = useCallback(async () => {
     setAuthenticating();
     try {
+      const nonce = consumeBootstrapNonce();
       const response = await fetch('/v1/launcher/session', {
         method: 'POST',
-        headers: { 'X-Hydra-Desktop': '1', 'Content-Type': 'application/json' },
+        headers: {
+          'X-Hydra-Desktop': '1',
+          'Content-Type': 'application/json',
+          ...(nonce ? { 'X-Hydra-Bootstrap-Nonce': nonce } : {}),
+        },
+        body: JSON.stringify(nonce ? { nonce } : {}),
       });
       if (!response.ok)
-        throw new Error('Abra o Hydra pelo executável para conectar automaticamente.');
+        throw new Error('Clique em "Abrir Hydra" na janela do executável para autenticar esta aba.');
+      try {
+        window.sessionStorage.removeItem(BOOTSTRAP_NONCE_STORAGE_KEY);
+      } catch {
+        // Ignore sessionStorage cleanup error.
+      }
       const session = (await response.json()) as { token: string };
       const bootstrap = await createControlPlaneClient(session.token).getBootstrap();
       queryClient.setQueryData(['control-plane', 'bootstrap', 'authenticated'], bootstrap);
