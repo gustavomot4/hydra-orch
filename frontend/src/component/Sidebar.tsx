@@ -162,7 +162,7 @@ export function Sidebar({ onSelectTreeNode, ...navigation }: SidebarProps) {
           data-testid="sidebar-resizer"
           onPointerDown={handleResizePointerDown}
           onKeyDown={handleResizeKeyDown}
-          className="absolute bottom-0 -right-4 top-0 z-10 hidden w-8 cursor-col-resize bg-transparent focus:outline focus:outline-2 focus:outline-[#3B82F6] md:block"
+          className="absolute bottom-0 -right-4 top-0 z-10 hidden w-8 cursor-col-resize bg-transparent focus:outline focus:outline-2 focus:outline-[var(--accent)] md:block"
         />
       ) : null}
     </aside>

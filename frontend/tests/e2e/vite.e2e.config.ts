@@ -1,5 +1,5 @@
 import path from 'node:path';
-import react from '@vitejs/plugin-react';
+import appConfig from '../../vite.config';
 import { defineConfig } from 'vite';
 
 const backendPort = process.env.HYDRA_E2E_BACKEND_PORT || '18421';
@@ -7,9 +7,10 @@ const uiPort = Number(process.env.HYDRA_E2E_UI_PORT || '15173');
 const projectRoot = path.resolve(__dirname, '../..');
 
 export default defineConfig({
+  ...appConfig,
   root: projectRoot,
   plugins: [
-    react(),
+    ...(appConfig.plugins ?? []),
     ...(process.env.HYDRA_E2E_KIT_AUTH === '1'
       ? [
           {

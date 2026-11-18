@@ -354,7 +354,7 @@ export function ConversationRoutePicker({
                 setError(null);
                 void client
                   .request<Catalog>(
-                    `/v1/control-plane/omniroute/combos?executor=${value.executor}&refresh=true`,
+                    `/v1/control-plane/omniroute/combos?executor=${value.executor}&connection_mode=${value.connection_mode}&refresh=true`,
                   )
                   .then((data) => {
                     queryClient.setQueryData(key, data);

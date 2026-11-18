@@ -24,6 +24,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 function makeSchedule(overrides: Partial<AutomationSchedule> = {}): AutomationSchedule {
   return {
     id: 'sched-1',
+    budget_policy: { max_usd: 5 },
     name: 'Auditoria noturna',
     workspace_id: 'ws-1',
     project_id: 'proj-1',
@@ -274,6 +275,7 @@ describe('Onda 15 Part A — AutomationsPage (UI10) and Capability-Gated Panels 
       if (path === '/v1/control-plane/executors') {
         return jsonResponse([
           { id: 'codex', name: 'Codex CLI', driver: 'codex', driver_type: 'codex', executable: '/bin/codex', executable_found: true, is_certified: true, status: 'ready', capabilities: [], platform: 'Linux' },
+          { id: 'driver:codex', name: 'codex', driver: 'codex', driver_type: 'codex', executable: null, executable_found: false, is_certified: false, status: 'registered_driver', capabilities: [], platform: null },
         ]);
       }
 
@@ -477,10 +479,21 @@ describe('Onda 15 Part A — AutomationsPage (UI10) and Capability-Gated Panels 
     await user.click(triggerBtn);
     expect(await within(runsPanel).findByRole('button', { name: 'Abrir run run-manual-99' })).toBeInTheDocument();
 
-    // Create Cron schedule: must send ONLY cron_expr, never interval_seconds
+    // Create Cron schedule: deduplicates executor options, enforces budget_policy, and sends ONLY cron_expr
     await user.click(screen.getByRole('button', { name: 'Nova automação' }));
+    const executorSelect = screen.getByLabelText('Executor') as HTMLSelectElement;
+    const executorOptionValues = Array.from(executorSelect.options).map((opt) => opt.value);
+    expect(executorOptionValues.filter((v) => v === 'codex')).toHaveLength(1);
+    expect(executorOptionValues).not.toContain('driver:codex');
+
     await user.type(screen.getByLabelText('Nome da automação'), 'Build diário');
     await user.type(screen.getByLabelText('Prompt da execução'), 'Rodar lint e typecheck');
+    const budgetInput = screen.getByLabelText('Orçamento máximo (USD)');
+    await user.clear(budgetInput);
+    await user.click(screen.getByRole('button', { name: 'Criar automação' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/orçamento máximo \(USD\)/i);
+
+    await user.type(budgetInput, '12.50');
     const cronInput = screen.getByRole('textbox', { name: /Expressão Cron/ });
     await user.clear(cronInput);
     await user.type(cronInput, '30 8 * * 1-5');
@@ -489,6 +502,7 @@ describe('Onda 15 Part A — AutomationsPage (UI10) and Capability-Gated Panels 
     expect(await screen.findByTestId('automation-card-sched-3')).toBeInTheDocument();
     const cronPost = capturedPosts.find((entry) => entry.path === '/v1/control-plane/automations');
     expect(cronPost?.body?.cron_expr).toBe('30 8 * * 1-5');
+    expect(cronPost?.body?.budget_policy).toEqual({ max_usd: 12.5 });
     expect(Object.keys(cronPost?.body ?? {})).not.toContain('interval_seconds');
 
     // Create Interval schedule: rejects < 60s, then accepts >= 60s sending ONLY interval_seconds
@@ -502,6 +516,7 @@ describe('Onda 15 Part A — AutomationsPage (UI10) and Capability-Gated Panels 
     await user.click(screen.getByRole('button', { name: 'Criar automação' }));
     expect(await screen.findByText(/maior ou igual a 60 segundos/i)).toBeInTheDocument();
 
+    await user.type(screen.getByLabelText('Orçamento máximo (USD)'), '5');
     await user.clear(intervalInput);
     await user.type(intervalInput, '120');
     await user.click(screen.getByRole('button', { name: 'Criar automação' }));
@@ -663,18 +678,21 @@ describe('Onda 15 Part A — AutomationsPage (UI10) and Capability-Gated Panels 
     );
 
     const panel = await screen.findByTestId('device-panel');
-    expect(within(panel).getByText('Parking Lot F06 · Capability-gated')).toBeInTheDocument();
+    expect(within(panel).getByText('Requer host certificado')).toBeInTheDocument();
     expect(await within(panel).findByText('Indisponível')).toBeInTheDocument();
-    expect(within(panel).getByText(/não possui certificação/i)).toBeInTheDocument();
-    expect(within(panel).getByText('uncertified_parking_lot_bridge')).toBeInTheDocument();
+    expect(within(panel).getByText(/não possui certificação ativa/i)).toBeInTheDocument();
+    expect(
+      within(panel).getByText('Conector de emulador móvel ainda não certificado neste host.'),
+    ).toBeInTheDocument();
+    expect(panel).not.toHaveTextContent(/Parking Lot F06/i);
+    expect(panel).not.toHaveTextContent(/uncertified_parking_lot_bridge/i);
     expect(screen.queryByTestId('device-certified-surface')).toBeNull();
     expect(container.querySelector('canvas')).toBeNull();
 
-    // Switch to certified remote host mac-lab
-    await user.selectOptions(
-      screen.getByLabelText('Selecionar host para emulador móvel'),
-      'mac-lab',
-    );
+    // Switch to certified remote host mac-lab via associated <label> without conflicting aria-label
+    const hostSelect = within(panel).getByLabelText('Host');
+    expect(hostSelect).not.toHaveAttribute('aria-label');
+    await user.selectOptions(hostSelect, 'mac-lab');
     expect(onHostChange).toHaveBeenCalledWith('mac-lab');
 
     const certifiedSurface = await screen.findByTestId('device-certified-surface');
@@ -723,17 +741,20 @@ describe('Onda 15 Part A — AutomationsPage (UI10) and Capability-Gated Panels 
     );
 
     const panel = await screen.findByTestId('computer-use-panel');
-    expect(within(panel).getByText('Parking Lot F07 · Capability-gated')).toBeInTheDocument();
+    expect(within(panel).getByText('Requer host certificado')).toBeInTheDocument();
     expect(await within(panel).findByText('Indisponível')).toBeInTheDocument();
-    expect(within(panel).getByText(/não possui certificação/i)).toBeInTheDocument();
-    expect(within(panel).getByText('uncertified_parking_lot_bridge')).toBeInTheDocument();
+    expect(within(panel).getByText(/não possui certificação ativa/i)).toBeInTheDocument();
+    expect(
+      within(panel).getByText('Executor de controle do computador ainda não certificado neste host.'),
+    ).toBeInTheDocument();
+    expect(panel).not.toHaveTextContent(/Parking Lot F07/i);
+    expect(panel).not.toHaveTextContent(/uncertified_parking_lot_bridge/i);
     expect(screen.queryByTestId('computer-use-certified-surface')).toBeNull();
     expect(container.querySelector('canvas')).toBeNull();
 
-    await user.selectOptions(
-      screen.getByLabelText('Selecionar host para controle do computador'),
-      'mac-lab',
-    );
+    const hostSelect = within(panel).getByLabelText('Host');
+    expect(hostSelect).not.toHaveAttribute('aria-label');
+    await user.selectOptions(hostSelect, 'mac-lab');
     expect(onHostChange).toHaveBeenCalledWith('mac-lab');
 
     const certifiedSurface = await screen.findByTestId('computer-use-certified-surface');

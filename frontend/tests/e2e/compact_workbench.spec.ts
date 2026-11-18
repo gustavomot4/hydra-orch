@@ -7,6 +7,7 @@ import { expect, Page, test } from '@playwright/test';
 const token = process.env.HYDRA_API_TOKEN || 'hydra-e2e-hermetic-local-token-0123456789';
 const output = '../ws/b_output/compact-workbench';
 const kit = fs.readFileSync('../.agents/skills/kit-frontend/scripts/tela.js', 'utf8');
+type KitReport = { achados: { nivel: string; id: string; exemplos: string[] }[] };
 async function login(page: Page) {
   fs.mkdirSync(output, { recursive: true });
   await page.goto('/');
@@ -16,9 +17,8 @@ async function login(page: Page) {
   }
   await expect(page.getByTestId('hydra-app-shell')).toBeVisible();
 }
-async function audit(page: Page, name: string) {
-  fs.mkdirSync(output, { recursive: true });
-  const reports: unknown[] = [];
+async function audit(page: Page, name: string, reportPath: string) {
+  const reports: { width?: number; height?: number; zoom?: number; result: KitReport }[] = [];
   for (const [width, height] of [
     [1440, 900],
     [768, 1024],
@@ -34,7 +34,7 @@ async function audit(page: Page, name: string) {
         fontesComMotivo: ['Inter é mantida porque preserva a continuidade da interface existente.'],
       };
     });
-    reports.push({ width, height, result: await page.evaluate(kit) });
+    reports.push({ width, height, result: await page.evaluate<KitReport>(kit) });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -45,7 +45,7 @@ async function audit(page: Page, name: string) {
     document.documentElement.style.fontSize = '200%';
   });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  reports.push({ zoom: 200, result: await page.evaluate(kit) });
+  reports.push({ zoom: 200, result: await page.evaluate<KitReport>(kit) });
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '';
   });
@@ -53,7 +53,12 @@ async function audit(page: Page, name: string) {
   await page.screenshot({ path: `${output}/${name}-contrast.png`, fullPage: true });
   await page.emulateMedia({ forcedColors: 'none' });
   await page.setViewportSize({ width: 1440, height: 900 });
-  fs.writeFileSync(`${output}/${name}-audit.json`, JSON.stringify(reports, null, 2));
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+  fs.writeFileSync(reportPath, JSON.stringify(reports, null, 2));
+  const failures = reports.flatMap(({ result, ...viewport }) =>
+    result.achados.filter(({ nivel }) => nivel === 'falha').map((finding) => ({ ...viewport, ...finding })),
+  );
+  expect(failures).toEqual([]);
 }
 
 test('compact preferences persist and panel dividers keep tabs intact', async ({ page }) => {
@@ -87,7 +92,7 @@ test('compact preferences persist and panel dividers keep tabs intact', async ({
 
 test('workspace picker reveals project parents and inspector resizing is persistent', async ({
   page,
-}) => {
+}, testInfo) => {
   await login(page);
   await page.goto('/agentes?execucao=run-e2e-swarm');
   await expect(page.getByTestId('agent-workspace-page')).toBeVisible();
@@ -109,12 +114,12 @@ test('workspace picker reveals project parents and inspector resizing is persist
   await expect(picker.getByRole('button', { name: 'Auditoria E2E M5 multi-agente' })).toBeVisible();
   await picker.getByRole('button', { name: 'Auditoria E2E M5 multi-agente' }).click();
   await expect(page.locator('.agent-map-stage')).toBeVisible();
-  await audit(page, 'workspace');
+  await audit(page, 'workspace', testInfo.outputPath('workspace-audit.json'));
 });
 
 test('quota model dialog bounds long lists and keyboard focus returns to its trigger', async ({
   page,
-}) => {
+}, testInfo) => {
   await login(page);
   await page.goto('/consumo');
   await expect(page.getByTestId('quota-accounts-page')).toBeVisible();
@@ -126,12 +131,12 @@ test('quota model dialog bounds long lists and keyboard focus returns to its tri
   expect(await dialog.getByRole('row').count()).toBeLessThanOrEqual(11);
   await page.keyboard.press('Escape');
   await expect(catalog).toBeFocused();
-  await audit(page, 'quota');
+  await audit(page, 'quota', testInfo.outputPath('quota-audit.json'));
 });
 
 test('new chat keeps folder fallback and keyboard history without predefined chips', async ({
   page,
-}) => {
+}, testInfo) => {
   await login(page);
   await page.getByRole('button', { name: 'Adicionar pasta', exact: true }).click();
   await expect(
@@ -143,7 +148,7 @@ test('new chat keeps folder fallback and keyboard history without predefined chi
   await page.getByRole('button', { name: 'Aparência e painéis' }).first().click();
   await page.keyboard.press('Escape');
   await expect(input).toHaveValue('Rascunho preservado');
-  await audit(page, 'new-chat');
+  await audit(page, 'new-chat', testInfo.outputPath('new-chat-audit.json'));
 });
 
 test('runs the frontend kit against the authenticated isolated fixture', async ({ baseURL }) => {
@@ -157,14 +162,23 @@ test('runs the frontend kit against the authenticated isolated fixture', async (
     `${baseURL}/`,
     `${baseURL}/agentes?execucao=run-e2e-swarm`,
     `${baseURL}/consumo`,
+    `${baseURL}/chat/run-e2e-swarm`,
+    `${baseURL}/terminal`,
+    `${baseURL}/workspace`,
+    `${baseURL}/recursos`,
+    `${baseURL}/automacoes`,
+    `${baseURL}/dispositivos`,
+    `${baseURL}/computador`,
+    `${baseURL}/busca`,
+    `${baseURL}/configuracoes`,
     '--saida',
     path.resolve(`${output}/kit`),
     '--design',
     path.resolve('../DESIGN.md'),
-    '--produto',
-    path.resolve('../PRODUTO.md'),
     '--axe',
     path.resolve('node_modules/axe-core/axe.min.js'),
+    '--esperar',
+    'h1',
   ];
   const result = await promisify(execFile)(process.execPath, args, {
     timeout: 270000,

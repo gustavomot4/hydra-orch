@@ -6,6 +6,7 @@ import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { ConversationSnapshot } from '@/feature/chat/conversationTypes';
 import { CanvasNode, parseAgentLog, statusMeta } from './canvasModel';
 import { CheckEvidence } from '@/feature/chat/CoordinationPanel';
+import { ApplyConversationChanges } from '@/feature/chat/ApplyConversationChanges';
 
 export function AgentInspector({
   node,
@@ -23,11 +24,9 @@ export function AgentInspector({
   useEffect(() => {
     // Initial coordination details must not scroll past the work list on mobile.
     // Selecting another card still brings its details into view.
-    title.current?.focus({
-      preventScroll:
-        previousNode.current === node.id ||
-        (previousNode.current === null && node.id === 'coordinator'),
-    });
+    if (previousNode.current !== null && previousNode.current !== node.id) {
+      title.current?.focus({ preventScroll: true });
+    }
     previousNode.current = node.id;
     setTab(node.role === 'validation' ? 'Verificações' : 'Conversa');
   }, [node.id, node.role]);
@@ -62,7 +61,7 @@ export function AgentInspector({
   const messages = [...node.messages, ...agentMessages];
   const state = statusMeta(node.state);
   const tools = node.role === 'coordinator' ? (chat?.tools ?? []) : [];
-  const diff = node.role === 'coordinator' ? chat?.turns.at(-1)?.diff : undefined;
+  const diff = node.role === 'coordinator' ? chat?.turns.findLast((turn) => turn.diff)?.diff : undefined;
   return (
     <aside
       className="agent-inspector"
@@ -227,6 +226,9 @@ export function AgentInspector({
               <p className="canvas-note">Nenhum arquivo alterado registrado para este card.</p>
             ) : null}
             {diff && <pre>{diff}</pre>}
+            {diff && chat?.access_mode === 'workspace-write' && !chat.turns.some((turn) => ['running', 'stopping', 'queued'].includes(turn.state)) && (
+              <ApplyConversationChanges key={chat.id} conversationId={chat.id} />
+            )}
             {node.runId && (
               <Link className="canvas-button" to={`/chat/${encodeURIComponent(node.runId)}`}>
                 Inspecionar resultado

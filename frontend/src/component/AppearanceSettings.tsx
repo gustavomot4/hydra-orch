@@ -35,6 +35,7 @@ export function AppearanceSettings() {
               aria-label={label}
               value={state[key]}
               onChange={(e) => state.setAppearance({ [key]: Number(e.target.value) })}
+              className="min-h-[24px] min-w-[24px] cursor-pointer [@media(pointer:coarse)]:min-h-[44px]"
             />
             <output>{state[key]}</output>
           </span>
@@ -71,6 +72,7 @@ export function AppearanceSettings() {
                 ? state.setSidebarCollapsed(!e.target.checked)
                 : state.setAppearance({ [key]: e.target.checked })
             }
+            className="min-h-[24px] min-w-[24px]"
           />
         </label>
       ))}

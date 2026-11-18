@@ -22,13 +22,13 @@ import {
   createAutomation,
   deleteAutomation,
   formatAutomationApiError,
+  isOptimisticLockConflict,
   listAutomationRuns,
   listAutomations,
   pauseAutomation,
   resumeAutomation,
   triggerAutomation,
   updateAutomation,
-  isOptimisticLockConflict,
 } from './automationApi';
 import {
   AUTOMATION_RUN_STATUS_META,
@@ -40,6 +40,7 @@ import {
   MissedPolicy,
   OVERLAP_POLICY_LABELS,
   OverlapPolicy,
+  buildExecutorOptions,
   createDefaultAutomationFormValues,
   formValuesFromSchedule,
   formatAutomationTimestamp,
@@ -57,6 +58,12 @@ export interface AutomationsPageProps {
 
 type StatusFilter = 'all' | 'active' | 'paused';
 type FormMode = 'closed' | 'create' | 'edit';
+
+const TOUCH_BTN =
+  'min-h-[32px] min-w-[24px] max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]';
+
+const TOUCH_FIELD =
+  'min-h-[32px] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px] focus:border-[var(--accent)] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]';
 
 export function AutomationsPage({
   onOpenRun,
@@ -85,6 +92,7 @@ export function AutomationsPage({
   const overlapSelectId = useId();
   const missedSelectId = useId();
   const retriesInputId = useId();
+  const budgetInputId = useId();
   const enabledCheckboxId = useId();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -213,26 +221,10 @@ export function AutomationsPage({
     return Array.from(ids);
   }, [hosts, formValues.targetHost]);
 
-  const executorOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const ex of executorsQuery.data ?? []) {
-      map.set(ex.id, ex.name ? `${ex.name} (${ex.id})` : ex.id);
-    }
-    if (!map.has('codex')) {
-      map.set('codex', 'codex');
-    }
-    if (!map.has('claude')) {
-      map.set('claude', 'claude');
-    }
-    if (!map.has('gemini')) {
-      map.set('gemini', 'gemini');
-    }
-    const current = formValues.executorId.trim();
-    if (current && !map.has(current)) {
-      map.set(current, current);
-    }
-    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
-  }, [executorsQuery.data, formValues.executorId]);
+  const executorOptions = useMemo(
+    () => buildExecutorOptions(executorsQuery.data, formValues.executorId),
+    [executorsQuery.data, formValues.executorId],
+  );
 
   const workspaceOptions = useMemo(() => {
     const items = workspacesQuery.data ?? [];
@@ -472,20 +464,22 @@ export function AutomationsPage({
   return (
     <div
       data-testid="automations-page"
-      className={`mx-auto flex min-h-full w-full max-w-6xl flex-col gap-5 bg-[#141414] px-4 py-6 text-[#E8E8E8] md:px-8 ${className}`}
+      className={`mx-auto flex min-h-full w-full max-w-6xl flex-col gap-5 bg-[var(--bg-main)] px-4 py-6 text-[var(--text-primary)] md:px-8 ${className}`}
     >
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[#303030] pb-4">
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border)] pb-4">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Clock aria-hidden="true" className="h-5 w-5 text-[#969696]" />
-            <h1 className="text-xl font-semibold tracking-tight text-[#E8E8E8]">Automações</h1>
+            <Clock aria-hidden="true" className="h-5 w-5 text-[var(--text-muted)]" />
+            <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)]">
+              Automações
+            </h1>
             <StatusBadge
               status={schedules.length > 0 ? 'available' : 'queued'}
-              labelOverride={`${activeCount} ativa(s) · ${pausedCount} pausada(s)`}
+              labelOverride={`${activeCount} ativa(s), ${pausedCount} pausada(s)`}
             />
           </div>
-          <p className="text-xs text-[#969696]">
-            Agendador durável com expressão cron ou intervalo, fuso horário IANA, políticas de sobreposição e histórico vinculado a runs.
+          <p className="text-xs text-[var(--text-muted)]">
+            Agende tarefas recorrentes por cron ou intervalo com fuso horário e teto de orçamento.
           </p>
         </div>
 
@@ -499,11 +493,11 @@ export function AutomationsPage({
               }
             }}
             disabled={schedulesQuery.isFetching}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#303030] bg-[#202020] px-3 py-1.5 text-xs text-[#E8E8E8] transition-colors hover:bg-[#282828] disabled:opacity-50"
+            className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50 ${TOUCH_BTN}`}
           >
             <RefreshCw
               aria-hidden="true"
-              className={`h-3.5 w-3.5 text-[#969696] ${
+              className={`h-3.5 w-3.5 text-[var(--text-muted)] ${
                 schedulesQuery.isFetching ? 'motion-safe:animate-spin' : ''
               }`}
             />
@@ -513,7 +507,7 @@ export function AutomationsPage({
           <button
             type="button"
             onClick={openCreateForm}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-3.5 py-1.5 text-xs font-medium text-[#181818] transition-colors hover:bg-white"
+            className={`inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--btn-primary-bg)] px-3.5 py-1.5 text-xs font-medium text-[var(--btn-primary-text)] transition-colors hover:bg-[var(--accent-hover)] ${TOUCH_BTN}`}
           >
             <Plus aria-hidden="true" className="h-3.5 w-3.5" />
             <span>Nova automação</span>
@@ -525,7 +519,7 @@ export function AutomationsPage({
         <div
           role="alert"
           data-testid="automation-conflict-alert"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#F59E0B]/50 bg-[#F59E0B]/10 px-4 py-3 text-xs text-[#FCD34D]"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--status-warning)] bg-[var(--bg-surface)] px-4 py-3 text-xs text-[var(--status-warning)]"
         >
           <div className="flex items-start gap-2">
             <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
@@ -536,7 +530,7 @@ export function AutomationsPage({
             onClick={() => {
               void handleReloadAfterConflict();
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#F59E0B]/50 bg-[#202020] px-3 py-1 text-xs font-medium text-[#E8E8E8] hover:bg-[#282828]"
+            className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--status-warning)] bg-[var(--bg-main)] px-3 py-1 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)] ${TOUCH_BTN}`}
           >
             <RefreshCw aria-hidden="true" className="h-3 w-3" />
             <span>Recarregar automações</span>
@@ -548,7 +542,7 @@ export function AutomationsPage({
         <div
           role="alert"
           data-testid="automation-error-alert"
-          className="rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 px-4 py-2.5 text-xs text-[#FCA5A5]"
+          className="rounded-xl border border-[var(--status-error)] bg-[var(--bg-surface)] px-4 py-2.5 text-xs text-[var(--status-error)]"
         >
           {actionError}
         </div>
@@ -558,7 +552,7 @@ export function AutomationsPage({
         <div
           role="status"
           data-testid="automation-status-banner"
-          className="rounded-xl border border-[#22C55E]/40 bg-[#22C55E]/10 px-4 py-2.5 text-xs text-[#4ADE80]"
+          className="rounded-xl border border-[var(--status-success)] bg-[var(--bg-surface)] px-4 py-2.5 text-xs text-[var(--status-success)]"
         >
           {statusNotice}
         </div>
@@ -567,15 +561,18 @@ export function AutomationsPage({
       {schedulesQuery.isError ? (
         <div
           role="alert"
-          className="rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 px-4 py-3 text-xs text-[#FCA5A5]"
+          className="rounded-xl border border-[var(--status-error)] bg-[var(--bg-surface)] px-4 py-3 text-xs text-[var(--status-error)]"
         >
-          {formatAutomationApiError(schedulesQuery.error, 'Não foi possível carregar as automações.')}
+          {formatAutomationApiError(
+            schedulesQuery.error,
+            'Não foi possível carregar as automações.',
+          )}
         </div>
       ) : null}
 
       <section
         aria-label="Filtros de automações"
-        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#303030] bg-[#1C1C1C] p-3"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-sidebar)] p-3"
       >
         <div className="relative min-w-[220px] flex-1">
           <label htmlFor={searchInputId} className="sr-only">
@@ -583,7 +580,7 @@ export function AutomationsPage({
           </label>
           <Search
             aria-hidden="true"
-            className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#969696]"
+            className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]"
           />
           <input
             id={searchInputId}
@@ -591,19 +588,19 @@ export function AutomationsPage({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar por nome, prompt, fuso, host ou executor..."
-            className="w-full rounded-lg border border-[#303030] bg-[#141414] py-1.5 pl-8 pr-3 text-xs text-[#E8E8E8] placeholder:text-[#969696] focus:border-[#3B82F6] focus:outline-none"
+            className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] py-1.5 pl-8 pr-3 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] ${TOUCH_FIELD}`}
           />
         </div>
 
         <div className="flex items-center gap-2">
-          <label htmlFor={statusFilterId} className="text-xs text-[#969696]">
+          <label htmlFor={statusFilterId} className="text-xs text-[var(--text-muted)]">
             Estado:
           </label>
           <select
             id={statusFilterId}
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            className="rounded-lg border border-[#303030] bg-[#202020] px-2.5 py-1.5 text-xs text-[#E8E8E8]"
+            className={`rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
           >
             <option value="all">Todas ({schedules.length})</option>
             <option value="active">Ativas ({activeCount})</option>
@@ -615,11 +612,11 @@ export function AutomationsPage({
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <section aria-label="Lista de automações" className="space-y-3">
           {schedulesQuery.isLoading ? (
-            <div className="rounded-xl border border-[#303030] bg-[#202020] p-6 text-xs text-[#969696]">
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-6 text-xs text-[var(--text-muted)]">
               Carregando automações agendadas...
             </div>
           ) : filteredSchedules.length === 0 ? (
-            <div className="rounded-xl border border-[#303030] bg-[#202020] p-6 text-center text-xs text-[#969696]">
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-6 text-center text-xs text-[var(--text-muted)]">
               {schedules.length === 0
                 ? 'Nenhuma automação cadastrada ainda. Clique em "Nova automação" para criar a primeira.'
                 : 'Nenhuma automação corresponde aos filtros atuais.'}
@@ -633,6 +630,7 @@ export function AutomationsPage({
                 triggerMutation.isPending && triggerMutation.variables === schedule.id;
               const isDeleting =
                 deleteMutation.isPending && deleteMutation.variables === schedule.id;
+              const budgetUsd = schedule.budget_policy?.max_usd;
 
               return (
                 <article
@@ -640,8 +638,8 @@ export function AutomationsPage({
                   data-testid={`automation-card-${schedule.id}`}
                   className={`rounded-xl border p-4 transition-colors ${
                     isSelected
-                      ? 'border-[#3B82F6]/60 bg-[#202020]'
-                      : 'border-[#303030] bg-[#202020]/90 hover:border-[#454545]'
+                      ? 'border-[var(--accent)] bg-[var(--bg-surface)]'
+                      : 'border-[var(--border)] bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)]'
                   }`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
@@ -651,7 +649,7 @@ export function AutomationsPage({
                           type="button"
                           onClick={() => setSelectedScheduleId(schedule.id)}
                           aria-pressed={isSelected}
-                          className="text-left text-sm font-semibold text-[#E8E8E8] hover:underline"
+                          className={`inline-flex items-center rounded text-left text-sm font-semibold text-[var(--text-primary)] hover:underline ${TOUCH_BTN}`}
                         >
                           {schedule.name}
                         </button>
@@ -660,29 +658,33 @@ export function AutomationsPage({
                           labelOverride={schedule.enabled ? 'Ativa' : 'Pausada'}
                           compact
                         />
-                        <span className="rounded border border-[#303030] bg-[#141414] px-1.5 py-0.5 font-mono text-[11px] text-[#969696]">
+                        <span className="rounded border border-[var(--border)] bg-[var(--bg-main)] px-1.5 py-0.5 text-xs tabular-nums text-[var(--text-muted)]">
                           rev. {schedule.revision}
                         </span>
                       </div>
 
-                      <p className="line-clamp-2 text-xs text-[#969696]">{schedule.prompt}</p>
+                      <p className="line-clamp-2 text-xs text-[var(--text-muted)]">
+                        {schedule.prompt}
+                      </p>
                     </div>
                   </div>
 
-                  <dl className="mt-3 grid grid-cols-1 gap-2 rounded-lg border border-[#303030] bg-[#141414] p-3 text-[11px] sm:grid-cols-2">
+                  <dl className="mt-3 grid grid-cols-1 gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-main)] p-3 text-xs sm:grid-cols-2">
                     <div>
-                      <dt className="text-[#969696]">Agenda</dt>
-                      <dd className="mt-0.5 font-mono text-[#E8E8E8]">
+                      <dt className="text-[var(--text-muted)]">Agenda</dt>
+                      <dd className="mt-0.5 tabular-nums text-[var(--text-primary)]">
                         {formatScheduleTiming(schedule)}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-[#969696]">Fuso horário (IANA)</dt>
-                      <dd className="mt-0.5 font-mono text-[#E8E8E8]">{schedule.timezone}</dd>
+                      <dt className="text-[var(--text-muted)]">Fuso horário (IANA)</dt>
+                      <dd className="mt-0.5 text-[var(--text-primary)]">
+                        <code className="font-mono">{schedule.timezone}</code>
+                      </dd>
                     </div>
                     <div>
-                      <dt className="text-[#969696]">Próxima execução</dt>
-                      <dd className="mt-0.5 font-mono text-[#E8E8E8]">
+                      <dt className="text-[var(--text-muted)]">Próxima execução</dt>
+                      <dd className="mt-0.5 tabular-nums text-[var(--text-primary)]">
                         {formatAutomationTimestamp(
                           schedule.next_run_at,
                           schedule.enabled ? 'Não agendada' : 'Pausada',
@@ -690,22 +692,25 @@ export function AutomationsPage({
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-[#969696]">Última execução</dt>
-                      <dd className="mt-0.5 font-mono text-[#E8E8E8]">
+                      <dt className="text-[var(--text-muted)]">Última execução</dt>
+                      <dd className="mt-0.5 tabular-nums text-[var(--text-primary)]">
                         {formatAutomationTimestamp(schedule.last_run_at, 'Nunca executada')}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-[#969696]">Host / Executor</dt>
-                      <dd className="mt-0.5 font-mono text-[#E8E8E8]">
-                        {schedule.target_host} · {schedule.executor_id}
+                      <dt className="text-[var(--text-muted)]">Host / Executor</dt>
+                      <dd className="mt-0.5 text-[var(--text-primary)]">
+                        {schedule.target_host} / {schedule.executor_id}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-[#969696]">Políticas</dt>
-                      <dd className="mt-0.5 font-mono text-[#E8E8E8]">
-                        {schedule.overlap_policy} / {schedule.missed_policy} · retries{' '}
+                      <dt className="text-[var(--text-muted)]">Políticas e orçamento</dt>
+                      <dd className="mt-0.5 tabular-nums text-[var(--text-primary)]">
+                        {schedule.overlap_policy} / {schedule.missed_policy}, retentativas{' '}
                         {schedule.max_retries}
+                        {typeof budgetUsd === 'number' && Number.isFinite(budgetUsd)
+                          ? `, teto US$ ${budgetUsd.toFixed(2)}`
+                          : ''}
                       </dd>
                     </div>
                   </dl>
@@ -719,16 +724,22 @@ export function AutomationsPage({
                         }
                         disabled={isToggling}
                         onClick={() => toggleStateMutation.mutate(schedule)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-[#303030] bg-[#181818] px-2.5 py-1 text-xs text-[#E8E8E8] hover:bg-[#282828] disabled:opacity-50"
+                        className={`inline-flex items-center justify-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)] px-2.5 py-1 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 ${TOUCH_BTN}`}
                       >
                         {schedule.enabled ? (
                           <>
-                            <Pause aria-hidden="true" className="h-3 w-3 text-[#FCD34D]" />
+                            <Pause
+                              aria-hidden="true"
+                              className="h-3 w-3 text-[var(--status-warning)]"
+                            />
                             <span>Pausar</span>
                           </>
                         ) : (
                           <>
-                            <Play aria-hidden="true" className="h-3 w-3 text-[#4ADE80]" />
+                            <Play
+                              aria-hidden="true"
+                              className="h-3 w-3 text-[var(--status-success)]"
+                            />
                             <span>Retomar</span>
                           </>
                         )}
@@ -739,9 +750,9 @@ export function AutomationsPage({
                         aria-label={`Executar agora ${schedule.name}`}
                         disabled={isTriggering}
                         onClick={() => triggerMutation.mutate(schedule.id)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-[#303030] bg-[#181818] px-2.5 py-1 text-xs text-[#E8E8E8] hover:bg-[#282828] disabled:opacity-50"
+                        className={`inline-flex items-center justify-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)] px-2.5 py-1 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 ${TOUCH_BTN}`}
                       >
-                        <Play aria-hidden="true" className="h-3 w-3 text-[#93C5FD]" />
+                        <Play aria-hidden="true" className="h-3 w-3 text-[var(--status-info)]" />
                         <span>Executar agora</span>
                       </button>
 
@@ -749,27 +760,27 @@ export function AutomationsPage({
                         type="button"
                         aria-label={`Editar ${schedule.name}`}
                         onClick={() => openEditForm(schedule)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-[#303030] bg-[#181818] px-2.5 py-1 text-xs text-[#E8E8E8] hover:bg-[#282828]"
+                        className={`inline-flex items-center justify-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)] px-2.5 py-1 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] ${TOUCH_BTN}`}
                       >
-                        <Pencil aria-hidden="true" className="h-3 w-3 text-[#969696]" />
+                        <Pencil aria-hidden="true" className="h-3 w-3 text-[var(--text-muted)]" />
                         <span>Editar</span>
                       </button>
                     </div>
 
                     {confirmDeleteId === schedule.id ? (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"
                           disabled={isDeleting}
                           onClick={() => deleteMutation.mutate(schedule.id)}
-                          className="rounded-lg border border-[#EF4444]/50 bg-[#EF4444]/20 px-2.5 py-1 text-xs font-medium text-[#FCA5A5] hover:bg-[#EF4444]/30 disabled:opacity-50"
+                          className={`rounded-lg border border-[var(--status-error)] bg-[var(--bg-main)] px-2.5 py-1 text-xs font-medium text-[var(--status-error)] hover:bg-[var(--bg-hover)] disabled:opacity-50 ${TOUCH_BTN}`}
                         >
                           Confirmar exclusão
                         </button>
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteId(null)}
-                          className="rounded-lg border border-[#303030] bg-[#181818] px-2.5 py-1 text-xs text-[#969696] hover:text-[#E8E8E8]"
+                          className={`rounded-lg border border-[var(--border)] bg-[var(--bg-rail)] px-2.5 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] ${TOUCH_BTN}`}
                         >
                           Cancelar
                         </button>
@@ -779,7 +790,7 @@ export function AutomationsPage({
                         type="button"
                         aria-label={`Excluir ${schedule.name}`}
                         onClick={() => setConfirmDeleteId(schedule.id)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-[#303030] bg-[#181818] px-2.5 py-1 text-xs text-[#969696] hover:border-[#EF4444]/40 hover:text-[#FCA5A5]"
+                        className={`inline-flex items-center justify-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)] px-2.5 py-1 text-xs text-[var(--text-muted)] hover:border-[var(--status-error)] hover:text-[var(--status-error)] ${TOUCH_BTN}`}
                       >
                         <Trash2 aria-hidden="true" className="h-3 w-3" />
                         <span>Excluir</span>
@@ -797,10 +808,10 @@ export function AutomationsPage({
             <section
               aria-label={formMode === 'create' ? 'Criar automação' : 'Editar automação'}
               data-testid="automation-form-panel"
-              className="rounded-xl border border-[#303030] bg-[#202020] p-4"
+              className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4"
             >
-              <div className="mb-3 flex items-center justify-between gap-2 border-b border-[#303030] pb-2.5">
-                <h2 className="text-sm font-semibold text-[#E8E8E8]">
+              <div className="mb-3 flex items-center justify-between gap-2 border-b border-[var(--border)] pb-2.5">
+                <h2 className="text-sm font-semibold text-[var(--text-primary)]">
                   {formMode === 'create'
                     ? 'Nova automação'
                     : `Editar automação (rev. ${editingRevision ?? '?'})`}
@@ -808,7 +819,7 @@ export function AutomationsPage({
                 <button
                   type="button"
                   onClick={closeForm}
-                  className="text-xs text-[#969696] hover:text-[#E8E8E8]"
+                  className={`rounded-md px-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] ${TOUCH_BTN}`}
                 >
                   Fechar
                 </button>
@@ -817,7 +828,7 @@ export function AutomationsPage({
               {formValidationError ? (
                 <div
                   role="alert"
-                  className="mb-3 rounded-lg border border-[#EF4444]/40 bg-[#EF4444]/10 px-3 py-2 text-xs text-[#FCA5A5]"
+                  className="mb-3 rounded-lg border border-[var(--status-error)] bg-[var(--bg-main)] px-3 py-2 text-xs text-[var(--status-error)]"
                 >
                   {formValidationError}
                 </div>
@@ -825,7 +836,7 @@ export function AutomationsPage({
 
               <form noValidate onSubmit={handleSubmitForm} className="space-y-3 text-xs">
                 <div>
-                  <label htmlFor={nameInputId} className="mb-1 block text-[#969696]">
+                  <label htmlFor={nameInputId} className="mb-1 block text-[var(--text-muted)]">
                     Nome da automação
                   </label>
                   <input
@@ -835,12 +846,12 @@ export function AutomationsPage({
                     value={formValues.name}
                     onChange={(e) => setFormValues((prev) => ({ ...prev, name: e.target.value }))}
                     placeholder="ex.: Auditoria noturna de testes"
-                    className="w-full rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 text-xs text-[#E8E8E8] focus:border-[#3B82F6] focus:outline-none"
+                    className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
                   />
                 </div>
 
                 <div>
-                  <label htmlFor={promptInputId} className="mb-1 block text-[#969696]">
+                  <label htmlFor={promptInputId} className="mb-1 block text-[var(--text-muted)]">
                     Prompt da execução
                   </label>
                   <textarea
@@ -850,16 +861,16 @@ export function AutomationsPage({
                     value={formValues.prompt}
                     onChange={(e) => setFormValues((prev) => ({ ...prev, prompt: e.target.value }))}
                     placeholder="Descreva a tarefa a ser despachada em cada ocorrência..."
-                    className="w-full rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 text-xs text-[#E8E8E8] focus:border-[#3B82F6] focus:outline-none"
+                    className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
                   />
                 </div>
 
-                <fieldset className="space-y-2 rounded-lg border border-[#303030] bg-[#181818] p-3">
-                  <legend className="px-1 text-[11px] font-medium text-[#969696]">
+                <fieldset className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)] p-3">
+                  <legend className="px-1 text-xs font-medium text-[var(--text-muted)]">
                     Modo de agendamento (exclusivo)
                   </legend>
                   <div className="flex flex-wrap gap-4">
-                    <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-[#E8E8E8]">
+                    <label className="inline-flex min-h-[32px] cursor-pointer items-center gap-1.5 text-xs text-[var(--text-primary)] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]">
                       <input
                         type="radio"
                         name="automation-schedule-mode"
@@ -871,7 +882,7 @@ export function AutomationsPage({
                       />
                       <span>Expressão Cron</span>
                     </label>
-                    <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-[#E8E8E8]">
+                    <label className="inline-flex min-h-[32px] cursor-pointer items-center gap-1.5 text-xs text-[var(--text-primary)] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]">
                       <input
                         type="radio"
                         name="automation-schedule-mode"
@@ -887,7 +898,7 @@ export function AutomationsPage({
 
                   {formValues.scheduleMode === 'cron' ? (
                     <div>
-                      <label htmlFor={cronInputId} className="mb-1 block text-[#969696]">
+                      <label htmlFor={cronInputId} className="mb-1 block text-[var(--text-muted)]">
                         Expressão Cron (5 campos ou @atalho)
                       </label>
                       <input
@@ -898,12 +909,15 @@ export function AutomationsPage({
                           setFormValues((prev) => ({ ...prev, cronExpr: e.target.value }))
                         }
                         placeholder="0 * * * *"
-                        className="w-full rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 font-mono text-xs text-[#E8E8E8]"
+                        className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 font-mono text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
                       />
                     </div>
                   ) : (
                     <div>
-                      <label htmlFor={intervalInputId} className="mb-1 block text-[#969696]">
+                      <label
+                        htmlFor={intervalInputId}
+                        className="mb-1 block text-[var(--text-muted)]"
+                      >
                         Intervalo em segundos (mínimo 60)
                       </label>
                       <input
@@ -915,7 +929,7 @@ export function AutomationsPage({
                         onChange={(e) =>
                           setFormValues((prev) => ({ ...prev, intervalSeconds: e.target.value }))
                         }
-                        className="w-full rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 font-mono text-xs text-[#E8E8E8]"
+                        className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 tabular-nums text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
                       />
                     </div>
                   )}
@@ -923,7 +937,10 @@ export function AutomationsPage({
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <label htmlFor={timezoneInputId} className="mb-1 block text-[#969696]">
+                    <label
+                      htmlFor={timezoneInputId}
+                      className="mb-1 block text-[var(--text-muted)]"
+                    >
                       Fuso horário (IANA)
                     </label>
                     <input
@@ -935,7 +952,7 @@ export function AutomationsPage({
                         setFormValues((prev) => ({ ...prev, timezone: e.target.value }))
                       }
                       placeholder="America/Sao_Paulo"
-                      className="w-full rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 font-mono text-xs text-[#E8E8E8]"
+                      className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
                     />
                     <datalist id={timezoneListId}>
                       {COMMON_IANA_TIMEZONES.map((tz) => (
@@ -945,7 +962,26 @@ export function AutomationsPage({
                   </div>
 
                   <div>
-                    <label htmlFor={retriesInputId} className="mb-1 block text-[#969696]">
+                    <label htmlFor={budgetInputId} className="mb-1 block text-[var(--text-muted)]">
+                      Orçamento máximo (USD)
+                    </label>
+                    <input
+                      id={budgetInputId}
+                      type="number"
+                      min={0.01}
+                      step="0.01"
+                      required={formValues.enabled}
+                      value={formValues.maxBudgetUsd}
+                      onChange={(e) =>
+                        setFormValues((prev) => ({ ...prev, maxBudgetUsd: e.target.value }))
+                      }
+                      placeholder="5.00"
+                      className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 tabular-nums text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor={retriesInputId} className="mb-1 block text-[var(--text-muted)]">
                       Retentativas extras (0–5)
                     </label>
                     <input
@@ -958,12 +994,12 @@ export function AutomationsPage({
                       onChange={(e) =>
                         setFormValues((prev) => ({ ...prev, maxRetries: e.target.value }))
                       }
-                      className="w-full rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 font-mono text-xs text-[#E8E8E8]"
+                      className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 tabular-nums text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
                     />
                   </div>
 
                   <div>
-                    <label htmlFor={hostSelectId} className="mb-1 block text-[#969696]">
+                    <label htmlFor={hostSelectId} className="mb-1 block text-[var(--text-muted)]">
                       Host alvo
                     </label>
                     <select
@@ -972,7 +1008,7 @@ export function AutomationsPage({
                       onChange={(e) =>
                         setFormValues((prev) => ({ ...prev, targetHost: e.target.value }))
                       }
-                      className="w-full rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 font-mono text-xs text-[#E8E8E8]"
+                      className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
                     >
                       {hostOptions.map((id) => (
                         <option key={id} value={id}>
@@ -983,7 +1019,10 @@ export function AutomationsPage({
                   </div>
 
                   <div>
-                    <label htmlFor={executorSelectId} className="mb-1 block text-[#969696]">
+                    <label
+                      htmlFor={executorSelectId}
+                      className="mb-1 block text-[var(--text-muted)]"
+                    >
                       Executor
                     </label>
                     <select
@@ -992,7 +1031,7 @@ export function AutomationsPage({
                       onChange={(e) =>
                         setFormValues((prev) => ({ ...prev, executorId: e.target.value }))
                       }
-                      className="w-full rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 font-mono text-xs text-[#E8E8E8]"
+                      className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
                     >
                       {executorOptions.map((ex) => (
                         <option key={ex.id} value={ex.id}>
@@ -1003,7 +1042,10 @@ export function AutomationsPage({
                   </div>
 
                   <div>
-                    <label htmlFor={workspaceSelectId} className="mb-1 block text-[#969696]">
+                    <label
+                      htmlFor={workspaceSelectId}
+                      className="mb-1 block text-[var(--text-muted)]"
+                    >
                       Workspace (opcional)
                     </label>
                     <select
@@ -1012,7 +1054,7 @@ export function AutomationsPage({
                       onChange={(e) =>
                         setFormValues((prev) => ({ ...prev, workspaceId: e.target.value }))
                       }
-                      className="w-full rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 text-xs text-[#E8E8E8]"
+                      className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
                     >
                       <option value="">Nenhum</option>
                       {workspaceOptions.map((ws) => (
@@ -1024,7 +1066,10 @@ export function AutomationsPage({
                   </div>
 
                   <div>
-                    <label htmlFor={projectSelectId} className="mb-1 block text-[#969696]">
+                    <label
+                      htmlFor={projectSelectId}
+                      className="mb-1 block text-[var(--text-muted)]"
+                    >
                       Projeto (opcional)
                     </label>
                     <select
@@ -1033,7 +1078,7 @@ export function AutomationsPage({
                       onChange={(e) =>
                         setFormValues((prev) => ({ ...prev, projectId: e.target.value }))
                       }
-                      className="w-full rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 text-xs text-[#E8E8E8]"
+                      className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
                     >
                       <option value="">Nenhum</option>
                       {projectOptions.map((proj) => (
@@ -1045,7 +1090,10 @@ export function AutomationsPage({
                   </div>
 
                   <div>
-                    <label htmlFor={overlapSelectId} className="mb-1 block text-[#969696]">
+                    <label
+                      htmlFor={overlapSelectId}
+                      className="mb-1 block text-[var(--text-muted)]"
+                    >
                       Política de sobreposição
                     </label>
                     <select
@@ -1057,7 +1105,7 @@ export function AutomationsPage({
                           overlapPolicy: e.target.value as OverlapPolicy,
                         }))
                       }
-                      className="w-full rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 text-xs text-[#E8E8E8]"
+                      className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
                     >
                       {(Object.keys(OVERLAP_POLICY_LABELS) as OverlapPolicy[]).map((policy) => (
                         <option key={policy} value={policy}>
@@ -1068,7 +1116,7 @@ export function AutomationsPage({
                   </div>
 
                   <div>
-                    <label htmlFor={missedSelectId} className="mb-1 block text-[#969696]">
+                    <label htmlFor={missedSelectId} className="mb-1 block text-[var(--text-muted)]">
                       Ocorrência perdida
                     </label>
                     <select
@@ -1080,7 +1128,7 @@ export function AutomationsPage({
                           missedPolicy: e.target.value as MissedPolicy,
                         }))
                       }
-                      className="w-full rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 text-xs text-[#E8E8E8]"
+                      className={`w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 text-xs text-[var(--text-primary)] ${TOUCH_FIELD}`}
                     >
                       {(Object.keys(MISSED_POLICY_LABELS) as MissedPolicy[]).map((policy) => (
                         <option key={policy} value={policy}>
@@ -1093,7 +1141,7 @@ export function AutomationsPage({
 
                 <label
                   htmlFor={enabledCheckboxId}
-                  className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#E8E8E8]"
+                  className="inline-flex min-h-[32px] cursor-pointer items-center gap-2 text-xs text-[var(--text-primary)] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
                 >
                   <input
                     id={enabledCheckboxId}
@@ -1110,14 +1158,14 @@ export function AutomationsPage({
                   <button
                     type="button"
                     onClick={closeForm}
-                    className="rounded-lg border border-[#303030] bg-[#181818] px-3 py-1.5 text-xs text-[#E8E8E8] hover:bg-[#282828]"
+                    className={`rounded-lg border border-[var(--border)] bg-[var(--bg-rail)] px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] ${TOUCH_BTN}`}
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
                     disabled={isFormSubmitting}
-                    className="rounded-lg bg-[#E8E8E8] px-3.5 py-1.5 text-xs font-medium text-[#181818] hover:bg-white disabled:opacity-50"
+                    className={`rounded-lg bg-[var(--btn-primary-bg)] px-3.5 py-1.5 text-xs font-medium text-[var(--btn-primary-text)] hover:bg-[var(--accent-hover)] disabled:opacity-50 ${TOUCH_BTN}`}
                   >
                     {formMode === 'create' ? 'Criar automação' : 'Salvar alterações'}
                   </button>
@@ -1129,12 +1177,14 @@ export function AutomationsPage({
           <section
             aria-label="Histórico de execuções"
             data-testid="automation-runs-panel"
-            className="rounded-xl border border-[#303030] bg-[#202020] p-4"
+            className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4"
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#303030] pb-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2.5">
               <div>
-                <h2 className="text-sm font-semibold text-[#E8E8E8]">Histórico de execuções</h2>
-                <p className="text-[11px] text-[#969696]">
+                <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+                  Histórico de execuções
+                </h2>
+                <p className="text-xs text-[var(--text-muted)]">
                   {selectedSchedule
                     ? `Agenda selecionada: ${selectedSchedule.name}`
                     : 'Selecione uma automação para inspecionar ocorrências.'}
@@ -1147,11 +1197,11 @@ export function AutomationsPage({
                     void runsQuery.refetch();
                   }}
                   disabled={runsQuery.isFetching}
-                  className="inline-flex items-center gap-1 rounded-lg border border-[#303030] bg-[#181818] px-2.5 py-1 text-[11px] text-[#E8E8E8] hover:bg-[#282828] disabled:opacity-50"
+                  className={`inline-flex items-center justify-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)] px-2.5 py-1 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 ${TOUCH_BTN}`}
                 >
                   <RefreshCw
                     aria-hidden="true"
-                    className={`h-3 w-3 text-[#969696] ${
+                    className={`h-3 w-3 text-[var(--text-muted)] ${
                       runsQuery.isFetching ? 'motion-safe:animate-spin' : ''
                     }`}
                   />
@@ -1161,15 +1211,17 @@ export function AutomationsPage({
             </div>
 
             {!selectedSchedule ? (
-              <p className="mt-3 text-xs text-[#969696]">
+              <p className="mt-3 text-xs text-[var(--text-muted)]">
                 Nenhuma automação selecionada.
               </p>
             ) : runsQuery.isLoading ? (
-              <p className="mt-3 text-xs text-[#969696]">Carregando histórico de ocorrências...</p>
+              <p className="mt-3 text-xs text-[var(--text-muted)]">
+                Carregando histórico de ocorrências...
+              </p>
             ) : runsQuery.isError ? (
               <div
                 role="alert"
-                className="mt-3 rounded-lg border border-[#EF4444]/40 bg-[#EF4444]/10 px-3 py-2 text-xs text-[#FCA5A5]"
+                className="mt-3 rounded-lg border border-[var(--status-error)] bg-[var(--bg-main)] px-3 py-2 text-xs text-[var(--status-error)]"
               >
                 {formatAutomationApiError(
                   runsQuery.error,
@@ -1177,7 +1229,7 @@ export function AutomationsPage({
                 )}
               </div>
             ) : !runsQuery.data || runsQuery.data.length === 0 ? (
-              <p className="mt-3 text-xs text-[#969696]">
+              <p className="mt-3 text-xs text-[var(--text-muted)]">
                 Nenhuma ocorrência registrada para esta automação até o momento.
               </p>
             ) : (
@@ -1192,7 +1244,7 @@ export function AutomationsPage({
                     <li
                       key={record.id}
                       data-testid={`automation-run-${record.id}`}
-                      className="rounded-lg border border-[#303030] bg-[#141414] p-3 text-xs"
+                      className="rounded-lg border border-[var(--border)] bg-[var(--bg-main)] p-3 text-xs"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <StatusBadge
@@ -1200,24 +1252,26 @@ export function AutomationsPage({
                           labelOverride={statusMeta.label}
                           compact
                         />
-                        <span className="font-mono text-[11px] text-[#969696]">
+                        <span className="tabular-nums text-xs text-[var(--text-muted)]">
                           Tentativas: {record.attempt_count}
                         </span>
                       </div>
 
-                      <dl className="mt-2 grid grid-cols-1 gap-1.5 text-[11px] sm:grid-cols-2">
+                      <dl className="mt-2 grid grid-cols-1 gap-1.5 text-xs sm:grid-cols-2">
                         <div>
-                          <dt className="text-[#969696]">Agendada para</dt>
-                          <dd className="font-mono text-[#E8E8E8]">
+                          <dt className="text-[var(--text-muted)]">Agendada para</dt>
+                          <dd className="tabular-nums text-[var(--text-primary)]">
                             <time dateTime={record.scheduled_for}>
                               {formatAutomationTimestamp(record.scheduled_for)}
                             </time>
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-[#969696]">Chave de ocorrência</dt>
-                          <dd className="truncate font-mono text-[#E8E8E8]" title={record.occurrence_key}>
-                            {record.occurrence_key}
+                          <dt className="text-[var(--text-muted)]">Chave de ocorrência</dt>
+                          <dd className="truncate text-[var(--text-primary)]">
+                            <code className="font-mono" title={record.occurrence_key}>
+                              {record.occurrence_key}
+                            </code>
                           </dd>
                         </div>
                       </dl>
@@ -1225,14 +1279,14 @@ export function AutomationsPage({
                       {record.error_detail ? (
                         <div
                           role="note"
-                          className="mt-2 rounded border border-[#EF4444]/40 bg-[#EF4444]/10 px-2.5 py-1.5 text-[11px] text-[#FCA5A5]"
+                          className="mt-2 rounded border border-[var(--status-error)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--status-error)]"
                         >
                           {record.error_detail}
                         </div>
                       ) : null}
 
                       <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
-                        <span className="font-mono text-[11px] text-[#969696]">
+                        <span className="tabular-nums text-xs text-[var(--text-muted)]">
                           {record.finished_at
                             ? `Finalizada: ${formatAutomationTimestamp(record.finished_at)}`
                             : `Despachada: ${formatAutomationTimestamp(record.dispatched_at)}`}
@@ -1242,13 +1296,15 @@ export function AutomationsPage({
                           <button
                             type="button"
                             onClick={() => onOpenRun?.(linkedRunId)}
-                            className="inline-flex items-center gap-1 rounded-md border border-[#3B82F6]/40 bg-[#3B82F6]/10 px-2.5 py-1 text-[11px] font-medium text-[#93C5FD] hover:bg-[#3B82F6]/20"
+                            className={`inline-flex items-center justify-center gap-1 rounded-md border border-[var(--status-info)] bg-[var(--bg-surface)] px-2.5 py-1 text-xs font-medium text-[var(--status-info)] hover:bg-[var(--bg-hover)] ${TOUCH_BTN}`}
                           >
                             <ExternalLink aria-hidden="true" className="h-3 w-3" />
                             <span>{`Abrir run ${linkedRunId}`}</span>
                           </button>
                         ) : (
-                          <span className="text-[11px] text-[#969696]">Sem run vinculado</span>
+                          <span className="text-xs text-[var(--text-muted)]">
+                            Sem run vinculado
+                          </span>
                         )}
                       </div>
                     </li>

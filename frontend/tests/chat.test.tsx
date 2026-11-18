@@ -258,7 +258,7 @@ describe('ChatTimeline SSE, Coordinator, Workers and HITL Inline (T33)', () => {
     expect(mockFetch.mock.calls.every((c) => !c[1]?.method || c[1].method === 'GET')).toBe(true);
   });
 
-  it('renders Coordinator + Swarm Wave 0/1 Workers, Worked for Xs, collapsible traces, check invariant, single-submit HITL and task retry', async () => {
+  it('renders Coordinator + Swarm Wave 0/1 Workers, Trabalhou por Xs, collapsible traces, check invariant, single-submit HITL and task retry', async () => {
     const user = userEvent.setup();
     useAuthStore.getState().authenticate('hydra-valid-token', 'operator');
 
@@ -376,18 +376,18 @@ describe('ChatTimeline SSE, Coordinator, Workers and HITL Inline (T33)', () => {
 
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <ChatTimelinePage runId="run-1" fetchImpl={fetchMock as unknown as typeof fetch} />
         </MemoryRouter>
       </QueryClientProvider>,
     );
 
-    // Wait for workers Wave 0 and Wave 1 + duration badge "Worked for 14s"
+    // Wait for workers Wave 0 and Wave 1 + duration badge "Trabalhou por 14s"
     expect(await screen.findByTestId('worker-card-task-wave0')).toBeInTheDocument();
     expect(screen.getByTestId('worker-card-task-wave1')).toBeInTheDocument();
     expect(screen.getByTestId('worker-wave-group-0')).toHaveTextContent('Swarm Wave 0');
     expect(screen.getByTestId('worker-wave-group-1')).toHaveTextContent('Swarm Wave 1');
-    expect(screen.getByTestId('worker-duration-task-wave0')).toHaveTextContent('Worked for 14s');
+    expect(screen.getByTestId('worker-duration-task-wave0')).toHaveTextContent('Trabalhou por 14s');
     expect(screen.getByTestId('worker-card-task-wave0')).toHaveTextContent(
       '/repo/.hydra/worktrees/task-wave0',
     );

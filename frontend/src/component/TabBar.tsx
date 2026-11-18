@@ -42,7 +42,7 @@ export function TabBar({ paneId, onSyncRoute }: TabBarProps) {
     <div
       data-testid={`tab-bar-${paneId}`}
       className={`flex h-10 items-center justify-between gap-2 border-b border-[#303030] bg-[#181818] px-2 ${
-        splitMode === 'split' && focusedPaneId === paneId ? 'border-b-[#3B82F6]/60' : ''
+        splitMode === 'split' && focusedPaneId === paneId ? 'border-b-[var(--accent)]' : ''
       }`}
     >
       <ChatDialog open={appearanceOpen} onOpenChange={setAppearanceOpen} title="Aparência">
@@ -94,6 +94,11 @@ export function TabBar({ paneId, onSyncRoute }: TabBarProps) {
                   onClick={(e) => {
                     e.stopPropagation();
                     closeTab(tabId, paneId);
+                    if (isActive) {
+                      const state = useLayoutStore.getState();
+                      const next = state.panes[paneId].activeTabId;
+                      onSyncRoute?.(next ? (state.tabs[next]?.route ?? '/') : '/');
+                    }
                   }}
                   aria-label={`Fechar aba ${tab.title}`}
                   title="Fechar aba (não encerra processos em execução)"
@@ -105,6 +110,7 @@ export function TabBar({ paneId, onSyncRoute }: TabBarProps) {
             </div>
           );
         })}
+      </nav>
 
         <button
           type="button"
@@ -127,7 +133,6 @@ export function TabBar({ paneId, onSyncRoute }: TabBarProps) {
         >
           <Plus aria-hidden="true" className="h-3.5 w-3.5" />
         </button>
-      </nav>
 
       {paneId === 'primary' ? (
         <div className="flex shrink-0 items-center gap-1">

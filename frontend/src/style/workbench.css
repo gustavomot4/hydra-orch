@@ -17,9 +17,59 @@ html[data-density='spacious'] {
   --nav-height: 44px;
   --panel-gap: 16px;
 }
+
+.hydra-app-shell {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  overflow-x: clip;
+}
+
+@media (min-height: 481px) {
+  .hydra-app-shell {
+    height: 100vh;
+    overflow: clip;
+  }
+}
+
+.skip-link {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  position: fixed;
+  left: 12px;
+  top: 12px;
+  z-index: 80;
+  width: auto;
+  height: auto;
+  min-height: 44px;
+  margin: 0;
+  padding: 8px 14px;
+  overflow: visible;
+  clip-path: none;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
 .hydra-navigation button:not(.panel-resizer),
 .hydra-navigation summary {
-  min-height: var(--nav-height);
+  min-height: max(24px, var(--nav-height));
+  min-width: 24px;
 }
 .hydra-navigation button {
   padding-top: 4px;
@@ -31,6 +81,17 @@ html[data-density='spacious'] {
 .hydra-navigation [aria-current='page'] {
   background: var(--bg-hover);
   box-shadow: inset 2px 0 var(--accent);
+}
+main#hydra-content,
+.workbench-panes,
+[data-testid^='pane-'],
+[data-testid^='pane-'] > div,
+[data-testid^='tab-bar-'] {
+  min-width: 0;
+  max-width: 100%;
+}
+main#hydra-content {
+  overflow-x: clip;
 }
 .workbench-panes {
   grid-template-columns: minmax(0, 1fr);
@@ -67,8 +128,9 @@ html[data-density='spacious'] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--control-height);
-  height: var(--control-height);
+  min-width: max(24px, var(--control-height));
+  min-height: max(24px, var(--control-height));
+  padding: 4px;
   flex-shrink: 0;
   border-radius: 6px;
   color: var(--text-muted);
@@ -97,15 +159,26 @@ html[data-density='spacious'] {
   font-size: 0.875rem;
   min-width: 0;
 }
-.appearance-settings input[type='checkbox'] {
-  width: 20px;
-  height: 20px;
+.appearance-settings input[type='checkbox'],
+[data-testid='hydra-app-shell'] input[type='checkbox'],
+[data-testid='hydra-app-shell'] input[type='radio'] {
+  min-width: 24px;
+  min-height: 24px;
+  width: 24px;
+  height: 24px;
   accent-color: var(--accent);
   flex-shrink: 0;
 }
+.appearance-settings input[type='range'],
+[data-testid='hydra-app-shell'] input[type='range'] {
+  min-height: 24px;
+  min-width: 24px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
 .appearance-settings select,
 .appearance-actions button {
-  min-height: var(--control-height);
+  min-height: max(24px, var(--control-height));
   padding: 4px 8px;
   border: 1px solid var(--border);
   background: var(--bg-main);
@@ -117,10 +190,12 @@ html[data-density='spacious'] {
   gap: 8px;
   align-items: center;
   max-width: 55%;
+  min-width: 0;
 }
 .appearance-number input {
   width: 100%;
-  min-width: 0;
+  min-width: 24px;
+  min-height: 24px;
   accent-color: var(--accent);
 }
 .appearance-number output {
@@ -128,7 +203,7 @@ html[data-density='spacious'] {
   text-align: right;
 }
 .appearance-toggle {
-  min-height: var(--control-height);
+  min-height: max(24px, var(--control-height));
 }
 .appearance-actions {
   display: flex;
@@ -143,24 +218,46 @@ html[data-density='spacious'] {
   position: relative;
   min-width: 0;
 }
-.composer-input-wrap textarea {
+html .composer-input-wrap textarea,
+html .composer-textarea {
   position: relative;
   z-index: 1;
   display: block;
-  line-height: 1.5;
+  box-sizing: border-box;
+  font-family: var(--font-sans);
   font-size: var(--chat-font-size);
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.5;
+  padding: 0.5rem;
 }
-.composer-ghost {
+html .composer-ghost {
   position: absolute;
   inset: 0;
+  box-sizing: border-box;
   padding: 0.5rem;
+  border: 1px solid transparent;
   white-space: pre-wrap;
   overflow: hidden;
   overflow-wrap: break-word;
   pointer-events: none;
   color: var(--text-muted);
+  font-family: var(--font-sans);
   font-size: var(--chat-font-size);
+  font-weight: 400;
+  letter-spacing: normal;
   line-height: 1.5;
+}
+html .chat-composer .composer-input-wrap textarea,
+html .chat-composer .composer-textarea,
+html .chat-composer .composer-ghost {
+  font-family: var(--font-sans);
+  font-size: var(--chat-font-size);
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.6;
+  padding: 10px 4px;
+  border-width: 1px;
 }
 .composer-ghost span {
   color: transparent;
@@ -224,13 +321,13 @@ html .chat-assistant > h2 {
   font-size: max(12px, 0.75rem);
   line-height: 1.5;
 }
-[data-testid='hydra-app-shell'] input:not([type='checkbox']):not([type='range']),
+[data-testid='hydra-app-shell'] input:not([type='checkbox']):not([type='radio']):not([type='range']),
 [data-testid='hydra-app-shell'] select,
 [data-testid='quota-accounts-page'] button {
-  min-height: var(--control-height);
+  min-height: max(24px, var(--control-height));
 }
 .quota-account-settings > summary {
-  min-height: var(--control-height);
+  min-height: max(24px, var(--control-height));
   padding-top: 8px;
   cursor: pointer;
   color: var(--text-muted);
@@ -259,18 +356,18 @@ html .canvas-work-picker > summary {
   overflow: hidden;
   text-overflow: ellipsis;
   padding: 5px 10px;
-  min-height: var(--control-height);
+  min-height: max(24px, var(--control-height));
 }
 html .canvas-button,
 html .canvas-icon-button,
 html .canvas-switch button,
 html .canvas-control-group button,
 html .canvas-pagination button {
-  min-height: var(--control-height);
+  min-height: max(24px, var(--control-height));
   padding: 5px 10px;
 }
 html .canvas-icon-button {
-  min-width: var(--control-height);
+  min-width: max(24px, var(--control-height));
 }
 html .canvas-workbench.with-inspector {
   grid-template-columns: minmax(0, 1fr) var(--divider-size) minmax(
@@ -319,7 +416,7 @@ html .chat-turn {
 html .chat-choice,
 html .chat-text-button,
 html .chat-icon {
-  min-height: var(--control-height);
+  min-height: max(24px, var(--control-height));
 }
 html .chat-new {
   padding-top: clamp(20px, 8vh, 80px);
@@ -333,7 +430,7 @@ html .chat-new h1 {
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  min-height: var(--nav-height);
+  min-height: max(24px, var(--nav-height));
   padding: 4px 6px;
   border-radius: 6px;
   list-style: none;
@@ -369,7 +466,7 @@ html .chat-new h1 {
   gap: 6px;
   width: 100%;
   padding: 4px 8px;
-  min-height: var(--nav-height);
+  min-height: max(24px, var(--nav-height));
   color: var(--text-muted);
   font-size: 0.875rem;
   text-align: left;
@@ -420,15 +517,65 @@ html .chat-new h1 {
     --nav-height: 44px;
     --divider-size: 44px;
   }
+  .appearance-settings input[type='range'],
+  [data-testid='hydra-app-shell'] input[type='range'] {
+    min-height: 44px;
+  }
   .appearance-settings input[type='checkbox'] {
-    width: 24px;
-    height: 24px;
+    min-width: 24px;
+    min-height: 24px;
+  }
+  .hydra-navigation button:not(.panel-resizer),
+  .hydra-navigation summary,
+  [data-testid^='tab-bar-'] button,
+  [data-testid='search-tab-launcher'] button {
+    min-height: 44px;
+    min-width: 44px;
   }
 }
 @media (max-height: 480px) {
-  html .canvas-page {
+  html,
+  body,
+  #root {
     height: auto;
-    min-height: 100%;
+    min-height: 100vh;
+    overflow-x: clip;
+    overflow-y: auto;
+  }
+  .hydra-app-shell,
+  [data-testid='hydra-app-shell'] {
+    height: auto;
+    min-height: 100vh;
+    overflow-x: clip;
+    overflow-y: visible;
+  }
+  aside[data-testid='desktop-sidebar'],
+  .hydra-navigation:not([data-drawer-open='true']),
+  #hydra-sidebar-destinos:not([role='dialog']) {
+    height: auto;
+    overflow-y: visible;
+  }
+  #hydra-sidebar-destinos:not([role='dialog']) > div {
+    overflow-y: visible;
+  }
+  main#hydra-content,
+  .workbench-panes,
+  [data-testid^='pane-'],
+  [data-testid^='pane-'] > div {
+    height: auto;
+    min-height: 0;
+    overflow-y: visible;
+  }
+  html .canvas-page,
+  html .conversation-page,
+  html .chat-transcript {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: visible;
+  }
+  html .chat-dock {
+    position: static;
   }
   html .chat-new {
     padding-top: 16px;
@@ -464,13 +611,38 @@ html .chat-new > p {
 .chat-choice-label {
   line-height: 1.5;
 }
-html .chat-composer .composer-key-hint { line-height:1.5; }
-aside[data-testid='desktop-sidebar'][data-collapsed='true'] { width:58px; }
-@media(max-width:767px) {
-  aside[data-testid='desktop-sidebar'] { width:58px; }
-  .hydra-navigation button { min-width:44px; min-height:44px; }
-  [data-testid^='tab-bar-'] { min-height:48px; }
-  [data-testid^='tab-bar-'] button { min-height:44px; min-width:44px; }
+html .chat-composer .composer-key-hint {
+  line-height: 1.5;
+}
+aside[data-testid='desktop-sidebar'][data-collapsed='true'] {
+  width: 58px;
+}
+@media (max-width: 767px) {
+  aside[data-testid='desktop-sidebar'] {
+    width: 58px;
+  }
+  .hydra-navigation button:not(.panel-resizer) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  [data-testid^='tab-bar-'] {
+    min-height: 48px;
+  }
+  [data-testid^='tab-bar-'] button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  html .chat-transcript {
+    padding: 12px 12px;
+  }
+  html .chat-dock {
+    padding: 8px 12px 12px;
+  }
+  html .canvas-page-header,
+  html .canvas-toolbar {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
 }
 
 html .canvas-control-group span,

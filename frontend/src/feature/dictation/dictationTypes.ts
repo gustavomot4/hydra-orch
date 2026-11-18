@@ -46,7 +46,7 @@ export interface DictationSpeechAdapter {
 }
 
 export const DICTATION_NOTICE =
-  'Captura de texto por voz (não é modo conversação duplex RF36)';
+  'Captura de texto por voz para revisão antes do envio';
 
 export const DICTATION_STATE_LABELS: Record<DictationState, string> = {
   idle: 'Inativo',

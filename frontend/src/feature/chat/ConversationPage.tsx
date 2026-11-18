@@ -1,4 +1,5 @@
 import { CoordinationPanel } from './CoordinationPanel';
+import { ApplyConversationChanges } from './ApplyConversationChanges';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createParser } from 'eventsource-parser';
@@ -25,6 +26,7 @@ import {
   pendingSendKey,
   ConversationRoute,
   defaultRoute,
+  conversationSendError,
   routeSelection,
 } from './conversationTypes';
 import { ConversationRoutePicker } from './ConversationRoutePicker';
@@ -74,7 +76,6 @@ export function ConversationPage({ conversationId }: { conversationId: string })
   const errorRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const endRef = useRef<HTMLDivElement>(null);
   const followOutputRef = useRef(true);
   const renderedSeqRef = useRef<number | null>(null);
   const data = snapshot.data;
@@ -103,10 +104,7 @@ export function ConversationPage({ conversationId }: { conversationId: string })
     }
   }, [dataId, dataTitle]);
   useEffect(() => {
-    if (dataId) headingRef.current?.focus();
-  }, [dataId]);
-  useEffect(() => {
-    if (error) errorRef.current?.focus();
+    if (error) errorRef.current?.focus({ preventScroll: true });
   }, [error]);
   useEffect(() => {
     const container = transcriptRef.current;
@@ -119,13 +117,10 @@ export function ConversationPage({ conversationId }: { conversationId: string })
     return () => container.removeEventListener('scroll', onScroll);
   }, [dataId]);
   useEffect(() => {
-    if (
-      lastSeq !== undefined &&
-      renderedSeqRef.current !== null &&
-      renderedSeqRef.current !== lastSeq &&
-      followOutputRef.current
-    )
-      endRef.current?.scrollIntoView({ block: 'end' });
+    const transcript = transcriptRef.current;
+    if (transcript && lastSeq !== undefined && renderedSeqRef.current !== lastSeq && followOutputRef.current) {
+      transcript.scrollTop = transcript.scrollHeight;
+    }
     if (lastSeq !== undefined) renderedSeqRef.current = lastSeq;
   }, [lastSeq]);
   useEffect(() => {
@@ -263,13 +258,7 @@ export function ConversationPage({ conversationId }: { conversationId: string })
     } catch (err) {
       if (err instanceof ControlPlaneApiError && err.status === 409)
         clearPendingSend(conversationId);
-      setError(
-        err instanceof ControlPlaneApiError
-          ? err.payload.message
-          : err instanceof Error
-            ? err.message
-            : 'Não foi possível enviar. Tente novamente.',
-      );
+      setError(conversationSendError(err, attachments.length > 0));
       void snapshot.refetch();
     } finally {
       sendingRef.current = false;
@@ -342,7 +331,9 @@ export function ConversationPage({ conversationId }: { conversationId: string })
         )}
       </div>
     );
+  const hasPendingTurn = data.turns.some((turn) => turn.state === 'queued');
   const active = data.turns.find((t) => t.state === 'running' || t.state === 'stopping');
+  const latestDiff = data.turns.findLast((t) => t.diff)?.id;
   return (
     <div ref={pageRef} className="conversation-page" data-testid="conversation-page">
       <header className="conversation-header">
@@ -375,7 +366,7 @@ export function ConversationPage({ conversationId }: { conversationId: string })
               Ver execução anterior
             </Link>
           )}
-          <div aria-label="Mensagens da conversa">
+          <section aria-label="Mensagens da conversa">
             {data.turns.map((turn) => (
               <section
                 key={turn.id}
@@ -462,8 +453,11 @@ export function ConversationPage({ conversationId }: { conversationId: string })
                     <details className="mt-3 text-sm">
                       <summary className="w-fit cursor-pointer py-2">Revisar alterações</summary>
                       <p className="my-2 text-[#D1D1D1]">
-                        Alterações preservadas na cópia desta conversa, aguardando revisão.
+                        Alterações registradas na cópia desta conversa.
                       </p>
+                      {turn.id === latestDiff && !active && !hasPendingTurn && data.access_mode === 'workspace-write' && (
+                        <ApplyConversationChanges conversationId={conversationId} />
+                      )}
                       <pre className="whitespace-pre-wrap break-all rounded-lg border border-[#666] p-3 text-xs">
                         {turn.diff}
                       </pre>
@@ -472,8 +466,7 @@ export function ConversationPage({ conversationId }: { conversationId: string })
                 </div>
               </section>
             ))}
-          </div>
-          <div ref={endRef} />
+          </section>
         </div>
       </div>
       <div className="chat-dock">

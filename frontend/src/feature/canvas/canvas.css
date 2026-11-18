@@ -100,7 +100,7 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg-surface);
-  box-shadow: 0 16px 36px #160b0866;
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--bg-main) 40%, transparent);
 }
 .canvas-search {
   display: flex;
@@ -236,7 +236,7 @@
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--bg-surface);
-  box-shadow: 0 8px 24px #160b0833;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg-main) 20%, transparent);
   min-height: 202px;
 }
 .agent-node.is-selected {
@@ -306,12 +306,18 @@
   position: absolute;
   right: 4px;
   top: 4px;
-  width: 44px;
-  height: 44px;
+  width: max(44px, calc(25px / var(--canvas-scale, 1)));
+  height: max(44px, calc(25px / var(--canvas-scale, 1)));
   z-index: 2;
   color: var(--text-muted);
   cursor: move;
   border-radius: 8px;
+}
+@media (pointer: coarse) {
+  .agent-node-move {
+    width: max(44px, calc(45px / var(--canvas-scale, 1)));
+    height: max(44px, calc(45px / var(--canvas-scale, 1)));
+  }
 }
 .tone-success {
   --state-color: var(--status-success);
@@ -382,7 +388,7 @@
 }
 .canvas-minimap {
   position: absolute;
-  bottom: 76px;
+  top: 16px;
   right: 16px;
   width: 116px;
   height: 78px;

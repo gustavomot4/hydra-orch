@@ -2,7 +2,11 @@ import { FormEvent, useState } from 'react';
 import { ArrowRightLeft, Clock, Cpu, ShieldAlert, UserCheck } from 'lucide-react';
 import { StatusBadge } from '@/component/StatusBadge';
 import { ModelCatalog } from './ModelCatalog';
-import { formatResetDisplay, ProviderQuotaCardModel, validateAccountIdentifier } from './quotaApi';
+import {
+  formatResetDisplay,
+  ProviderQuotaCardModel,
+  validateAccountIdentifier,
+} from './quotaApi';
 
 export interface ProviderQuotaCardProps {
   card: ProviderQuotaCardModel;
@@ -57,13 +61,15 @@ export function ProviderQuotaCard({
     <article
       data-testid={`provider-quota-card-${card.providerKey}`}
       data-quota-status={card.status}
-      className="flex flex-col justify-between rounded-xl border border-[#303030] bg-[#202020] p-4 text-left"
+      className="flex flex-col justify-between rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 text-left"
     >
       <div className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <h2 className="text-sm font-semibold text-[#E8E8E8]">{card.displayName}</h2>
-            <p className="text-xs text-[#969696]" title={`Fonte: ${card.source}`}>
+            <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+              {card.displayName}
+            </h2>
+            <p className="text-xs text-[var(--text-muted)]" title={`Fonte: ${card.source}`}>
               {card.windowLabel}
             </p>
           </div>
@@ -72,11 +78,11 @@ export function ProviderQuotaCard({
 
         <div className="space-y-1.5">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-xs text-[#969696]">Disponibilidade da janela</span>
+            <span className="text-xs text-[var(--text-muted)]">Disponível</span>
             <span
               data-testid={`provider-quota-percent-${card.providerKey}`}
-              className={`font-mono text-lg font-semibold tabular-nums ${
-                isUnknown ? 'text-[#969696]' : 'text-[#E8E8E8]'
+              className={`text-lg font-semibold tabular-nums ${
+                isUnknown ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'
               }`}
             >
               {card.displayPercent}
@@ -90,100 +96,97 @@ export function ProviderQuotaCard({
             aria-valuemax={100}
             aria-valuenow={card.remainingPercent ?? undefined}
             aria-valuetext={isUnknown ? 'Desconhecido' : card.displayPercent}
-            className="h-2 w-full overflow-hidden rounded-full bg-[#141414]"
+            className="h-2 w-full overflow-hidden rounded-full bg-[var(--bg-main)]"
           >
             {!isUnknown ? (
               <div
                 className={`h-full rounded-full transition-all ${
-                  isStale ? 'bg-[#F59E0B]/80' : 'bg-[#E8E8E8]'
+                  isStale ? 'bg-[var(--status-warning)]' : 'bg-[var(--text-primary)]'
                 }`}
                 style={{ width: `${card.remainingPercent}%` }}
               />
             ) : null}
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#969696]">
-            <span className="inline-flex items-center gap-1">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
+            <span className="inline-flex items-center gap-1 tabular-nums">
               <Clock aria-hidden="true" className="h-3 w-3" />
               <span>Reset: </span>
               {resetInfo.isoTimestamp ? (
                 <time
                   dateTime={resetInfo.isoTimestamp}
                   data-testid={`provider-reset-at-${card.providerKey}`}
-                  className="font-mono text-[#E8E8E8]"
+                  className="text-[var(--text-primary)]"
                 >
                   {resetInfo.label}
                 </time>
               ) : (
-                <span className="font-mono text-[#E8E8E8]">{resetInfo.label}</span>
+                <span className="text-[var(--text-primary)]">{resetInfo.label}</span>
               )}
             </span>
 
             {card.observedAt ? (
-              <span className="font-mono text-[10px] text-[#969696]">
-                Obs: {formatResetDisplay(card.observedAt, null).label}
+              <span className="tabular-nums text-xs text-[var(--text-muted)]">
+                Leitura: {formatResetDisplay(card.observedAt, null).label}
               </span>
             ) : null}
           </div>
         </div>
 
-        <div className="border-t border-[#303030] pt-2.5">
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#969696]">
+        <div className="border-t border-[var(--border)] pt-2.5">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)]">
             <Cpu aria-hidden="true" className="h-3 w-3" />
-            <span>Modelos descobertos ({card.models.length})</span>
+            <span>Modelos ({card.models.length})</span>
           </div>
           {card.models.length === 0 ? (
-            <p className="mt-1 text-[11px] text-[#969696]">
-              Nenhum modelo descoberto para este provedor.
-            </p>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">Sem modelos ativos.</p>
           ) : (
             <div className="mt-1.5 flex flex-wrap gap-1">
               {card.models.slice(0, 3).map((m) => (
-                <span
+                <code
                   key={m.id}
                   title={m.id}
-                  className="max-w-full truncate rounded border border-[#303030] bg-[#141414] px-1.5 py-0.5 font-mono text-xs text-[#E8E8E8]"
+                  className="max-w-full truncate rounded border border-[var(--border)] bg-[var(--bg-main)] px-1.5 py-0.5 font-mono text-xs text-[var(--text-primary)]"
                 >
                   {m.id}
-                </span>
+                </code>
               ))}
             </div>
           )}
           {card.models.length > 0 && (
-            <ModelCatalog models={card.models} title={`Modelos · ${card.displayName}`} />
+            <ModelCatalog models={card.models} title={`Modelos de ${card.displayName}`} />
           )}
         </div>
       </div>
 
-      <details className="quota-account-settings">
-        <summary>Conta para próximas execuções</summary>
+      <details className="quota-account-settings mt-3">
+        <summary className="flex min-h-[32px] cursor-pointer items-center rounded-md px-1 text-xs font-medium text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]">
+          Conta para próximas execuções
+        </summary>
         <form
           onSubmit={(e) => void handleSubmit(e)}
-          className="mt-4 space-y-2.5 border-t border-[#303030] pt-3"
+          className="mt-3 space-y-2.5 border-t border-[var(--border)] pt-3"
         >
           <div className="flex flex-wrap items-center justify-between gap-1.5">
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-[#E8E8E8]">
-              <ArrowRightLeft aria-hidden="true" className="h-3.5 w-3.5 text-[#969696]" />
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--text-primary)]">
+              <ArrowRightLeft aria-hidden="true" className="h-3.5 w-3.5 text-[var(--text-muted)]" />
               <span>Conta OmniRoute</span>
-            </span>
-            <span className="rounded-md border border-[#3B82F6]/40 bg-[#3B82F6]/10 px-2 py-0.5 text-[10px] font-medium text-[#93C5FD]">
-              Aplica apenas às próximas execuções
             </span>
           </div>
 
           {card.activeOverride ? (
             <div
               data-testid={`active-override-${card.providerKey}`}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#303030] bg-[#181818] px-2.5 py-1.5 text-[11px]"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-rail)] px-2.5 py-1.5 text-xs"
             >
-              <span className="inline-flex items-center gap-1 text-[#E8E8E8]">
-                <UserCheck aria-hidden="true" className="h-3.5 w-3.5 text-[#22C55E]" />
+              <span className="inline-flex items-center gap-1 text-[var(--text-primary)]">
+                <UserCheck aria-hidden="true" className="h-3.5 w-3.5 text-[var(--status-success)]" />
                 <span>
                   Próxima conta:{' '}
-                  <strong className="font-mono">{card.activeOverride.account_id}</strong>
+                  <code className="font-mono font-semibold">{card.activeOverride.account_id}</code>
                 </span>
               </span>
-              <span className="font-mono text-[10px] text-[#969696]">
+              <span className="text-xs text-[var(--text-muted)]">
                 {card.activeOverride.applies_to}
               </span>
             </div>
@@ -202,11 +205,11 @@ export function ProviderQuotaCard({
                   setSelectedAccountId(e.target.value);
                   setValidationError(null);
                 }}
-                className="w-full rounded-lg border border-[#303030] bg-[#141414] px-2.5 py-1.5 text-xs text-[#E8E8E8]"
+                className="min-h-[32px] w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
               >
                 {card.accounts.map((acc) => (
                   <option key={acc.account_id} value={acc.account_id}>
-                    {acc.label} ({acc.account_id}) ·{' '}
+                    {acc.label} ({acc.account_id}) —{' '}
                     {acc.remaining_percent !== null && acc.status !== 'unknown'
                       ? `${Math.round(acc.remaining_percent)}%`
                       : '—'}
@@ -219,11 +222,11 @@ export function ProviderQuotaCard({
           <div>
             <label
               htmlFor={`account-input-${card.providerKey}`}
-              className="block text-[11px] text-[#969696]"
+              className="block text-xs text-[var(--text-muted)]"
             >
               {card.accounts.length > 0
-                ? 'Ou informe outro account_id (sem segredos)'
-                : 'Identificador da conta (account_id, sem segredos)'}
+                ? 'Ou informe outro identificador de conta (sem segredos)'
+                : 'Identificador da conta (sem segredos)'}
             </label>
             <input
               id={`account-input-${card.providerKey}`}
@@ -235,7 +238,7 @@ export function ProviderQuotaCard({
                 setValidationError(null);
               }}
               placeholder="ex.: conta-trabalho-1"
-              className="mt-1 w-full rounded-lg border border-[#303030] bg-[#141414] px-2.5 py-1.5 font-mono text-xs text-[#E8E8E8] placeholder:text-[#969696] focus:border-[#3B82F6] focus:outline-none"
+              className="mt-1 min-h-[32px] w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
             />
           </div>
 
@@ -243,7 +246,7 @@ export function ProviderQuotaCard({
             <div
               role="alert"
               data-testid={`account-error-${card.providerKey}`}
-              className="flex items-start gap-1.5 rounded-lg border border-[#EF4444]/40 bg-[#EF4444]/10 px-2.5 py-1.5 text-xs text-[#FCA5A5]"
+              className="flex items-start gap-1.5 rounded-lg border border-[var(--status-error)] bg-[var(--bg-main)] px-2.5 py-1.5 text-xs text-[var(--status-error)]"
             >
               <ShieldAlert aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>{activeSecretWarning ?? validationError}</span>
@@ -252,9 +255,11 @@ export function ProviderQuotaCard({
 
           <button
             type="submit"
-            disabled={isUpdating || effectiveCandidate.length === 0 || Boolean(activeSecretWarning)}
+            disabled={
+              isUpdating || effectiveCandidate.length === 0 || Boolean(activeSecretWarning)
+            }
             data-testid={`apply-account-${card.providerKey}`}
-            className="w-full rounded-lg border border-[#666] bg-[#141414] px-3 py-1.5 text-xs font-medium text-[#E8E8E8] disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-[32px] w-full rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50 max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
           >
             {isUpdating ? 'Aplicando...' : 'Definir para próximas execuções'}
           </button>

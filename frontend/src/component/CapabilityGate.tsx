@@ -22,7 +22,10 @@ export function CapabilityGate({
 
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-[#303030] bg-[#202020] p-4 text-sm text-[#969696]">
+      <div
+        role="status"
+        className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 text-sm text-[var(--text-muted)]"
+      >
         Verificando capacidades do host <span className="font-mono">{hostId}</span>...
       </div>
     );
@@ -34,24 +37,25 @@ export function CapabilityGate({
     return (
       <section
         aria-label={title ?? `Capacidade ${capability} indisponível`}
-        className="rounded-xl border border-[#303030] bg-[#202020] p-5"
+        className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5"
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-[#E8E8E8]">
-            <ShieldAlert aria-hidden="true" className="h-4 w-4 text-[#969696]" />
-            <h3 className="text-sm font-semibold">
+          <div className="flex items-center gap-2 text-[var(--text-primary)]">
+            <ShieldAlert aria-hidden="true" className="h-4 w-4 text-[var(--text-muted)]" />
+            <h2 className="text-sm font-semibold">
               {title ?? `Capacidade "${capability}" indisponível`}
-            </h3>
+            </h2>
           </div>
           <StatusBadge status={resolved.status} />
         </div>
-        <p className="mt-2 text-xs text-[#969696]">
-          O host <span className="font-mono text-[#E8E8E8]">{hostId}</span> não possui certificação
-          ativa para este recurso. A interface não simula execução sem executor ou bridge certificado.
+        <p className="mt-2 text-xs text-[var(--text-muted)]">
+          O host <span className="font-mono text-[var(--text-primary)]">{hostId}</span> não possui
+          certificação ativa para este recurso. A interface não simula execução sem executor ou
+          bridge certificado.
         </p>
         {resolved.reason ? (
-          <p className="mt-2 font-mono text-xs text-[#969696]">
-            Motivo: <span className="text-[#E8E8E8]">{resolved.reason}</span>
+          <p className="mt-2 font-mono text-xs text-[var(--text-muted)]">
+            Motivo: <span className="text-[var(--text-primary)]">{resolved.reason}</span>
           </p>
         ) : null}
       </section>
@@ -63,7 +67,7 @@ export function CapabilityGate({
       <div className="space-y-3">
         <div
           role="note"
-          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#F59E0B]/40 bg-[#F59E0B]/10 px-3 py-2 text-xs text-[#FCD34D]"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--status-warning)] bg-[var(--bg-surface)] px-3 py-2 text-xs text-[var(--status-warning)]"
         >
           <span>
             Modo degradado no host <span className="font-mono">{hostId}</span>

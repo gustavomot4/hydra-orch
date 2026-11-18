@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import * as Tabs from '@radix-ui/react-tabs';
 import { useQuery } from '@tanstack/react-query';
 import { FileCode2, FolderGit2, GitMerge, Package, RefreshCw } from 'lucide-react';
@@ -22,6 +23,7 @@ export function WorkspaceWorkbenchPage({
   initialRunId = null,
 }: WorkspaceWorkbenchPageProps) {
   const client = useControlPlaneClient();
+  const navigate = useNavigate();
   const selectedRunId = useLayoutStore((s) => s.selectedRunId);
   const selectedProjectId = useLayoutStore((s) => s.selectedProjectId);
   const selectHierarchy = useLayoutStore((s) => s.selectHierarchy);
@@ -38,9 +40,10 @@ export function WorkspaceWorkbenchPage({
   });
 
   const runs: RunSummary[] = runsQuery.data?.items ?? [];
+  const selectedWorkId = explicitRunId ?? selectedRunId;
+  const conversationId = selectedWorkId?.startsWith('conversation-') ? selectedWorkId : null;
   const resolvedRunId =
-    explicitRunId ??
-    selectedRunId ??
+    (conversationId ? null : selectedWorkId) ??
     runs.find((r) => !selectedProjectId || r.project_id === selectedProjectId)?.id ??
     runs[0]?.id ??
     null;
@@ -111,7 +114,15 @@ export function WorkspaceWorkbenchPage({
         </div>
       </header>
 
-      {!resolvedRunId ? (
+      {conversationId ? (
+        <section className="rounded-xl border border-[var(--border)] p-4">
+          <h2 className="text-base font-semibold">Alterações da conversa</h2>
+          <p className="my-2 text-sm text-[var(--text-muted)]">Revise os arquivos e aplique as alterações pelo histórico do pedido.</p>
+          <Link className="chat-text-button underline" to={`/chat/${encodeURIComponent(conversationId)}`}>
+            Abrir conversa para revisar
+          </Link>
+        </section>
+      ) : !resolvedRunId ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#303030] bg-[#1C1C1C] p-8 text-center">
           <p className="text-sm font-medium text-[#E8E8E8]">
             Nenhuma run selecionada para revisão ou inspeção de artefatos
@@ -122,15 +133,16 @@ export function WorkspaceWorkbenchPage({
           </p>
           <button
             type="button"
-            onClick={() =>
+            onClick={() => {
               openTab({
                 id: 'tab:new-chat',
                 kind: 'new_chat',
                 title: 'Novo chat',
                 route: '/',
                 closable: false,
-              })
-            }
+              });
+              navigate('/');
+            }}
             className="rounded-lg bg-[#E8E8E8] px-4 py-1.5 text-xs font-medium text-[#181818] hover:bg-white"
           >
             Ir para Novo chat
@@ -142,8 +154,9 @@ export function WorkspaceWorkbenchPage({
           onValueChange={(val) => setSection(val as WorkbenchSection)}
           className="flex min-h-0 flex-1 flex-col gap-3"
         >
+          <h2 id="workbench-sections" className="sr-only">Seções de revisão do workspace</h2>
           <Tabs.List
-            aria-label="Seções de revisão do workspace"
+            aria-labelledby="workbench-sections"
             className="flex flex-wrap items-center gap-1.5 rounded-xl border border-[#303030] bg-[#1C1C1C] p-1.5"
           >
             <Tabs.Trigger

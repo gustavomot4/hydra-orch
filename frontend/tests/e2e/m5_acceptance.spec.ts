@@ -333,6 +333,13 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     const taskObjective = 'Leia o README e explique como iniciar o projeto';
     const composer = page.getByLabel('Sua mensagem');
     await expect(page.getByRole('button', { name: /^Pasta:/ })).toContainText('hydra-e2e-repo');
+    const image = {
+      name: 'referencia-e2e.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2ioAAAAASUVORK5CYII=', 'base64'),
+    };
+    await page.getByTestId('novo-chat-composer-slot').locator('input[type="file"]').setInputFiles(image);
+    await expect(page.getByTestId('attachment-list')).toContainText('Pronto local');
     await composer.fill(taskObjective);
     await expect(composer).toHaveValue(taskObjective);
     const creation = page.waitForResponse(
@@ -348,6 +355,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
       content: taskObjective,
       executor: 'codex',
       access_mode: 'read-only',
+      attachment_ids: [expect.any(String)],
     });
     const { conversation_id: createdId } = JSON.parse(body);
     await expect(page).toHaveURL(new RegExp(`/chat/${createdId}$`));
@@ -358,10 +366,16 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
       page.getByTestId('conversation-turn-1').getByTestId('agent-response'),
     ).toContainText('Primeiro');
     await page.reload();
+    await expect(page.getByText('Anexo: referencia-e2e.png', { exact: true })).toBeVisible();
     await expect(
       page.getByTestId('conversation-turn-1').getByTestId('agent-response'),
     ).toContainText('Segundo, inicie');
     await expect(page.getByText('Resposta concluída', { exact: true })).toBeVisible();
+    await page.getByTestId('conversation-page').locator('input[type="file"]').setInputFiles({
+      ...image,
+      name: 'segunda-referencia-e2e.png',
+    });
+    await expect(page.getByTestId('attachment-list')).toContainText('Pronto local');
     await page.getByLabel('Sua mensagem').fill('Agora detalhe o segundo passo');
     const secondSend = page.waitForResponse(
       (response) =>
@@ -371,6 +385,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await page.getByRole('button', { name: 'Enviar', exact: true }).click();
     const secondReply = await secondSend;
     expect(secondReply.ok(), await secondReply.text()).toBe(true);
+    expect(secondReply.request().postDataJSON().attachment_ids).toEqual([expect.any(String)]);
     await expect(
       page.getByTestId('conversation-turn-2').getByTestId('agent-response'),
     ).toContainText('Segundo passo detalhado');
@@ -571,8 +586,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await expect(page.getByTestId('terminal-close-dialog')).toBeVisible();
     await page.getByRole('button', { name: 'Encerrar processo' }).click();
     await expect(page.getByTestId('terminal-close-dialog')).toBeHidden({ timeout: 10_000 });
-    await expect(page.getByText('Cancelado').first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole('button', { name: 'Interromper processo' }).first()).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Iniciar Codex CLI' })).toBeVisible();
 
     // Step 3 + Step 5: Open seeded Swarm run timeline, verify Coordinator + Workers & zero duplicate replay on reload
     await page.goto('/chat/run-e2e-swarm');
@@ -654,6 +668,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await expect(page.getByTestId('automations-page')).toBeVisible();
     await page.getByRole('button', { name: 'Nova automação' }).click();
     await page.getByLabel('Nome da automação').fill('Auditoria E2E M5');
+    await page.getByLabel('Orçamento máximo (USD)').fill('5');
     await page.getByLabel('Prompt da execução').fill('Rodar checagem agendada E2E');
     await page.getByLabel(/Fuso horário/i).fill('America/Sao_Paulo');
     await page.getByLabel('Projeto (opcional)').selectOption({ label: 'hydra-e2e-repo' });

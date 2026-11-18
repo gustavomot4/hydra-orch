@@ -17,7 +17,7 @@ function mount(element: React.ReactNode) {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <QueryClientProvider client={query}>{element}</QueryClientProvider>
     </MemoryRouter>,
   );

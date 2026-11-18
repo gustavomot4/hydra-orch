@@ -82,6 +82,7 @@ export interface TerminalDimensions {
 export interface TerminalViewportAdapter {
   readonly kind: 'xterm' | 'headless-dom';
   write: (text: string) => void;
+  restore?: (text: string) => void;
   clear: () => void;
   resize: (cols: number, rows: number) => void;
   fit: () => TerminalDimensions | null;
@@ -96,8 +97,11 @@ export interface TerminalAdapterOptions {
   cols: number;
   rows: number;
   backendKind?: string;
+  escapeHintId?: string;
   onMultilinePaste?: (pastedText: string) => void;
   onInterruptShortcut?: () => void;
+  onEscapeFocus?: () => void;
+  shouldEscapeOnBareEsc?: () => boolean;
 }
 
 export type TerminalAdapterFactory = (

@@ -53,7 +53,7 @@ describe('coordination evidence visible in the conversation', () => {
   it('distinguishes local validation from agent review and opens safe recorded output', async () => {
     const user = userEvent.setup();
     const { container } = render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <CoordinationPanel turn={turn} />
       </MemoryRouter>,
     );
@@ -72,7 +72,7 @@ describe('coordination evidence visible in the conversation', () => {
   it('updates checks while preserving an open disclosure and stops stale running states after cancellation', async () => {
     const user = userEvent.setup();
     const { rerender } = render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <CoordinationPanel turn={turn} />
       </MemoryRouter>,
     );
@@ -80,7 +80,7 @@ describe('coordination evidence visible in the conversation', () => {
     const cancelled = structuredClone(turn);
     cancelled.state = 'cancelled';
     rerender(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <CoordinationPanel turn={cancelled} />
       </MemoryRouter>,
     );
@@ -108,7 +108,7 @@ describe('coordination evidence visible in the conversation', () => {
       ],
     };
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <CoordinationPanel turn={failed} />
       </MemoryRouter>,
     );

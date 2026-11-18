@@ -16,11 +16,11 @@ export function StatusBadge({
   compact = false,
   className = '',
 }: StatusBadgeProps) {
-  const safeStatus = typeof status === 'string' && status.trim().length > 0 ? status : 'unknown';
+  const safeStatus = typeof status === 'string' && status.trim().length > 0 ? status.trim() : 'unknown';
   const key = safeStatus.toLowerCase();
   const meta = STATUS_MAP[key] ?? {
     label: labelOverride ?? safeStatus,
-    classes: 'border-[#303030] bg-[#202020] text-[#969696]',
+    classes: 'border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-muted)]',
     Icon: HelpCircle,
   };
   const Icon = meta.Icon;
@@ -29,6 +29,7 @@ export function StatusBadge({
   return (
     <span
       role="status"
+      aria-busy={meta.spin ? true : undefined}
       data-status={key}
       className={`inline-flex items-center gap-1 rounded-md border font-medium ${
         compact ? 'px-1.5 py-0.5 text-xs' : 'px-2 py-0.5 text-xs'

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { expect, Page, test } from '@playwright/test';
+import type { ConversationSnapshot } from '../../src/feature/chat/conversationTypes';
 
 const output = '../ws/b_output/coordination-ui';
 const token = process.env.HYDRA_API_TOKEN || 'hydra-e2e-hermetic-local-token-0123456789';
@@ -127,6 +128,48 @@ test('shows local check evidence consistently in chat and canvas, including keyb
   await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' });
   await page.screenshot({ path: `${output}/area-de-trabalho-contraste.png`, fullPage: true });
   expect(requests.some((url) => /\/runs\/(?:null|undefined)(?:[/?]|$)/.test(url))).toBe(false);
+});
+
+test('follows a long conversation inside the transcript and preserves the reading position', async ({ page }) => {
+  await login(page);
+  const id = await fixture(page);
+  const endpoint = `/v1/control-plane/conversations/${id}`;
+  const response = await page.request.get(endpoint, { headers: { Authorization: `Bearer ${token}` } });
+  expect(response.ok()).toBe(true);
+  const original = await response.json() as ConversationSnapshot;
+  let revision = 0;
+  await page.route(`**${endpoint}`, (route) => route.fulfill({ json: {
+    ...original,
+    last_seq: original.last_seq + revision,
+    tools: [],
+    turns: Array.from({ length: 28 + revision }, (_, index) => ({
+      ...original.turns[0],
+      id: `long-turn-${index}`,
+      ordinal: index + 1,
+      coordination: undefined,
+      content: `Mensagem de teste ${index + 1}`,
+      response: `Resposta de teste ${index + 1}`,
+    })),
+  } }));
+  await page.goto(`/chat/${id}`);
+  const transcript = page.getByTestId('chat-transcript');
+  const shell = page.getByTestId('hydra-app-shell');
+  const bottomGap = () => transcript.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+  await expect(page.getByText('Resposta de teste 28', { exact: true })).toBeVisible();
+  await expect.poll(bottomGap).toBeLessThan(3);
+  await transcript.evaluate((el) => { el.scrollTop = 200; });
+  await expect.poll(bottomGap).toBeGreaterThan(160);
+  await page.waitForFunction(() => document.querySelector('[data-testid="chat-transcript"]')?.scrollTop === 200);
+  revision = 1;
+  await expect(page.getByText('Resposta de teste 29', { exact: true })).toBeAttached();
+  await expect.poll(() => transcript.evaluate((el) => el.scrollTop)).toBe(200);
+  await transcript.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect.poll(bottomGap).toBeLessThan(3);
+  revision = 2;
+  await expect(page.getByText('Resposta de teste 30', { exact: true })).toBeVisible();
+  await expect.poll(bottomGap).toBeLessThan(3);
+  await expect.poll(() => shell.evaluate((el) => el.scrollTop)).toBe(0);
+  await expect(page.getByLabel('Sua mensagem')).toBeInViewport();
 });
 
 test('runs the frontend kit on the two updated views', async ({ page, baseURL }) => {

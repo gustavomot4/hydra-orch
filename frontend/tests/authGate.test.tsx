@@ -90,7 +90,10 @@ describe('Bearer AuthGate', () => {
     const qc = createHydraQueryClient();
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={['/']}>
+        <MemoryRouter
+          initialEntries={['/']}
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        >
           <HydraShell />
         </MemoryRouter>
       </QueryClientProvider>,
@@ -143,7 +146,10 @@ describe('Bearer AuthGate', () => {
     const qc = createHydraQueryClient();
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={['/']}>
+        <MemoryRouter
+          initialEntries={['/']}
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        >
           <HydraShell />
         </MemoryRouter>
       </QueryClientProvider>,

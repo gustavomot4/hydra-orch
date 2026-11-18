@@ -53,6 +53,8 @@ function ResultIcon({
       return <FolderGit2 aria-hidden="true" className="h-4 w-4 shrink-0 text-[#E8E8E8]" />;
     case 'run':
       return <Play aria-hidden="true" className="h-4 w-4 shrink-0 text-[#93C5FD]" />;
+    case 'conversation':
+      return <MessageSquare aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--text-primary)]" />;
     case 'session':
       return tabHint === 'terminal' ? (
         <Terminal aria-hidden="true" className="h-4 w-4 shrink-0 text-[#4ADE80]" />

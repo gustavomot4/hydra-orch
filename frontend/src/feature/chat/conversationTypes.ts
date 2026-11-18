@@ -1,3 +1,17 @@
+import { ControlPlaneApiError } from '@/type/controlPlane';
+
+export function conversationSendError(error: unknown, hasAttachments: boolean): string {
+  if (error instanceof ControlPlaneApiError) {
+    if (error.payload.code === 'endpoint_not_found') {
+      return 'O backend aberto ainda não tem o fluxo de conversa. Reinicie o backend e tente novamente. Sua mensagem foi preservada.';
+    }
+    if (hasAttachments && error.payload.code === 'resource_not_found') {
+      return 'Um anexo ou a pasta selecionada não foi encontrado. Confira a pasta ou anexe o arquivo novamente. Sua mensagem foi preservada.';
+    }
+  }
+  return error instanceof Error ? error.message : 'Não foi possível enviar. Tente novamente.';
+}
+
 export interface ConversationAgent {
   id: 'codex' | 'claude';
   name: string;

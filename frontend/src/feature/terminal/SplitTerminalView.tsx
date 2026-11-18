@@ -4,6 +4,7 @@ import { ControlPlaneClient, useControlPlaneClient } from '@/hook/useControlPlan
 import { ControlPlaneApiError } from '@/type/controlPlane';
 import { openPtySession } from './ptyApi';
 import { TerminalPane } from './TerminalPane';
+import { clearPersistedPtyBuffer } from './ptyBuffer';
 import { PtySessionInfo, PtyWebSocketLike, TerminalAdapterFactory } from './terminalTypes';
 
 export type TerminalLayoutMode = 'split' | 'single-primary' | 'single-secondary';
@@ -30,6 +31,63 @@ export interface SplitTerminalViewProps {
   ) => void;
 }
 
+interface PersistedSplitViewState {
+  mode?: TerminalLayoutMode;
+  primary?: string | null;
+  secondary?: string | null;
+  primarySnapshot?: PtySessionInfo | null;
+  secondarySnapshot?: PtySessionInfo | null;
+  dismissed?: string[];
+}
+
+const splitStateMemory = new Map<string, PersistedSplitViewState>();
+
+function readPersistedSplitState(sessionKey: string): PersistedSplitViewState {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+  try {
+    const raw = window.sessionStorage.getItem(sessionKey);
+    if (!raw) {
+      splitStateMemory.delete(sessionKey);
+      return {};
+    }
+    const parsed = JSON.parse(raw) as PersistedSplitViewState;
+    const mem = splitStateMemory.get(sessionKey);
+    return {
+      ...mem,
+      ...parsed,
+      primarySnapshot: parsed.primarySnapshot ?? mem?.primarySnapshot ?? null,
+      secondarySnapshot: parsed.secondarySnapshot ?? mem?.secondarySnapshot ?? null,
+    };
+  } catch {
+    return splitStateMemory.get(sessionKey) ?? {};
+  }
+}
+
+function writePersistedSplitState(sessionKey: string, next: PersistedSplitViewState): void {
+  splitStateMemory.set(sessionKey, next);
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.sessionStorage.setItem(sessionKey, JSON.stringify({
+      mode: next.mode, primary: next.primary, secondary: next.secondary, dismissed: next.dismissed,
+    }));
+  } catch {
+    // Ignora falha opcional de persistência local
+  }
+}
+
+function getSessionDriver(session: PtySessionInfo): string | undefined {
+  return session.command[0]
+    ?.replace(/\\/g, '/')
+    .split('/')
+    .pop()
+    ?.replace(/\.(exe|cmd|bat)$/i, '')
+    .toLowerCase();
+}
+
 export function SplitTerminalView({
   primarySession: primaryProp = null,
   secondarySession: secondaryProp = null,
@@ -50,21 +108,68 @@ export function SplitTerminalView({
   const defaultClient = useControlPlaneClient();
   const client = clientOverride ?? defaultClient;
 
-  const [mode, setMode] = useState<TerminalLayoutMode>(defaultMode);
-  const [primarySession, setPrimarySession] = useState<PtySessionInfo | null>(primaryProp);
-  const [secondarySession, setSecondarySession] = useState<PtySessionInfo | null>(secondaryProp);
+  const isControlledByProps = primaryProp !== null || secondaryProp !== null;
+  const sessionKey = `hydra:terminals:${JSON.stringify([hostId, workspaceId ?? null, defaultCwd])}`;
+  const initialPersisted = !isControlledByProps ? readPersistedSplitState(sessionKey) : {};
+
+  const [mode, setMode] = useState<TerminalLayoutMode>(
+    !isControlledByProps && initialPersisted.mode ? initialPersisted.mode : defaultMode,
+  );
+  const [primarySession, setPrimarySession] = useState<PtySessionInfo | null>(
+    primaryProp ?? initialPersisted.primarySnapshot ?? null,
+  );
+  const [secondarySession, setSecondarySession] = useState<PtySessionInfo | null>(
+    secondaryProp ?? initialPersisted.secondarySnapshot ?? null,
+  );
+  const [dismissedIds, setDismissedIds] = useState<string[]>(
+    !isControlledByProps ? (initialPersisted.dismissed ?? []) : [],
+  );
   const [launchingSlot, setLaunchingSlot] = useState<'primary' | 'secondary' | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
-  const [restoring, setRestoring] = useState(!primaryProp && !secondaryProp);
-  const sessionKey = `hydra:terminals:${JSON.stringify([hostId, workspaceId ?? null, defaultCwd])}`;
+  const [restoring, setRestoring] = useState(
+    !isControlledByProps &&
+      !initialPersisted.primarySnapshot &&
+      !initialPersisted.secondarySnapshot,
+  );
+
+  // Sync controlled session props when parent passes explicit sessions
+  useEffect(() => {
+    if (primaryProp !== null) {
+      setPrimarySession(primaryProp);
+    }
+  }, [primaryProp]);
 
   useEffect(() => {
-    if (primaryProp || secondaryProp) {
+    if (secondaryProp !== null) {
+      setSecondarySession(secondaryProp);
+    }
+  }, [secondaryProp]);
+
+  // Persist layout mode and active session IDs across tab switches
+  useEffect(() => {
+    if (isControlledByProps || restoring) {
+      return;
+    }
+    writePersistedSplitState(sessionKey, {
+      mode,
+      primary: primarySession?.session_id ?? null,
+      secondary: secondarySession?.session_id ?? null,
+      primarySnapshot: primarySession,
+      secondarySnapshot: secondarySession,
+      dismissed: dismissedIds,
+    });
+  }, [isControlledByProps, sessionKey, mode, primarySession, secondarySession, dismissedIds, restoring]);
+
+  useEffect(() => {
+    if (isControlledByProps) {
       setRestoring(false);
       return;
     }
     let mounted = true;
-    setRestoring(true);
+    const pinned = readPersistedSplitState(sessionKey);
+    if (!pinned.primarySnapshot && !pinned.secondarySnapshot) {
+      setRestoring(true);
+    }
     const normalize = (value: string) => {
       const normalized = value.replace(/\\/g, '/').replace(/\/$/, '');
       return /^[a-z]:\//i.test(normalized) ? normalized.toLocaleLowerCase() : normalized;
@@ -73,35 +178,53 @@ export function SplitTerminalView({
       .request<PtySessionInfo[]>('/v1/control-plane/pty/sessions')
       .then((rows) => {
         if (!mounted || !Array.isArray(rows)) return;
-        let pinned: { primary?: string; secondary?: string } = {};
-        try {
-          pinned = JSON.parse(sessionStorage.getItem(sessionKey) || '{}');
-        } catch {
-          /* Optional local recovery. */
-        }
+        const latestPinned = readPersistedSplitState(sessionKey);
+        const dismissedSet = new Set(latestPinned.dismissed ?? []);
+        const byId = new Map(rows.map((s) => [s.session_id, s]));
+
         const matching = rows
           .filter(
             (s) =>
               s.status === 'running' &&
+              !dismissedSet.has(s.session_id) &&
               s.host_id === hostId &&
               (defaultCwd === '.'
-                ? [pinned.primary, pinned.secondary].includes(s.session_id)
+                ? [latestPinned.primary, latestPinned.secondary].includes(s.session_id)
                 : normalize(s.cwd) === normalize(defaultCwd)) &&
               (s.workspace_id ?? null) === (workspaceId ?? null),
           )
           .sort((a, b) => a.created_at.localeCompare(b.created_at));
-        const driver = (s: PtySessionInfo) =>
-          s.command[0]
-            ?.replace(/\\/g, '/')
-            .split('/')
-            .pop()
-            ?.replace(/\.(exe|cmd|bat)$/i, '')
-            .toLowerCase();
-        const primary = matching.filter((s) => driver(s) === 'codex').pop();
-        const secondary = matching.filter((s) => driver(s) === 'claude').pop();
-        setPrimarySession(primary ?? null);
-        setSecondarySession(secondary ?? null);
-        if (primary || secondary) setMode(primary ? 'single-primary' : 'single-secondary');
+
+        let nextPrimary: PtySessionInfo | null = null;
+        if (latestPinned.primary !== undefined) {
+          nextPrimary = latestPinned.primary
+            ? (byId.get(latestPinned.primary) ?? latestPinned.primarySnapshot ?? null)
+            : null;
+        } else {
+          nextPrimary = matching.filter((s) => getSessionDriver(s) === 'codex').pop() ?? null;
+        }
+
+        let nextSecondary: PtySessionInfo | null = null;
+        if (latestPinned.secondary !== undefined) {
+          nextSecondary = latestPinned.secondary
+            ? (byId.get(latestPinned.secondary) ?? latestPinned.secondarySnapshot ?? null)
+            : null;
+        } else {
+          nextSecondary = matching.filter((s) => getSessionDriver(s) === 'claude').pop() ?? null;
+        }
+
+        setPrimarySession(nextPrimary);
+        setSecondarySession(nextSecondary);
+
+        if (latestPinned.mode) {
+          setMode(latestPinned.mode);
+        } else if (nextPrimary && nextSecondary) {
+          setMode('split');
+        } else if (nextPrimary) {
+          setMode('single-primary');
+        } else if (nextSecondary) {
+          setMode('single-secondary');
+        }
       })
       .catch(() => {
         /* An unavailable inventory must not discard an existing session. */
@@ -112,12 +235,7 @@ export function SplitTerminalView({
     return () => {
       mounted = false;
     };
-  }, [client, defaultCwd, hostId, workspaceId, primaryProp, secondaryProp, sessionKey]);
-
-  const activePrimary =
-    primaryProp !== undefined && primaryProp !== null ? primaryProp : primarySession;
-  const activeSecondary =
-    secondaryProp !== undefined && secondaryProp !== null ? secondaryProp : secondarySession;
+  }, [client, defaultCwd, hostId, workspaceId, isControlledByProps, sessionKey]);
 
   const handleLaunchSlot = async (slot: 'primary' | 'secondary') => {
     if (launchingSlot || restoring) return;
@@ -133,23 +251,14 @@ export function SplitTerminalView({
         cols: 100,
         rows: 28,
       });
-      try {
-        sessionStorage.setItem(
-          sessionKey,
-          JSON.stringify({
-            primary: slot === 'primary' ? created.session_id : activePrimary?.session_id,
-            secondary: slot === 'secondary' ? created.session_id : activeSecondary?.session_id,
-          }),
-        );
-      } catch {
-        /* Optional local recovery. */
-      }
+      setDismissedIds((prev) => prev.filter((id) => id !== created.session_id));
+      const hadAnySession = Boolean(primarySession || secondarySession);
       if (slot === 'primary') {
         setPrimarySession(created);
       } else {
         setSecondarySession(created);
       }
-      if (!activePrimary && !activeSecondary) {
+      if (!hadAnySession) {
         setMode(slot === 'primary' ? 'single-primary' : 'single-secondary');
       }
       onSessionChange?.(slot, created);
@@ -164,6 +273,50 @@ export function SplitTerminalView({
     }
   };
 
+  const handleSlotClosed = (
+    slot: 'primary' | 'secondary',
+    closedSession: PtySessionInfo,
+    keepRunning: boolean,
+  ) => {
+    if (!keepRunning) {
+      clearPersistedPtyBuffer(closedSession.session_id);
+    }
+    setDismissedIds((prev) =>
+      prev.includes(closedSession.session_id) ? prev : [...prev, closedSession.session_id],
+    );
+
+    if (slot === 'secondary') {
+      setSecondarySession(null);
+      if (mode === 'split' || mode === 'single-secondary') {
+        setMode('single-primary');
+      }
+    } else {
+      if (secondarySession) {
+        setPrimarySession(secondarySession);
+        setSecondarySession(null);
+        setMode('single-primary');
+      } else {
+        setPrimarySession(null);
+        if (mode === 'split') {
+          setMode('single-primary');
+        }
+      }
+    }
+
+    onSessionClosed?.(slot, closedSession, keepRunning);
+  };
+
+  const resolvePaneTitle = (session: PtySessionInfo, fallbackTitle: string): string => {
+    const driver = getSessionDriver(session);
+    if (fallbackTitle === 'Codex CLI' && driver === 'claude') {
+      return secondaryTitle;
+    }
+    if (fallbackTitle === 'Claude Code CLI' && driver === 'codex') {
+      return primaryTitle;
+    }
+    return fallbackTitle;
+  };
+
   const showPrimary = mode === 'split' || mode === 'single-primary';
   const showSecondary = mode === 'split' || mode === 'single-secondary';
 
@@ -171,28 +324,27 @@ export function SplitTerminalView({
     <div
       data-testid="split-terminal-view"
       data-layout-mode={mode}
-      className="flex h-full min-h-0 flex-col gap-3 bg-[#141414] p-3 text-[#E8E8E8]"
+      className="flex h-full min-h-0 flex-col gap-3 bg-[var(--bg-main)] p-3 text-[var(--text-primary)]"
     >
-      {/* Mode toolbar (Figma 7:69, 22:8, 22:239) */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#303030] bg-[#1C1C1C] px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-sidebar)] px-3 py-2">
         <div className="flex items-center gap-2">
-          <Terminal aria-hidden="true" className="h-4 w-4 text-[#969696]" />
-          <h1 className="text-sm font-semibold text-[#E8E8E8]">Terminal</h1>
+          <Terminal aria-hidden="true" className="h-4 w-4 text-[var(--text-muted)]" />
+          <h1 className="text-sm font-semibold text-[var(--text-primary)]">Terminal</h1>
         </div>
 
         <div
           role="group"
           aria-label="Modo de visualização do terminal"
-          className="flex flex-wrap items-center gap-1"
+          className="flex flex-wrap items-center gap-1.5"
         >
           <button
             type="button"
             aria-pressed={mode === 'split'}
             onClick={() => setMode('split')}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+            className={`inline-flex min-h-[32px] items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px] ${
               mode === 'split'
-                ? 'border-[#3B82F6]/60 bg-[#202020] text-[#E8E8E8]'
-                : 'border-[#303030] bg-[#181818] text-[#969696] hover:bg-[#282828] hover:text-[#E8E8E8]'
+                ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text-primary)]'
+                : 'border-[var(--border)] bg-[var(--bg-rail)] text-[var(--text-muted)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[var(--bg-hover)] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[var(--text-primary)]'
             }`}
           >
             <Columns2 aria-hidden="true" className="h-3.5 w-3.5" />
@@ -203,10 +355,10 @@ export function SplitTerminalView({
             type="button"
             aria-pressed={mode === 'single-primary'}
             onClick={() => setMode('single-primary')}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+            className={`inline-flex min-h-[32px] items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px] ${
               mode === 'single-primary'
-                ? 'border-[#3B82F6]/60 bg-[#202020] text-[#E8E8E8]'
-                : 'border-[#303030] bg-[#181818] text-[#969696] hover:bg-[#282828] hover:text-[#E8E8E8]'
+                ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text-primary)]'
+                : 'border-[var(--border)] bg-[var(--bg-rail)] text-[var(--text-muted)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[var(--bg-hover)] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[var(--text-primary)]'
             }`}
           >
             <Square aria-hidden="true" className="h-3.5 w-3.5" />
@@ -217,10 +369,10 @@ export function SplitTerminalView({
             type="button"
             aria-pressed={mode === 'single-secondary'}
             onClick={() => setMode('single-secondary')}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+            className={`inline-flex min-h-[32px] items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px] ${
               mode === 'single-secondary'
-                ? 'border-[#3B82F6]/60 bg-[#202020] text-[#E8E8E8]'
-                : 'border-[#303030] bg-[#181818] text-[#969696] hover:bg-[#282828] hover:text-[#E8E8E8]'
+                ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text-primary)]'
+                : 'border-[var(--border)] bg-[var(--bg-rail)] text-[var(--text-muted)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[var(--bg-hover)] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[var(--text-primary)]'
             }`}
           >
             <Square aria-hidden="true" className="h-3.5 w-3.5" />
@@ -232,13 +384,13 @@ export function SplitTerminalView({
       {launchError ? (
         <div
           role="alert"
-          className="rounded-lg border border-[#EF4444]/40 bg-[#EF4444]/10 px-3 py-2 text-xs text-[#FCA5A5]"
+          className="rounded-lg border border-[var(--status-error)] bg-[var(--bg-surface)] px-3 py-2 text-xs text-[var(--status-error)]"
         >
           {launchError}
         </div>
       ) : null}
       {restoring && (
-        <p role="status" className="text-sm text-[#D1D1D1]">
+        <p role="status" className="text-sm text-[var(--text-muted)]">
           Reconectando aos terminais abertos…
         </p>
       )}
@@ -253,10 +405,10 @@ export function SplitTerminalView({
           data-testid="terminal-slot-primary"
           className={showPrimary ? 'flex min-h-0 min-w-0 flex-col' : 'hidden'}
         >
-          {activePrimary ? (
+          {primarySession ? (
             <TerminalPane
-              session={activePrimary}
-              title={primaryTitle}
+              session={primarySession}
+              title={resolvePaneTitle(primarySession, primaryTitle)}
               client={client}
               token={token}
               transportPreference={transportPreference}
@@ -264,23 +416,21 @@ export function SplitTerminalView({
               terminalAdapterFactory={terminalAdapterFactory}
               compact={mode === 'split'}
               autoFocus={showPrimary}
+              persistCursor={!isControlledByProps}
               onSessionChange={(updated) => {
                 setPrimarySession(updated);
                 onSessionChange?.('primary', updated);
               }}
               onClosed={(closedSession, keepRunning) => {
-                if (!keepRunning) {
-                  setPrimarySession(closedSession);
-                }
-                onSessionClosed?.('primary', closedSession, keepRunning);
+                handleSlotClosed('primary', closedSession, keepRunning);
               }}
             />
           ) : (
-            <div className="flex h-full min-h-[260px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#303030] bg-[#202020] p-6 text-center">
-              <Terminal aria-hidden="true" className="h-7 w-7 text-[#969696]" />
+            <div className="flex h-full min-h-[260px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--border)] bg-[var(--bg-surface)] p-6 text-center">
+              <Terminal aria-hidden="true" className="h-7 w-7 text-[var(--text-muted)]" />
               <div>
-                <p className="text-sm font-medium text-[#E8E8E8]">{primaryTitle}</p>
-                <p className="mt-1 text-xs text-[#969696]">
+                <p className="text-sm font-medium text-[var(--text-primary)]">{primaryTitle}</p>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">
                   Abra o Codex e digite seu prompt no terminal.
                 </p>
               </div>
@@ -288,7 +438,7 @@ export function SplitTerminalView({
                 type="button"
                 disabled={launchingSlot !== null || restoring}
                 onClick={() => void handleLaunchSlot('primary')}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-3 py-1.5 text-xs font-medium text-[#181818] hover:bg-white disabled:opacity-60"
+                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[var(--btn-primary-bg)] px-3.5 py-1.5 text-xs font-medium text-[var(--btn-primary-text)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[var(--accent-hover)] disabled:opacity-60 max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
               >
                 <Play aria-hidden="true" className="h-3.5 w-3.5" />
                 <span>
@@ -303,34 +453,32 @@ export function SplitTerminalView({
           data-testid="terminal-slot-secondary"
           className={showSecondary ? 'flex min-h-0 min-w-0 flex-col' : 'hidden'}
         >
-          {activeSecondary ? (
+          {secondarySession ? (
             <TerminalPane
-              session={activeSecondary}
-              title={secondaryTitle}
+              session={secondarySession}
+              title={resolvePaneTitle(secondarySession, secondaryTitle)}
               client={client}
               token={token}
               transportPreference={transportPreference}
               webSocketFactory={webSocketFactory}
               terminalAdapterFactory={terminalAdapterFactory}
               compact={mode === 'split'}
-              autoFocus={showSecondary}
+              autoFocus={showSecondary && !primarySession}
+              persistCursor={!isControlledByProps}
               onSessionChange={(updated) => {
                 setSecondarySession(updated);
                 onSessionChange?.('secondary', updated);
               }}
               onClosed={(closedSession, keepRunning) => {
-                if (!keepRunning) {
-                  setSecondarySession(closedSession);
-                }
-                onSessionClosed?.('secondary', closedSession, keepRunning);
+                handleSlotClosed('secondary', closedSession, keepRunning);
               }}
             />
           ) : (
-            <div className="flex h-full min-h-[260px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#303030] bg-[#202020] p-6 text-center">
-              <Terminal aria-hidden="true" className="h-7 w-7 text-[#969696]" />
+            <div className="flex h-full min-h-[260px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--border)] bg-[var(--bg-surface)] p-6 text-center">
+              <Terminal aria-hidden="true" className="h-7 w-7 text-[var(--text-muted)]" />
               <div>
-                <p className="text-sm font-medium text-[#E8E8E8]">{secondaryTitle}</p>
-                <p className="mt-1 text-xs text-[#969696]">
+                <p className="text-sm font-medium text-[var(--text-primary)]">{secondaryTitle}</p>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">
                   Abra o Claude e digite seu prompt no terminal.
                 </p>
               </div>
@@ -338,7 +486,7 @@ export function SplitTerminalView({
                 type="button"
                 disabled={launchingSlot !== null || restoring}
                 onClick={() => void handleLaunchSlot('secondary')}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-3 py-1.5 text-xs font-medium text-[#181818] hover:bg-white disabled:opacity-60"
+                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[var(--btn-primary-bg)] px-3.5 py-1.5 text-xs font-medium text-[var(--btn-primary-text)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[var(--accent-hover)] disabled:opacity-60 max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
               >
                 <Play aria-hidden="true" className="h-3.5 w-3.5" />
                 <span>

@@ -98,30 +98,24 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
   return (
     <div
       data-testid="quota-accounts-page"
-      className="mx-auto flex min-h-full w-full max-w-6xl flex-col gap-6 bg-[#141414] px-4 py-6 text-[#E8E8E8] md:px-8"
+      className="mx-auto flex min-h-full w-full max-w-6xl flex-col gap-5 bg-[var(--bg-main)] px-4 py-6 text-[var(--text-primary)] md:px-8"
     >
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[#303030] pb-4">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Gauge aria-hidden="true" className="h-5 w-5 text-[#969696]" />
-            <h1 className="text-xl font-semibold tracking-tight text-[#E8E8E8]">
-              Contas e consumo
-            </h1>
-            <StatusBadge status={overallStatus} />
-          </div>
-          <p className="text-xs text-[#969696]">
-            Monitoramento das janelas de 5h por provedor, origem
-            observada/desatualizada/desconhecida e seleção de conta OmniRoute.
-          </p>
+      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border)] pb-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Gauge aria-hidden="true" className="h-5 w-5 text-[var(--text-muted)]" />
+          <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)]">
+            Contas e consumo
+          </h1>
+          <StatusBadge status={overallStatus} />
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-lg border border-[#3B82F6]/40 bg-[#3B82F6]/10 px-2.5 py-1 text-xs font-medium text-[#93C5FD]">
+          <span className="rounded-lg border border-[var(--status-info)] bg-[var(--bg-surface)] px-2.5 py-1 text-xs font-medium text-[var(--status-info)]">
             Aplica apenas às próximas execuções
           </span>
 
           <div className="flex items-center gap-1.5">
-            <label htmlFor="quota-scope-input" className="text-xs text-[#969696]">
+            <label htmlFor="quota-scope-input" className="text-xs text-[var(--text-muted)]">
               Escopo:
             </label>
             <input
@@ -129,7 +123,7 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
               type="text"
               value={scopeId}
               onChange={(e) => setScopeId(e.target.value)}
-              className="w-28 rounded-lg border border-[#303030] bg-[#202020] px-2 py-1 font-mono text-xs text-[#E8E8E8]"
+              className="min-h-[32px] w-28 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2.5 py-1 text-xs text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
             />
           </div>
 
@@ -137,11 +131,11 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
             type="button"
             onClick={refreshAll}
             disabled={inventoryQuery.isFetching || quotaQuery.isFetching}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#303030] bg-[#202020] px-3 py-1.5 text-xs text-[#E8E8E8] transition-colors hover:bg-[#282828] disabled:opacity-50"
+            className="inline-flex min-h-[32px] min-w-[24px] items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-50 max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
           >
             <RefreshCw
               aria-hidden="true"
-              className={`h-3.5 w-3.5 text-[#969696] ${
+              className={`h-3.5 w-3.5 text-[var(--text-muted)] ${
                 inventoryQuery.isFetching || quotaQuery.isFetching ? 'motion-safe:animate-spin' : ''
               }`}
             />
@@ -152,14 +146,14 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
 
       <section
         aria-label="Estado do gateway OmniRoute"
-        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#303030] bg-[#1C1C1C] px-4 py-3 text-xs"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-sidebar)] px-4 py-3 text-xs"
       >
         <div className="flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center gap-1.5 font-medium text-[#E8E8E8]">
-            <Server aria-hidden="true" className="h-4 w-4 text-[#969696]" />
-            <span>Gateway OmniRoute:</span>
+          <span className="inline-flex items-center gap-1.5 font-medium text-[var(--text-primary)]">
+            <Server aria-hidden="true" className="h-4 w-4 text-[var(--text-muted)]" />
+            <span>OmniRoute:</span>
           </span>
-          <span className="rounded border border-[#303030] bg-[#141414] px-2 py-0.5 font-mono text-[#E8E8E8]">
+          <span className="rounded border border-[var(--border)] bg-[var(--bg-main)] px-2 py-0.5 text-[var(--text-primary)]">
             modo {inventory?.connection_mode ?? '—'}
           </span>
           <StatusBadge
@@ -181,18 +175,18 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
           />
         </div>
 
-        <span className="font-mono text-[11px] text-[#969696]">
-          {inventory?.models?.length ?? 0} modelo(s) · {inventory?.accounts?.length ?? 0} conta(s)
+        <span className="tabular-nums text-xs text-[var(--text-muted)]">
+          {inventory?.models?.length ?? 0} modelo(s), {inventory?.accounts?.length ?? 0} conta(s)
         </span>
       </section>
 
       {feedback ? (
         <div
           role={feedback.kind === 'error' ? 'alert' : 'status'}
-          className={`rounded-xl border px-4 py-2.5 text-xs ${
+          className={`rounded-xl border bg-[var(--bg-surface)] px-4 py-2.5 text-xs ${
             feedback.kind === 'error'
-              ? 'border-[#EF4444]/40 bg-[#EF4444]/10 text-[#FCA5A5]'
-              : 'border-[#22C55E]/40 bg-[#22C55E]/10 text-[#4ADE80]'
+              ? 'border-[var(--status-error)] text-[var(--status-error)]'
+              : 'border-[var(--status-success)] text-[var(--status-success)]'
           }`}
         >
           {feedback.text}
@@ -202,15 +196,15 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
       {loadError instanceof Error ? (
         <div
           role="alert"
-          className="rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 px-4 py-3 text-xs text-[#FCA5A5]"
+          className="rounded-xl border border-[var(--status-error)] bg-[var(--bg-surface)] px-4 py-3 text-xs text-[var(--status-error)]"
         >
           Não foi possível consultar o inventário completo: {loadError.message}
         </div>
       ) : null}
 
       {isLoading ? (
-        <div className="rounded-xl border border-[#303030] bg-[#202020] p-6 text-sm text-[#969696]">
-          Consultando janelas de cota e inventário OmniRoute...
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-6 text-sm text-[var(--text-muted)]">
+          Consultando cotas e contas...
         </div>
       ) : (
         <section
@@ -235,14 +229,14 @@ export function QuotaAccountsPage({ scopeId: initialScopeId = 'default' }: Quota
       <section
         aria-label="Inventário de modelos descobertos"
         data-testid="discovered-models-section"
-        className="rounded-xl border border-[#303030] bg-[#202020] p-4"
+        className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4"
       >
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-[#E8E8E8]">
-          Modelos descobertos via OmniRoute
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-primary)]">
+          Modelos OmniRoute
         </h2>
 
         {!inventory?.models?.length ? (
-          <p className="mt-2 text-xs text-[#969696]">Nenhum modelo ativo retornado pelo gateway.</p>
+          <p className="mt-2 text-xs text-[var(--text-muted)]">Nenhum modelo ativo.</p>
         ) : (
           <ModelCatalog
             models={inventory.models}

@@ -47,6 +47,7 @@ export function PromptComposer({
   completion,
 }: PromptComposerProps) {
   const historyEnabled = useLayoutStore((s) => s.promptHistoryEnabled);
+  const keyboardHintsVisible = useLayoutStore((s) => s.keyboardHintsVisible);
   const suggestionsEnabled = useLayoutStore((s) => s.suggestionsEnabled);
   const historyCursor = useRef(-1);
   const historyDraft = useRef('');
@@ -357,6 +358,14 @@ export function PromptComposer({
         e.preventDefault();
         if (isMentionOpen) {
           handleSelectMention(filteredMentions[safeActiveIndex]);
+        } else if (isSlashOpen && e.key === 'Tab' && trigger) {
+          const { nextText, nextCursor } = replaceTriggerToken(
+            currentDraft,
+            trigger.startIndex,
+            trigger.endIndex,
+            filteredCommands[safeActiveIndex].command,
+          );
+          updateDraft(nextText, nextCursor);
         } else if (isSlashOpen) {
           handleSelectSlashCommand(filteredCommands[safeActiveIndex]);
         }
@@ -476,7 +485,7 @@ export function PromptComposer({
             aria-label={textareaAriaLabel}
             role={isPopoverOpen ? 'combobox' : undefined}
             aria-autocomplete={isPopoverOpen ? 'list' : ghost ? 'inline' : undefined}
-            aria-describedby={`${listboxId}-hint`}
+            aria-describedby={keyboardHintsVisible ? `${listboxId}-hint` : undefined}
             aria-haspopup={isPopoverOpen ? 'listbox' : undefined}
             aria-expanded={isPopoverOpen ? true : undefined}
             aria-controls={
@@ -493,10 +502,10 @@ export function PromptComposer({
                   ? `${listboxId}-commands-opt-${safeActiveIndex}`
                   : undefined
             }
-            className={`w-full resize-y rounded-lg bg-transparent px-2 py-2 text-sm text-[#E8E8E8] placeholder:text-[#969696] disabled:opacity-60 ${visibleTextareaLabel ? 'min-h-24 border border-[#666] bg-[#181818]' : ''}`}
+            className={`composer-textarea w-full resize-y rounded-lg border border-transparent bg-transparent px-2 py-2 text-sm text-[#E8E8E8] placeholder:text-[#969696] disabled:opacity-60 ${visibleTextareaLabel ? 'min-h-24 border-[var(--border)] bg-[var(--bg-rail)]' : ''}`}
           />
         </div>
-        <p id={`${listboxId}-hint`} className="composer-key-hint">
+        <p hidden={!keyboardHintsVisible} id={`${listboxId}-hint`} className="composer-key-hint">
           {ghost
             ? 'Tab aceita a sugestão · Esc dispensa'
             : historyEnabled

@@ -1,9 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { App } from '@/App';
+import { BrowserRouter } from 'react-router-dom';
+import { HydraShell } from '@/App';
+import { createHydraQueryClient } from '@/hook/queryClient';
 import { useAuthStore } from '@/store/authStore';
 import { useLayoutStore } from '@/store/layoutStore';
+
+const ROUTER_FUTURE = { v7_startTransition: true, v7_relativeSplatPath: true } as const;
+
+function renderAppShell() {
+  const queryClient = createHydraQueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter future={ROUTER_FUTURE}>
+        <HydraShell />
+      </BrowserRouter>
+    </QueryClientProvider>,
+  );
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -298,7 +314,7 @@ describe('Onda 14 App shell wiring', () => {
 
   it('wires NovoChat composer, attachments, dictation and Ctrl+K QuickOpen without losing draft', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderAppShell();
 
     const textarea = await screen.findByLabelText('Sua mensagem');
     expect(screen.getByRole('button', { name: /Anexar arquivo/i })).toBeInTheDocument();
@@ -322,7 +338,7 @@ describe('Onda 14 App shell wiring', () => {
 
   it('navigates across QuotaAccountsPage, WorkspaceWorkbenchPage and ChatTimelinePage', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderAppShell();
 
     await screen.findByLabelText('Sua mensagem');
 
@@ -346,7 +362,7 @@ describe('Onda 14 App shell wiring', () => {
 
   it('opens SplitTerminalView when routed to /terminal', async () => {
     window.history.pushState({}, '', '/terminal');
-    render(<App />);
+    renderAppShell();
 
     expect(await screen.findByTestId('split-terminal-view')).toBeInTheDocument();
   });

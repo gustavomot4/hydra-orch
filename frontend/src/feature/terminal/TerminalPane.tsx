@@ -57,8 +57,16 @@ import {
   TerminalViewportAdapter,
 } from './terminalTypes';
 
-const MAX_HEADLESS_CHARS = 250_000;
+import { clearPersistedPtyBuffer, getPersistedPtyBuffer, MAX_HEADLESS_CHARS, setPersistedPtyBuffer } from './ptyBuffer';
+
 const RESIZE_DELAY_MS = 90;
+function readCssToken(name: string): string | undefined {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return undefined;
+  }
+  const value = window.getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || undefined;
+}
 
 function canUseCanvasRenderer(): boolean {
   if (typeof document === 'undefined') {
@@ -78,35 +86,59 @@ function canUseCanvasRenderer(): boolean {
 function createXtermAdapter(
   container: HTMLElement,
   options: TerminalAdapterOptions,
+  labelTitle: string,
 ): TerminalViewportAdapter {
+  const bgMain = readCssToken('--bg-main');
+  const bgRail = readCssToken('--bg-rail');
+  const textPrimary = readCssToken('--text-primary');
+  const accent = readCssToken('--accent');
+  const accentSoft = readCssToken('--accent-soft');
+  const statusError = readCssToken('--status-error');
+  const statusSuccess = readCssToken('--status-success');
+  const statusWarning = readCssToken('--status-warning');
+  const statusInfo = readCssToken('--status-info');
+
   const term = new Terminal({
     cols: options.cols,
     rows: options.rows,
     windowsPty: options.backendKind === 'windows_conpty' ? { backend: 'conpty' } : undefined,
     cursorBlink: true,
-    fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+    fontFamily:
+      readCssToken('--font-mono') ??
+      'JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: useLayoutStore.getState().terminalFontSize,
     lineHeight: 1.4,
     scrollback: 2000,
     theme: {
-      background: '#141414',
-      foreground: '#E8E8E8',
-      cursor: '#E8E8E8',
-      cursorAccent: '#141414',
-      selectionBackground: 'rgba(59, 130, 246, 0.3)',
-      black: '#181818',
-      red: '#F87171',
-      green: '#4ADE80',
-      yellow: '#FBBF24',
-      blue: '#60A5FA',
-      magenta: '#C084FC',
-      cyan: '#22D3EE',
-      white: '#E8E8E8',
+      background: bgMain,
+      foreground: textPrimary,
+      cursor: accent ?? textPrimary,
+      cursorAccent: bgMain,
+      selectionBackground: accentSoft,
+      black: bgRail,
+      red: statusError,
+      green: statusSuccess,
+      yellow: statusWarning,
+      blue: statusInfo,
+      magenta: accent,
+      cyan: statusInfo,
+      white: textPrimary,
     },
   });
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
   term.open(container);
+
+  term.attachCustomKeyEventHandler((ev) => {
+    if (ev.type === 'keydown' && (ev.key === 'F6' || ev.key === 'Escape')) {
+      if (ev.key === 'F6' || ev.ctrlKey || options.shouldEscapeOnBareEsc?.()) {
+        ev.preventDefault();
+        options.onEscapeFocus?.();
+        return false;
+      }
+    }
+    return true;
+  });
 
   const fit = () => {
     if (!container.clientWidth || !container.clientHeight) return null;
@@ -129,13 +161,20 @@ function createXtermAdapter(
   };
 
   const textarea = term.textarea;
+  if (textarea) {
+    textarea.setAttribute('aria-label', `Entrada do terminal ${labelTitle}`);
+    if (options.escapeHintId) {
+      textarea.setAttribute('aria-describedby', options.escapeHintId);
+    }
+    textarea.addEventListener('paste', pasteCaptureHandler, true);
+  }
+
   const unsubscribeFont = useLayoutStore.subscribe((next, prev) => {
     if (next.terminalFontSize !== prev.terminalFontSize) {
       term.options.fontSize = next.terminalFontSize;
       fit();
     }
   });
-  textarea?.addEventListener('paste', pasteCaptureHandler, true);
 
   let resizeObserver: ResizeObserver | null = null;
   if (typeof ResizeObserver !== 'undefined') {
@@ -146,6 +185,14 @@ function createXtermAdapter(
   return {
     kind: 'xterm',
     write: (text) => term.write(text),
+    restore: (text) => {
+      // Escape sequences in the recorded output can request terminal reports.
+      // Replaying them must not inject input into the running process.
+      term.options.disableStdin = true;
+      term.write(text, () => {
+        term.options.disableStdin = false;
+      });
+    },
     clear: () => term.clear(),
     resize: (cols, rows) => term.resize(cols, rows),
     fit,
@@ -178,6 +225,7 @@ export interface TerminalPaneProps {
   webSocketFactory?: (url: string, options: { token: string | null }) => PtyWebSocketLike;
   terminalAdapterFactory?: TerminalAdapterFactory;
   autoFocus?: boolean;
+  persistCursor?: boolean;
   onSessionChange?: (session: PtySessionInfo) => void;
   onClosed?: (session: PtySessionInfo, keepRunning: boolean) => void;
   className?: string;
@@ -194,6 +242,7 @@ export function TerminalPane({
   webSocketFactory,
   terminalAdapterFactory,
   autoFocus = false,
+  persistCursor = false,
   onSessionChange,
   onClosed,
   className = '',
@@ -204,14 +253,17 @@ export function TerminalPane({
   const client = clientOverride ?? defaultClient;
   const token = tokenOverride !== undefined ? tokenOverride : storeToken;
 
+  const initialCached = persistCursor ? getPersistedPtyBuffer(initialSession.session_id) : null;
+
   const [session, setSession] = useState<PtySessionInfo>(initialSession);
   const [transportMode, setTransportMode] = useState<PtyTransportMode>('connecting');
-  const [headlessBuffer, setHeadlessBuffer] = useState<string>('');
+  const [headlessBuffer, setHeadlessBuffer] = useState<string>(initialCached?.buffer ?? '');
   const [rendererKind, setRendererKind] = useState<'xterm' | 'headless-dom' | 'loading'>('loading');
-  const [lastSeqDisplay, setLastSeqDisplay] = useState<number>(0);
+  const [lastSeqDisplay, setLastSeqDisplay] = useState<number>(initialCached?.lastSeq ?? 0);
   const [cursorExpiredNotice, setCursorExpiredNotice] = useState<string | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [terminalFocused, setTerminalFocused] = useState<boolean>(false);
 
   const [pendingPasteText, setPendingPasteText] = useState<string | null>(null);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
@@ -220,19 +272,30 @@ export function TerminalPane({
   const [reconnectNonce, setReconnectNonce] = useState(0);
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const toolbarGroupRef = useRef<HTMLDivElement | null>(null);
   const headlessInputRef = useRef<HTMLTextAreaElement | null>(null);
   const adapterRef = useRef<TerminalViewportAdapter | null>(null);
   const wsRef = useRef<PtyWebSocketLike | null>(null);
-  const lastSeqRef = useRef<number>(0);
+  const lastSeqRef = useRef<number>(initialCached?.lastSeq ?? 0);
+  const rawTranscriptRef = useRef<string>(initialCached?.buffer ?? '');
   const displaySeqFrame = useRef<number | null>(null);
   const resizeTimer = useRef<number | null>(null);
   const requestedSize = useRef<TerminalDimensions | null>(null);
   const httpInputQueue = useRef(Promise.resolve());
   const sessionRef = useRef<PtySessionInfo>(initialSession);
   const isComposingRef = useRef<boolean>(false);
+  const terminalFocusedRef = useRef<boolean>(false);
+  const persistCursorRef = useRef<boolean>(persistCursor);
   const onSessionChangeRef = useRef(onSessionChange);
   const autoFocusRef = useRef(autoFocus);
 
+  const resolvedTitle =
+    title ?? (session.command.length > 0 ? session.command.join(' ') : 'Terminal PTY');
+  const escapeHintId = `terminal-escape-hint-${session.session_id}`;
+
+  useEffect(() => {
+    persistCursorRef.current = persistCursor;
+  }, [persistCursor]);
   useEffect(() => {
     onSessionChangeRef.current = onSessionChange;
   }, [onSessionChange]);
@@ -250,6 +313,15 @@ export function TerminalPane({
     [],
   );
 
+  const escapeTerminalFocus = useCallback(() => {
+    terminalFocusedRef.current = false;
+    setTerminalFocused(false);
+    const target = toolbarGroupRef.current?.querySelector<HTMLButtonElement>(
+      'button:not(:disabled)',
+    );
+    target?.focus();
+  }, []);
+
   const updateSession = useCallback((next: PtySessionInfo) => {
     if (next.session_id !== sessionRef.current.session_id) return;
     sessionRef.current = next;
@@ -257,15 +329,22 @@ export function TerminalPane({
     onSessionChangeRef.current?.(next);
   }, []);
 
-  // Sync if caller switches to a different session_id
+  // Sync if caller switches to a different session_id (e.g. secondary promoted to primary)
   useEffect(() => {
     if (initialSession.session_id !== sessionRef.current.session_id) {
-      lastSeqRef.current = 0;
+      const nextCached = persistCursorRef.current
+        ? getPersistedPtyBuffer(initialSession.session_id)
+        : null;
+      const nextSeq = nextCached?.lastSeq ?? 0;
+      const nextBuf = nextCached?.buffer ?? '';
+
+      lastSeqRef.current = nextSeq;
+      rawTranscriptRef.current = nextBuf;
       requestedSize.current = null;
       if (resizeTimer.current !== null) window.clearTimeout(resizeTimer.current);
       resizeTimer.current = null;
-      setLastSeqDisplay(0);
-      setHeadlessBuffer('');
+      setLastSeqDisplay(nextSeq);
+      setHeadlessBuffer(nextBuf);
       setCursorExpiredNotice(null);
       setErrorBanner(null);
       adapterRef.current?.clear();
@@ -282,6 +361,16 @@ export function TerminalPane({
       return;
     }
     lastSeqRef.current = chunk.seq;
+    const combinedTranscript = rawTranscriptRef.current + chunk.text;
+    rawTranscriptRef.current =
+      combinedTranscript.length > MAX_HEADLESS_CHARS
+        ? combinedTranscript.slice(combinedTranscript.length - MAX_HEADLESS_CHARS)
+        : combinedTranscript;
+
+    if (persistCursorRef.current) {
+      setPersistedPtyBuffer(sessionRef.current.session_id, chunk.seq, rawTranscriptRef.current);
+    }
+
     if (adapterRef.current) {
       adapterRef.current.write(chunk.text);
       if (displaySeqFrame.current === null) {
@@ -292,12 +381,7 @@ export function TerminalPane({
       }
     } else {
       setLastSeqDisplay(chunk.seq);
-      setHeadlessBuffer((prev) => {
-        const combined = prev + chunk.text;
-        return combined.length > MAX_HEADLESS_CHARS
-          ? combined.slice(combined.length - MAX_HEADLESS_CHARS)
-          : combined;
-      });
+      setHeadlessBuffer(rawTranscriptRef.current);
     }
   }, []);
 
@@ -392,24 +476,23 @@ export function TerminalPane({
       return;
     }
 
+    const adapterOpts: TerminalAdapterOptions = {
+      cols: sessionRef.current.cols,
+      rows: sessionRef.current.rows,
+      backendKind: sessionRef.current.backend_kind,
+      escapeHintId,
+      onMultilinePaste: (text) => setPendingPasteText(text),
+      onInterruptShortcut: () => void handleInterrupt(),
+      onEscapeFocus: escapeTerminalFocus,
+      shouldEscapeOnBareEsc: () => terminalFocusedRef.current,
+    };
+
     let created: TerminalViewportAdapter | null = null;
     if (terminalAdapterFactory) {
-      created = terminalAdapterFactory(container, {
-        cols: sessionRef.current.cols,
-        rows: sessionRef.current.rows,
-        backendKind: sessionRef.current.backend_kind,
-        onMultilinePaste: (text) => setPendingPasteText(text),
-        onInterruptShortcut: () => void handleInterrupt(),
-      });
+      created = terminalAdapterFactory(container, adapterOpts);
     } else if (canUseCanvasRenderer()) {
       try {
-        created = createXtermAdapter(container, {
-          cols: sessionRef.current.cols,
-          rows: sessionRef.current.rows,
-          backendKind: sessionRef.current.backend_kind,
-          onMultilinePaste: (text) => setPendingPasteText(text),
-          onInterruptShortcut: () => void handleInterrupt(),
-        });
+        created = createXtermAdapter(container, adapterOpts, resolvedTitle);
       } catch {
         created = null;
       }
@@ -423,7 +506,12 @@ export function TerminalPane({
 
     adapterRef.current = created;
     setRendererKind(created.kind);
-    if (autoFocusRef.current && container.clientWidth > 0) created.focus();
+    if (rawTranscriptRef.current.length > 0) {
+      (created.restore ?? created.write)(rawTranscriptRef.current);
+    }
+    if (autoFocusRef.current && container.clientWidth > 0) {
+      created.focus();
+    }
     const unsubData = created.onData((data) => {
       void sendInputData(data);
     });
@@ -435,7 +523,6 @@ export function TerminalPane({
       const dimensions = created.fit();
       if (dimensions) handleResizeDimensions(dimensions);
     };
-    // Keep the initial replay in the dimensions the process used, then fit the viewport.
     if (created.kind === 'xterm') {
       if (document.fonts) void document.fonts.ready.then(fitToViewport);
       else fitToViewport();
@@ -449,8 +536,11 @@ export function TerminalPane({
     };
   }, [
     session.session_id,
+    escapeHintId,
+    resolvedTitle,
     terminalAdapterFactory,
     handleInterrupt,
+    escapeTerminalFocus,
     sendInputData,
     handleResizeDimensions,
   ]);
@@ -484,6 +574,20 @@ export function TerminalPane({
       requestedSize.current = null;
     };
 
+    const resetExpiredCursor = (expiredSeq: number) => {
+      setCursorExpiredNotice(
+        `Cursor after_seq=${expiredSeq} expirado (HTTP 410); recarregando backlog retido.`,
+      );
+      lastSeqRef.current = 0;
+      rawTranscriptRef.current = '';
+      setLastSeqDisplay(0);
+      setHeadlessBuffer('');
+      adapterRef.current?.clear();
+      if (persistCursorRef.current) {
+        setPersistedPtyBuffer(session.session_id, 0, '');
+      }
+    };
+
     const runHttpBacklogRead = async (resetOnExpired = true): Promise<PtySessionInfo | null> => {
       try {
         const res = await readPtyOutput(client, session.session_id, lastSeqRef.current);
@@ -504,11 +608,7 @@ export function TerminalPane({
           err instanceof ControlPlaneApiError &&
           (err.status === 410 || err.payload.code === 'cursor_expired')
         ) {
-          setCursorExpiredNotice(
-            `Cursor after_seq=${lastSeqRef.current} expirado (HTTP 410); recarregando backlog retido.`,
-          );
-          lastSeqRef.current = 0;
-          setLastSeqDisplay(0);
+          resetExpiredCursor(lastSeqRef.current);
           return runHttpBacklogRead(false);
         }
         if (err instanceof ControlPlaneApiError) {
@@ -570,11 +670,7 @@ export function TerminalPane({
           err instanceof ControlPlaneApiError &&
           (err.status === 410 || err.payload.code === 'cursor_expired')
         ) {
-          setCursorExpiredNotice(
-            `Cursor after_seq=${lastSeqRef.current} expirado (HTTP 410); recarregando backlog retido.`,
-          );
-          lastSeqRef.current = 0;
-          setLastSeqDisplay(0);
+          resetExpiredCursor(lastSeqRef.current);
           await runSseFallback();
           return;
         }
@@ -727,6 +823,17 @@ export function TerminalPane({
 
   const renderedSegments = useMemo(() => parseAnsiText(headlessBuffer), [headlessBuffer]);
 
+  const handleViewportKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (isComposingRef.current || pendingPasteText !== null || closeDialogOpen) {
+      return;
+    }
+    if (event.key === 'F6' || (event.key === 'Escape' && (event.ctrlKey || terminalFocused))) {
+      event.preventDefault();
+      event.stopPropagation();
+      escapeTerminalFocus();
+    }
+  };
+
   const handleHeadlessPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const pasted =
       event.clipboardData?.getData('text/plain') ?? event.clipboardData?.getData('text') ?? '';
@@ -846,6 +953,7 @@ export function TerminalPane({
       setCloseDialogOpen(true);
       return;
     }
+    clearPersistedPtyBuffer(session.session_id);
     onClosed?.(session, false);
   };
 
@@ -854,6 +962,9 @@ export function TerminalPane({
     setCloseError(null);
     try {
       const updated = await closePtySession(client, session.session_id, keepRunning);
+      if (!keepRunning) {
+        clearPersistedPtyBuffer(session.session_id);
+      }
       updateSession(updated);
       setCloseDialogOpen(false);
       onClosed?.(updated, keepRunning);
@@ -866,8 +977,6 @@ export function TerminalPane({
     }
   };
 
-  const resolvedTitle =
-    title ?? (session.command.length > 0 ? session.command.join(' ') : 'Terminal PTY');
   const statusLabel = PTY_STATUS_LABELS[session.status] ?? session.status;
   const transportLabel =
     transportMode === 'ws'
@@ -888,34 +997,35 @@ export function TerminalPane({
       data-pty-certified={String(session.pty_certified)}
       data-renderer={rendererKind}
       data-transport={transportMode}
-      className={`flex h-full min-h-[340px] flex-col overflow-hidden rounded-xl border border-[#303030] bg-[#141414] text-[#E8E8E8] ${className}`}
+      className={`flex h-full min-h-[340px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-main)] text-[var(--text-primary)] ${className}`}
     >
-      {/* Header without macOS dots; always shows host_id, cwd, session_id, status, exit_code & certification */}
-      <header className="border-b border-[#303030] bg-[#1C1C1C] px-3 py-2.5">
+      <header className="border-b border-[var(--border)] bg-[var(--bg-sidebar)] px-3 py-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[#303030] bg-[#202020]">
-              <TerminalIcon aria-hidden="true" className="h-3.5 w-3.5 text-[#E8E8E8]" />
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--bg-surface)]">
+              <TerminalIcon aria-hidden="true" className="h-3.5 w-3.5 text-[var(--text-primary)]" />
             </span>
-            <h2 className="truncate text-xs font-semibold text-[#E8E8E8]">{resolvedTitle}</h2>
+            <h2 className="truncate text-xs font-semibold text-[var(--text-primary)]">
+              {resolvedTitle}
+            </h2>
 
             <StatusBadge status={session.status} labelOverride={statusLabel} compact />
 
             {session.exit_code !== null ? (
               <span
                 data-testid="pty-exit-code"
-                className="inline-flex items-center rounded-md border border-[#303030] bg-[#202020] px-1.5 py-0.5 font-mono text-[11px] text-[#E8E8E8]"
+                className="inline-flex items-center rounded-md border border-[var(--border)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-xs text-[var(--text-primary)]"
               >
-                Código de saída: {session.exit_code}
+                Código de saída: <code className="ml-1">{session.exit_code}</code>
               </span>
             ) : null}
 
             <span
               data-testid="pty-capability-badge"
-              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${
                 session.pty_certified
-                  ? 'border-[#22C55E]/40 bg-[#22C55E]/10 text-[#4ADE80]'
-                  : 'border-[#F59E0B]/40 bg-[#F59E0B]/10 text-[#FCD34D]'
+                  ? 'border-[var(--status-success)] bg-[var(--bg-surface)] text-[var(--status-success)]'
+                  : 'border-[var(--status-warning)] bg-[var(--bg-surface)] text-[var(--status-warning)]'
               }`}
             >
               {session.pty_certified ? (
@@ -932,10 +1042,10 @@ export function TerminalPane({
             </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="rounded border border-[#303030] bg-[#141414] px-1.5 py-0.5 font-mono text-[11px] text-[#969696]">
-              {transportLabel} · {session.cols}×{session.rows} · seq {lastSeqDisplay}
-            </span>
+          <div ref={toolbarGroupRef} className="flex flex-wrap items-center gap-1.5">
+            <code className="rounded border border-[var(--border)] bg-[var(--bg-main)] px-1.5 py-0.5 text-xs text-[var(--text-muted)]">
+              {transportLabel} {session.cols}×{session.rows} seq {lastSeqDisplay}
+            </code>
 
             <button
               type="button"
@@ -943,9 +1053,9 @@ export function TerminalPane({
               disabled={session.status !== 'running'}
               title="Ajustar dimensões do terminal"
               aria-label="Ajustar dimensões do terminal"
-              className="inline-flex items-center gap-1 rounded-md border border-[#303030] bg-[#202020] px-2 py-1 text-[11px] text-[#E8E8E8] transition-colors hover:bg-[#282828] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-[32px] min-w-[32px] items-center justify-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-surface)] px-2.5 py-1 text-xs text-[var(--text-primary)] transition-colors [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50 max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
             >
-              <Maximize2 aria-hidden="true" className="h-3 w-3" />
+              <Maximize2 aria-hidden="true" className="h-3.5 w-3.5" />
               {!compact ? <span>Ajustar</span> : null}
             </button>
 
@@ -953,10 +1063,10 @@ export function TerminalPane({
               type="button"
               onClick={() => void handleCopySelection()}
               title="Copiar saída selecionada"
-              aria-label="Copiar saída selecionada"
-              className="inline-flex items-center gap-1 rounded-md border border-[#303030] bg-[#202020] px-2 py-1 text-[11px] text-[#E8E8E8] transition-colors hover:bg-[#282828]"
+              aria-label={copyFeedback ? `${copyFeedback} saída selecionada` : 'Copiar saída selecionada'}
+              className="inline-flex min-h-[32px] min-w-[32px] items-center justify-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-surface)] px-2.5 py-1 text-xs text-[var(--text-primary)] transition-colors [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[var(--bg-hover)] max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
             >
-              <Copy aria-hidden="true" className="h-3 w-3" />
+              <Copy aria-hidden="true" className="h-3.5 w-3.5" />
               {!compact ? <span>{copyFeedback ?? 'Copiar'}</span> : null}
             </button>
 
@@ -965,9 +1075,9 @@ export function TerminalPane({
               onClick={() => setReconnectNonce((n) => n + 1)}
               title="Reconectar stream a partir do cursor atual"
               aria-label="Reconectar stream PTY"
-              className="inline-flex items-center gap-1 rounded-md border border-[#303030] bg-[#202020] px-2 py-1 text-[11px] text-[#E8E8E8] transition-colors hover:bg-[#282828]"
+              className="inline-flex min-h-[32px] min-w-[32px] items-center justify-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-surface)] px-2.5 py-1 text-xs text-[var(--text-primary)] transition-colors [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[var(--bg-hover)] max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
             >
-              <RefreshCw aria-hidden="true" className="h-3 w-3" />
+              <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
               {!compact ? <span>Reconectar</span> : null}
             </button>
 
@@ -977,9 +1087,9 @@ export function TerminalPane({
               disabled={session.status !== 'running'}
               title="Enviar interrupção (Ctrl+C / SIGINT)"
               aria-label="Interromper processo"
-              className="inline-flex items-center gap-1 rounded-md border border-[#F59E0B]/40 bg-[#F59E0B]/10 px-2 py-1 text-[11px] font-medium text-[#FCD34D] transition-colors hover:bg-[#F59E0B]/20 disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex min-h-[32px] items-center justify-center gap-1 rounded-md border border-[var(--status-warning)] bg-[var(--bg-surface)] px-2.5 py-1 text-xs font-medium text-[var(--status-warning)] transition-colors [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-40 max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
             >
-              <OctagonX aria-hidden="true" className="h-3 w-3" />
+              <OctagonX aria-hidden="true" className="h-3.5 w-3.5" />
               <span>Interromper</span>
             </button>
 
@@ -988,9 +1098,9 @@ export function TerminalPane({
               onClick={handleRequestClose}
               title="Fechar terminal"
               aria-label="Fechar terminal"
-              className="inline-flex items-center gap-1 rounded-md border border-[#303030] bg-[#202020] px-2 py-1 text-[11px] text-[#E8E8E8] transition-colors hover:bg-[#EF4444]/15 hover:text-[#FCA5A5]"
+              className="inline-flex min-h-[32px] items-center justify-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-surface)] px-2.5 py-1 text-xs text-[var(--text-primary)] transition-colors [@media(hover:hover)_and_(pointer:fine)]:hover:border-[var(--status-error)] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[var(--status-error)] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
             >
-              <X aria-hidden="true" className="h-3 w-3" />
+              <X aria-hidden="true" className="h-3.5 w-3.5" />
               <span>Fechar</span>
             </button>
           </div>
@@ -999,13 +1109,13 @@ export function TerminalPane({
         {/* Always-visible identity metadata row */}
         <dl
           data-testid="pty-header-metadata"
-          className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[#969696]"
+          className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--text-muted)]"
         >
           <div className="inline-flex items-center gap-1">
-            <Server aria-hidden="true" className="h-3 w-3 text-[#969696]" />
+            <Server aria-hidden="true" className="h-3 w-3 text-[var(--text-muted)]" />
             <dt className="sr-only">Host</dt>
-            <dd data-testid="pty-meta-host" className="font-mono text-[#E8E8E8]">
-              {session.host_id}
+            <dd data-testid="pty-meta-host" className="text-[var(--text-primary)]">
+              <code>{session.host_id}</code>
             </dd>
           </div>
           <div className="inline-flex min-w-0 items-center gap-1">
@@ -1013,19 +1123,19 @@ export function TerminalPane({
             <dd
               data-testid="pty-meta-cwd"
               title={session.cwd}
-              className="max-w-[320px] truncate font-mono text-[#E8E8E8]"
+              className="max-w-[320px] truncate text-[var(--text-primary)]"
             >
-              {session.cwd}
+              <code>{session.cwd}</code>
             </dd>
           </div>
           <div className="inline-flex items-center gap-1">
             <dt>sessão:</dt>
-            <dd data-testid="pty-meta-session" className="font-mono text-[#E8E8E8]">
-              {session.session_id}
+            <dd data-testid="pty-meta-session" className="text-[var(--text-primary)]">
+              <code>{session.session_id}</code>
             </dd>
           </div>
           {session.detached ? (
-            <span className="rounded bg-[#202020] px-1.5 py-0.5 text-[10px] text-[#969696]">
+            <span className="rounded bg-[var(--bg-surface)] px-1.5 py-0.5 text-xs text-[var(--text-muted)]">
               Segundo plano
             </span>
           ) : null}
@@ -1035,13 +1145,13 @@ export function TerminalPane({
       {cursorExpiredNotice ? (
         <div
           role="status"
-          className="flex items-center justify-between gap-2 border-b border-[#F59E0B]/30 bg-[#F59E0B]/10 px-3 py-1.5 text-xs text-[#FCD34D]"
+          className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--status-warning)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs text-[var(--status-warning)]"
         >
           <span>{cursorExpiredNotice}</span>
           <button
             type="button"
             onClick={() => setCursorExpiredNotice(null)}
-            className="text-[11px] underline"
+            className="min-h-[28px] px-2 text-xs underline max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
           >
             Dispensar
           </button>
@@ -1051,13 +1161,13 @@ export function TerminalPane({
       {errorBanner ? (
         <div
           role="alert"
-          className="flex items-center justify-between gap-2 border-b border-[#EF4444]/40 bg-[#EF4444]/10 px-3 py-1.5 text-xs text-[#FCA5A5]"
+          className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--status-error)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs text-[var(--status-error)]"
         >
           <span>{errorBanner}</span>
           <button
             type="button"
             onClick={() => setErrorBanner(null)}
-            className="text-[11px] underline"
+            className="min-h-[28px] px-2 text-xs underline max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
           >
             Fechar aviso
           </button>
@@ -1067,6 +1177,17 @@ export function TerminalPane({
       {/* Viewport */}
       <div
         ref={viewportRef}
+        onKeyDownCapture={handleViewportKeyDownCapture}
+        onFocusCapture={() => {
+          terminalFocusedRef.current = true;
+          setTerminalFocused(true);
+        }}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            terminalFocusedRef.current = false;
+            setTerminalFocused(false);
+          }
+        }}
         onClick={() => {
           if (adapterRef.current) {
             adapterRef.current.focus();
@@ -1074,19 +1195,19 @@ export function TerminalPane({
             headlessInputRef.current?.focus();
           }
         }}
-        className="relative flex min-h-[240px] min-w-0 flex-1 flex-col overflow-hidden bg-[#141414] [&>.xterm]:h-full [&>.xterm]:w-full"
+        className="relative flex min-h-[240px] min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-main)] focus-within:ring-2 focus-within:ring-inset focus-within:ring-[var(--accent)] [&>.xterm]:h-full [&>.xterm]:w-full"
       >
         {rendererKind === 'headless-dom' ? (
           <div className="flex min-h-0 flex-1 flex-col">
-            <div
+            <pre
               role="log"
               aria-live="polite"
               aria-label={`Saída do terminal ${resolvedTitle}`}
               data-testid="terminal-output"
-              className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-relaxed text-[#E8E8E8]"
+              className="m-0 min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words p-3 text-xs leading-relaxed text-[var(--text-primary)]"
             >
               {renderedSegments.length === 0 ? (
-                <span className="text-[#969696]">Aguardando saída do processo PTY...</span>
+                <span className="text-[var(--text-muted)]">Aguardando saída do processo PTY...</span>
               ) : (
                 renderedSegments.map((seg, index) => (
                   <span
@@ -1107,13 +1228,14 @@ export function TerminalPane({
                   </span>
                 ))
               )}
-            </div>
+            </pre>
 
-            <div className="border-t border-[#303030] bg-[#181818] px-3 py-2">
+            <div className="border-t border-[var(--border)] bg-[var(--bg-rail)] px-3 py-2">
               <textarea
                 ref={headlessInputRef}
                 data-testid="terminal-input"
                 aria-label={`Entrada do terminal ${resolvedTitle}`}
+                aria-describedby={escapeHintId}
                 rows={1}
                 disabled={session.status !== 'running'}
                 placeholder={
@@ -1126,11 +1248,39 @@ export function TerminalPane({
                 onChange={handleHeadlessChange}
                 onCompositionStart={handleHeadlessCompositionStart}
                 onCompositionEnd={handleHeadlessCompositionEnd}
-                className="w-full resize-none rounded-lg border border-[#303030] bg-[#141414] px-2.5 py-1.5 font-mono text-xs text-[#E8E8E8] placeholder:text-[#969696] focus:border-[#3B82F6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-2.5 py-1.5 font-mono text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
               />
             </div>
           </div>
         ) : null}
+      </div>
+
+      {/* Subtle accessible keyboard escape hint (WCAG 2.1.2) */}
+      <div
+        id={escapeHintId}
+        data-testid="terminal-escape-hint"
+        data-active={terminalFocused ? 'true' : 'false'}
+        className={`flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] px-3 py-1.5 text-xs ${
+          terminalFocused
+            ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
+            : 'bg-[var(--bg-rail)] text-[var(--text-muted)]'
+        }`}
+      >
+        <span>
+          Teclado: pressione{' '}
+          <kbd className="rounded border border-[var(--border)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-xs text-[var(--text-primary)]">
+            F6
+          </kbd>
+          ,{' '}
+          <kbd className="rounded border border-[var(--border)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-xs text-[var(--text-primary)]">
+            Ctrl+Esc
+          </kbd>{' '}
+          ou{' '}
+          <kbd className="rounded border border-[var(--border)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-xs text-[var(--text-primary)]">
+            Esc
+          </kbd>{' '}
+          para sair do terminal e focar os controles.
+        </span>
       </div>
 
       {/* Multiline paste review dialog */}
@@ -1143,15 +1293,18 @@ export function TerminalPane({
         }}
       >
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-[var(--bg-main)]/80" />
           <Dialog.Content
             data-testid="multiline-paste-dialog"
-            className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,520px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#303030] bg-[#202020] p-6 text-[#E8E8E8] shadow-2xl focus:outline-none"
+            className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,520px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-6 text-[var(--text-primary)] shadow-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <ClipboardPaste aria-hidden="true" className="h-4 w-4 text-[#FCD34D]" />
-                <Dialog.Title className="text-sm font-semibold text-[#E8E8E8]">
+                <ClipboardPaste
+                  aria-hidden="true"
+                  className="h-4 w-4 text-[var(--status-warning)]"
+                />
+                <Dialog.Title className="text-sm font-semibold text-[var(--text-primary)]">
                   Revisar colagem multilinha
                 </Dialog.Title>
               </div>
@@ -1159,14 +1312,14 @@ export function TerminalPane({
                 <button
                   type="button"
                   aria-label="Fechar revisão de colagem"
-                  className="rounded-lg p-1 text-[#969696] hover:bg-[#282828] hover:text-[#E8E8E8]"
+                  className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg p-1.5 text-[var(--text-muted)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[var(--bg-hover)] [@media(hover:hover)_and_(pointer:fine)]:hover:text-[var(--text-primary)] max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
                 >
                   <X aria-hidden="true" className="h-4 w-4" />
                 </button>
               </Dialog.Close>
             </div>
 
-            <Dialog.Description className="mt-2 flex items-start gap-2 rounded-lg border border-[#F59E0B]/40 bg-[#F59E0B]/10 p-2.5 text-xs text-[#FCD34D]">
+            <Dialog.Description className="mt-2 flex items-start gap-2 rounded-lg border border-[var(--status-warning)] bg-[var(--bg-main)] p-2.5 text-xs text-[var(--status-warning)]">
               <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
                 {countPasteLines(pendingPasteText ?? '')} linhas detectadas. Colar múltiplas linhas
@@ -1179,14 +1332,14 @@ export function TerminalPane({
               value={pendingPasteText ?? ''}
               onChange={(e) => setPendingPasteText(e.target.value)}
               rows={6}
-              className="mt-3 w-full rounded-xl border border-[#303030] bg-[#141414] p-3 font-mono text-xs text-[#E8E8E8] focus:border-[#3B82F6] focus:outline-none"
+              className="mt-3 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-main)] p-3 font-mono text-xs text-[var(--text-primary)] focus:border-[var(--accent)]"
             />
 
             <div className="mt-4 flex justify-end gap-2">
               <Dialog.Close asChild>
                 <button
                   type="button"
-                  className="rounded-lg border border-[#303030] bg-[#181818] px-3 py-2 text-xs font-medium text-[#E8E8E8] hover:bg-[#282828]"
+                  className="min-h-[36px] rounded-lg border border-[var(--border)] bg-[var(--bg-rail)] px-3 py-2 text-xs font-medium text-[var(--text-primary)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[var(--bg-hover)] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
                 >
                   Cancelar
                 </button>
@@ -1200,7 +1353,7 @@ export function TerminalPane({
                     void sendInputData(textToSend);
                   }
                 }}
-                className="rounded-lg bg-[#E8E8E8] px-3 py-2 text-xs font-medium text-[#181818] hover:bg-white"
+                className="min-h-[36px] rounded-lg bg-[var(--btn-primary-bg)] px-3 py-2 text-xs font-medium text-[var(--btn-primary-text)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-[var(--accent-hover)] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
               >
                 Enviar para o terminal
               </button>

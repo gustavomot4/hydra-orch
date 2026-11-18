@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
@@ -6,32 +6,41 @@ import { AuthGate } from '@/component/AuthGate';
 import { PaneLayout } from '@/component/PaneLayout';
 import { Sidebar } from '@/component/Sidebar';
 import { AttachmentDropzone, AttachmentItemView } from '@/feature/attachment';
-import { AutomationsPage } from '@/feature/automation';
 import { ChatTimelinePage } from '@/feature/chat';
 import { ConversationPage } from '@/feature/chat/ConversationPage';
-import { AgentWorkspacePage } from '@/feature/canvas/AgentWorkspacePage';
 import { PromptComposer, SlashCommandItem } from '@/feature/composer';
-import { ComputerUsePanel } from '@/feature/computer_use';
-import { DevicePanel } from '@/feature/device';
 import { DictationControl } from '@/feature/dictation';
-import { GovernancePage } from '@/feature/governance';
 import { QuickOpenDialog, QuickOpenSearchItem } from '@/feature/quickopen';
-import { QuotaAccountsPage } from '@/feature/quota';
-import { SplitTerminalView } from '@/feature/terminal';
 import { createHydraQueryClient } from '@/hook/queryClient';
 import { useBootstrap } from '@/hook/useBootstrap';
 import { useKeyboardShortcuts } from '@/hook/useKeyboardShortcuts';
 import { useWorkspaceHierarchy, WorkspaceTreeNode } from '@/hook/useWorkspaceHierarchy';
-import { ConfigPerfilPage } from '@/page/ConfigPerfilPage';
 import { NovoChatPage } from '@/page/NovoChatPage';
-import { WorkspaceWorkbenchPage } from '@/page/WorkspaceWorkbenchPage';
 import { useAuthStore } from '@/store/authStore';
 import { PaneId, TabKind, useLayoutStore, WorkspaceTab } from '@/store/layoutStore';
 import '@/style/workbench.css';
 
+const AutomationsPage = lazy(() => import('@/feature/automation/AutomationsPage').then((AutomationsPage) => ({ default: AutomationsPage.AutomationsPage })));
+
+const ComputerUsePanel = lazy(() => import('@/feature/computer_use/ComputerUsePanel').then((ComputerUsePanel) => ({ default: ComputerUsePanel.ComputerUsePanel })));
+
+const DevicePanel = lazy(() => import('@/feature/device/DevicePanel').then((DevicePanel) => ({ default: DevicePanel.DevicePanel })));
+
+const GovernancePage = lazy(() => import('@/feature/governance/GovernancePage').then((GovernancePage) => ({ default: GovernancePage.GovernancePage })));
+
+const QuotaAccountsPage = lazy(() => import('@/feature/quota/QuotaAccountsPage').then((QuotaAccountsPage) => ({ default: QuotaAccountsPage.QuotaAccountsPage })));
+
+const SplitTerminalView = lazy(() => import('@/feature/terminal/SplitTerminalView').then((SplitTerminalView) => ({ default: SplitTerminalView.SplitTerminalView })));
+
+const AgentWorkspacePage = lazy(() => import('@/feature/canvas/AgentWorkspacePage').then((AgentWorkspacePage) => ({ default: AgentWorkspacePage.AgentWorkspacePage })));
+
+const ConfigPerfilPage = lazy(() => import('@/page/ConfigPerfilPage').then((ConfigPerfilPage) => ({ default: ConfigPerfilPage.ConfigPerfilPage })));
+
+const WorkspaceWorkbenchPage = lazy(() => import('@/page/WorkspaceWorkbenchPage').then((WorkspaceWorkbenchPage) => ({ default: WorkspaceWorkbenchPage.WorkspaceWorkbenchPage })));
+
 function buildTabFromQuickOpen(item: QuickOpenSearchItem): WorkspaceTab {
-  if (item.tab_hint === 'chat' || item.kind === 'run' || item.kind === 'session') {
-    const runTarget = item.run_id ?? (item.kind === 'run' ? item.id : null);
+  if (item.tab_hint === 'chat' || item.kind === 'run' || item.kind === 'session' || item.kind === 'conversation') {
+    const runTarget = item.kind === 'conversation' || item.kind === 'run' ? item.id : item.run_id;
     const targetId = runTarget ?? item.session_id ?? item.id;
     return {
       id: `tab:chat:${targetId}`,
@@ -77,6 +86,13 @@ export function HydraShell() {
 
   const token = useAuthStore((s) => s.token);
   const status = useAuthStore((s) => s.status);
+  const activeTitle = useLayoutStore((s) => {
+    const id = s.panes[s.focusedPaneId].activeTabId;
+    return id ? s.tabs[id]?.title : undefined;
+  });
+  useEffect(() => {
+    document.title = activeTitle ? `${activeTitle} · Hydra` : 'Hydra';
+  }, [activeTitle]);
   const density = useLayoutStore((s) => s.density);
   const interfaceScale = useLayoutStore((s) => s.interfaceScale);
   const chatFontSize = useLayoutStore((s) => s.chatFontSize);
@@ -104,6 +120,7 @@ export function HydraShell() {
 
   useKeyboardShortcuts({
     enabled: Boolean(token) && status === 'authenticated',
+    onSyncRoute: navigate,
     onFocusSearch: () => {
       setMobileDrawerOpen(false);
       setQuickOpenOpen(true);
@@ -139,7 +156,7 @@ export function HydraShell() {
         id: 'tab:canvas',
         kind: 'canvas',
         title: 'Área de trabalho',
-        route: '/agentes',
+        route: path + location.search,
         closable: true,
       });
     } else if (path === '/workspace') {
@@ -202,12 +219,14 @@ export function HydraShell() {
       const chatId = decodeURIComponent(path.slice('/chat/'.length));
       if (chatId) {
         const tabs = useLayoutStore.getState().tabs;
-        const alreadyOpen = Object.values(tabs).some((t) => t.route === path && t.kind === 'chat');
-        if (!alreadyOpen) {
+        const existing = Object.values(tabs).find((t) => t.route === path && t.kind === 'chat');
+        if (existing) {
+          useLayoutStore.getState().activateTab(existing.id);
+        } else {
           openTab({
             id: `tab:chat:${chatId}`,
             kind: 'chat',
-            title: `Run ${chatId.slice(0, 12)}`,
+            title: chatId.startsWith('conversation-') ? 'Conversa' : `Execução ${chatId.slice(0, 12)}`,
             route: path,
             runId: chatId,
             closable: true,
@@ -231,7 +250,7 @@ export function HydraShell() {
         closable: false,
       });
     }
-  }, [location.pathname, openTab]);
+  }, [location.pathname, location.search, openTab]);
 
   const handleNavigate = useCallback(
     (item: { id: string; label: string; route: string; kind: TabKind }) => {
@@ -508,6 +527,7 @@ export function HydraShell() {
         case 'terminal':
           return (
             <SplitTerminalView
+              key={JSON.stringify([tab.hostId ?? selectedHostId, tab.workspaceId ?? selectedWorkspaceId, activeProjectRoot])}
               hostId={tab.hostId ?? selectedHostId}
               workspaceId={tab.workspaceId ?? selectedWorkspaceId ?? undefined}
               defaultCwd={activeProjectRoot}
@@ -598,11 +618,11 @@ export function HydraShell() {
   const shellContent = (
     <div
       data-testid="hydra-app-shell"
-      className="flex h-screen w-screen overflow-hidden bg-[#141414] text-[#E8E8E8]"
+      className="hydra-app-shell flex bg-[var(--bg-main)] text-[var(--text-primary)]"
     >
       <a
         href="#hydra-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[60] focus:rounded-md focus:bg-[#202020] focus:p-3"
+        className="skip-link"
       >
         Pular para o conteúdo
       </a>
@@ -621,9 +641,13 @@ export function HydraShell() {
           </div>
         ) : (
           <PaneLayout
-            renderTabContent={renderTabPage}
+            renderTabContent={(tab, paneId) => (
+              <Suspense fallback={<p role="status" className="p-4">Carregando tela…</p>}>
+                {renderTabPage(tab, paneId)}
+              </Suspense>
+            )}
             onSyncRoute={(route) => {
-              if (location.pathname !== route) {
+              if (location.pathname + location.search !== route) {
                 navigate(route);
               }
             }}
@@ -663,7 +687,7 @@ export function App() {
   const queryClient = useMemo(() => createHydraQueryClient(), []);
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HydraShell />
       </BrowserRouter>
     </QueryClientProvider>

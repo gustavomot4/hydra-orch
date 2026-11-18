@@ -26,15 +26,13 @@ export function MentionPopover({
 
   return (
     <div
-      id={listboxId}
-      role="listbox"
-      aria-label="Menções de arquivos, workspaces e agentes"
       data-testid="mention-popover"
       className="mb-2 max-h-56 overflow-y-auto rounded-xl border border-[#303030] bg-[#1C1C1C] p-1.5 shadow-xl"
     >
-      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#969696]">
+      <div id={`${listboxId}-label`} className="px-2 py-1 text-xs font-semibold uppercase tracking-wider text-[#969696]">
         Mencionar (@) · ↑↓ navegar · Enter selecionar · Esc fechar
       </div>
+      <div id={listboxId} role="listbox" aria-labelledby={`${listboxId}-label`}>
       {items.map((item, idx) => {
         const meta = KIND_META[item.kind];
         const Icon = meta.Icon;
@@ -46,10 +44,9 @@ export function MentionPopover({
             type="button"
             role="option"
             aria-selected={isActive}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onSelect(item);
-            }}
+            tabIndex={-1}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onSelect(item)}
             className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${
               isActive
                 ? 'bg-[#282828] text-[#E8E8E8]'
@@ -71,6 +68,7 @@ export function MentionPopover({
           </button>
         );
       })}
+      </div>
     </div>
   );
 }

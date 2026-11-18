@@ -20,15 +20,13 @@ export function SlashCommandMenu({
 
   return (
     <div
-      id={listboxId}
-      role="listbox"
-      aria-label="Comandos rápidos"
       data-testid="slash-command-menu"
       className="mb-2 max-h-56 overflow-y-auto rounded-xl border border-[#303030] bg-[#1C1C1C] p-1.5 shadow-xl"
     >
-      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#969696]">
+      <div id={`${listboxId}-label`} className="px-2 py-1 text-xs font-semibold uppercase tracking-wider text-[#969696]">
         Comandos (/) · ↑↓ navegar · Enter executar · Esc fechar
       </div>
+      <div id={listboxId} role="listbox" aria-labelledby={`${listboxId}-label`}>
       {commands.map((cmd, idx) => {
         const isActive = idx === activeIndex;
         return (
@@ -38,10 +36,9 @@ export function SlashCommandMenu({
             type="button"
             role="option"
             aria-selected={isActive}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onSelect(cmd);
-            }}
+            tabIndex={-1}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onSelect(cmd)}
             className={`flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${
               isActive
                 ? 'bg-[#282828] text-[#E8E8E8]'
@@ -59,6 +56,7 @@ export function SlashCommandMenu({
           </button>
         );
       })}
+      </div>
     </div>
   );
 }

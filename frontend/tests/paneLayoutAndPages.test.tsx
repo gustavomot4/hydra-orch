@@ -277,7 +277,7 @@ describe('PaneLayout, NovoChatPage (18:8) and ConfigPerfilPage (18:454)', () => 
     const qc = createHydraQueryClient();
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <PaneLayout
             renderTabContent={(tab) => (
               <div data-testid={`pane-content-${tab?.id ?? 'empty'}`}>
@@ -311,7 +311,7 @@ describe('PaneLayout, NovoChatPage (18:8) and ConfigPerfilPage (18:454)', () => 
     const qc = createHydraQueryClient();
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <NovoChatPage />
         </MemoryRouter>
       </QueryClientProvider>,
@@ -345,7 +345,7 @@ describe('PaneLayout, NovoChatPage (18:8) and ConfigPerfilPage (18:454)', () => 
     try {
       render(
         <QueryClientProvider client={createHydraQueryClient()}>
-          <MemoryRouter>
+          <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <NovoChatPage />
           </MemoryRouter>
         </QueryClientProvider>,
@@ -375,7 +375,7 @@ describe('PaneLayout, NovoChatPage (18:8) and ConfigPerfilPage (18:454)', () => 
     const qc = createHydraQueryClient();
     const { container } = render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <ConfigPerfilPage />
         </MemoryRouter>
       </QueryClientProvider>,

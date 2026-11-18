@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { clearHydraQueryClients } from '@/hook/queryClient';
 
 const TOKEN_STORAGE_KEY = 'hydra_control_plane_token';
 
@@ -45,7 +46,7 @@ export interface AuthState {
 
 const initialToken = readSessionToken();
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   token: initialToken,
   status: initialToken ? 'authenticated' : 'locked',
   principalId: initialToken ? 'operator' : null,
@@ -53,6 +54,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   setAuthenticating: () => set({ status: 'authenticating', authError: null }),
   authenticate: (token: string, principalId = 'operator') => {
     const cleaned = token.trim();
+    const prevToken = get().token;
+    if (prevToken !== null && prevToken !== cleaned) {
+      clearHydraQueryClients();
+    }
     writeSessionToken(cleaned);
     set({
       token: cleaned,
@@ -68,6 +73,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     })),
   lock: (reason?: string) => {
     writeSessionToken(null);
+    clearHydraQueryClients();
     set({
       token: null,
       status: 'locked',
@@ -77,6 +83,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
   logout: () => {
     writeSessionToken(null);
+    clearHydraQueryClients();
     set({
       token: null,
       status: 'locked',

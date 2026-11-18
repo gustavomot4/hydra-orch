@@ -85,7 +85,10 @@ export function CheckBadge({ check }: CheckBadgeProps) {
 }
 
 function formatTimelineTime(iso: string): string {
-  const parsed = new Date(iso);
+  const timestamp = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(iso)
+    ? iso.replace(' ', 'T') + 'Z'
+    : iso;
+  const parsed = new Date(timestamp);
   if (Number.isNaN(parsed.getTime())) {
     return iso;
   }
@@ -108,7 +111,7 @@ function StepGroupCard({ group }: { group: Extract<TimelineRenderItem, { kind: '
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((prev) => !prev)}
-        className="flex w-full items-center justify-between gap-2 text-left text-xs text-[#969696] transition-colors hover:text-[#E8E8E8]"
+        className="flex min-h-[24px] w-full flex-wrap items-center justify-between gap-2 [@media(pointer:coarse)]:min-h-[44px] text-left text-xs text-[#969696] transition-colors hover:text-[#E8E8E8]"
       >
         <span className="inline-flex items-center gap-1.5 font-medium">
           {expanded ? (

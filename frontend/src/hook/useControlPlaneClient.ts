@@ -112,10 +112,16 @@ export function createControlPlaneClient(
 
     if (!response.ok) {
       const parsedErr = ApiErrorSchema.safeParse(parsedJson);
+      const routeMissing =
+        response.status === 404 &&
+        typeof parsedJson === 'object' &&
+        parsedJson !== null &&
+        'detail' in parsedJson &&
+        parsedJson.detail === 'Not Found';
       const apiError = parsedErr.success
         ? parsedErr.data
         : {
-            code: response.status === 401 ? 'unauthorized' : 'http_error',
+            code: routeMissing ? 'endpoint_not_found' : response.status === 401 ? 'unauthorized' : 'http_error',
             message: `Falha na requisição (${response.status})`,
             run_id: null,
             retryable: false,

@@ -23,7 +23,10 @@ export function ModelCatalog({
       title={title}
       description="Busque pelo nome ou provedor. A lista recebida é exibida em páginas."
       trigger={
-        <button type="button" className="chat-text-button">
+        <button
+          type="button"
+          className="chat-text-button inline-flex min-h-[32px] min-w-[24px] items-center px-2 py-1 max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
+        >
           {label ?? `Ver modelos (${models.length})`}
         </button>
       }
@@ -31,7 +34,7 @@ export function ModelCatalog({
       <label htmlFor={id}>Buscar modelos</label>
       <input
         id={id}
-        className="model-catalog-search"
+        className="model-catalog-search max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
         type="search"
         value={search}
         onChange={(e) => {
@@ -61,7 +64,12 @@ export function ModelCatalog({
       </div>
       {!filtered.length && <p role="status">Nenhum modelo encontrado.</p>}
       <div className="canvas-pagination">
-        <button type="button" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
+        <button
+          type="button"
+          disabled={safePage === 0}
+          onClick={() => setPage(safePage - 1)}
+          className="min-h-[32px] min-w-[24px] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
+        >
           Anterior
         </button>
         <span role="status">
@@ -72,6 +80,7 @@ export function ModelCatalog({
           type="button"
           disabled={(safePage + 1) * size >= filtered.length}
           onClick={() => setPage(safePage + 1)}
+          className="min-h-[32px] min-w-[24px] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
         >
           Próxima
         </button>
@@ -84,6 +93,7 @@ export function ModelCatalog({
             setSize(Number(e.target.value));
             setPage(0);
           }}
+          className="min-h-[32px] max-md:min-h-[44px] [@media(pointer:coarse)]:min-h-[44px]"
         >
           {[10, 25, 50].map((n) => (
             <option key={n} value={n}>

@@ -45,7 +45,6 @@ export function AgentWorkspacePage() {
   const previousProject = useRef(project);
   useEffect(() => {
     document.title = 'Área de trabalho · Hydra';
-    heading.current?.focus();
   }, []);
   useEffect(() => {
     if (previousProject.current && previousProject.current !== project) setParams({});
@@ -174,7 +173,12 @@ export function AgentWorkspacePage() {
         <span className="canvas-live" role="status">
           {live || runLive ? 'Ao vivo' : 'Atualização automática'}
         </span>
-        <details ref={picker} className="canvas-work-picker">
+        <details ref={picker} className="canvas-work-picker" onKeyDown={(event) => {
+          if (event.key === 'Escape' && event.currentTarget.open) {
+            event.currentTarget.open = false;
+            event.currentTarget.querySelector('summary')?.focus();
+          }
+        }}>
           <summary>{title || 'Escolher pedido'}</summary>
           <div className="canvas-work-options">
             <label className="canvas-search">
@@ -201,7 +205,7 @@ export function AgentWorkspacePage() {
             />
           </div>
         </details>
-        <div className="canvas-switch" aria-label="Visualização do trabalho">
+        <div className="canvas-switch" role="group" aria-label="Visualização do trabalho">
           <button aria-pressed={view === 'canvas'} onClick={() => setView('canvas')}>
             <Network size={16} />
             Canvas
@@ -279,7 +283,7 @@ export function AgentWorkspacePage() {
                 }}
               />
             ) : (
-              <div className="agent-list" aria-label="Agentes deste trabalho">
+              <div className="agent-list" role="group" aria-label="Agentes deste trabalho">
                 {graph.nodes.map((node) => {
                   const meta = statusMeta(node.state);
                   return (

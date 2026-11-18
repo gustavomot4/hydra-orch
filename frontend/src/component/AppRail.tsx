@@ -82,17 +82,19 @@ export function AppRail({ activeRoute, onNavigate, onSearch, children }: AppRail
   const toggleTreeNode = useLayoutStore((s) => s.toggleTreeNode);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const [narrow, setNarrow] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth < 768,
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
   );
 
   useEffect(() => {
+    const media = window.matchMedia('(max-width: 767px)');
     const sync = () => {
-      const isNarrow = window.innerWidth < 768;
+      const isNarrow = media.matches;
       setNarrow(isNarrow);
       if (!isNarrow && useLayoutStore.getState().mobileDrawerOpen) setMobileDrawerOpen(false);
     };
-    window.addEventListener('resize', sync);
-    return () => window.removeEventListener('resize', sync);
+    sync();
+    media.addEventListener('change', sync);
+    return () => media.removeEventListener('change', sync);
   }, [setMobileDrawerOpen]);
   useEffect(() => {
     if (mobileDrawerOpen) toggleRef.current?.focus();

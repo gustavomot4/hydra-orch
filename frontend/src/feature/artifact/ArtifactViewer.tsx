@@ -367,7 +367,8 @@ export function ArtifactViewer({
           </div>
           {pdfUri ? (
             <iframe
-              title={`Preview PDF ${preview.rel_path}`}
+              title={`Prévia do PDF ${preview.rel_path}`}
+              sandbox=""
               src={pdfUri}
               className="h-[420px] w-full rounded-lg border border-[#303030] bg-[#141414]"
             />
@@ -407,7 +408,7 @@ export function ArtifactViewer({
         </div>
 
         <div className="max-h-[480px] overflow-auto font-mono text-xs">
-          <table className="w-full border-collapse">
+          <table role="presentation" className="w-full border-collapse">
             <tbody>
               {textLines.map((line, idx) => (
                 <tr key={idx} className="hover:bg-[#181818]">

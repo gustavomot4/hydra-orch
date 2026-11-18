@@ -29,12 +29,24 @@ export interface WorkspaceTab {
   projectId?: string;
   runId?: string;
   sessionId?: string;
+  conversationId?: string;
   closable?: boolean;
 }
 
 export type PaneId = 'primary' | 'secondary';
 export type SplitMode = 'single' | 'split';
 export type DensityMode = 'comfortable' | 'compact' | 'spacious';
+
+export function sanitizeTabTitle(title: string): string {
+  const trimmed = typeof title === 'string' ? title.trim() : '';
+  if (!trimmed) {
+    return 'Conversa';
+  }
+  if (/^run\s+conversation(?:\b|[-_:]|$)/i.test(trimmed)) {
+    return 'Conversa';
+  }
+  return trimmed;
+}
 
 export interface AppearancePreferences {
   interfaceScale: number;
@@ -162,6 +174,20 @@ function createDefaultPersistedLayout(): PersistedLayout {
   };
 }
 
+function sanitizeTabsRecord(rawTabs: Record<string, WorkspaceTab>): Record<string, WorkspaceTab> {
+  const cleaned: Record<string, WorkspaceTab> = {};
+  for (const [id, tab] of Object.entries(rawTabs)) {
+    if (!tab || typeof tab !== 'object') {
+      continue;
+    }
+    cleaned[id] = {
+      ...tab,
+      title: sanitizeTabTitle(tab.title),
+    };
+  }
+  return cleaned;
+}
+
 function loadPersistedLayout(): PersistedLayout {
   const fallback = createDefaultPersistedLayout();
   if (typeof window === 'undefined') {
@@ -175,7 +201,7 @@ function loadPersistedLayout(): PersistedLayout {
     const parsed = JSON.parse(raw) as Partial<PersistedLayout>;
     const tabs =
       parsed.tabs && typeof parsed.tabs === 'object'
-        ? { [DEFAULT_HOME_TAB.id]: DEFAULT_HOME_TAB, ...parsed.tabs }
+        ? sanitizeTabsRecord({ [DEFAULT_HOME_TAB.id]: DEFAULT_HOME_TAB, ...parsed.tabs })
         : fallback.tabs;
     const primaryTabs = Array.isArray(parsed.panes?.primary?.tabIds)
       ? parsed.panes.primary.tabIds.filter((id) => Boolean(tabs[id]))
@@ -356,9 +382,13 @@ export const useLayoutStore = create<LayoutState>((set) => ({
     })),
   openTab: (tab, targetPane) =>
     updateAndPersist(set, (prev) => {
-      const existingPaneId: PaneId | null = prev.panes.primary.tabIds.includes(tab.id)
+      const sanitizedTab: WorkspaceTab = {
+        ...tab,
+        title: sanitizeTabTitle(tab.title),
+      };
+      const existingPaneId: PaneId | null = prev.panes.primary.tabIds.includes(sanitizedTab.id)
         ? 'primary'
-        : prev.panes.secondary.tabIds.includes(tab.id)
+        : prev.panes.secondary.tabIds.includes(sanitizedTab.id)
           ? 'secondary'
           : null;
 
@@ -371,19 +401,21 @@ export const useLayoutStore = create<LayoutState>((set) => ({
             : 'primary');
 
       const pane = prev.panes[paneId];
-      const nextTabIds = pane.tabIds.includes(tab.id) ? pane.tabIds : [...pane.tabIds, tab.id];
+      const nextTabIds = pane.tabIds.includes(sanitizedTab.id)
+        ? pane.tabIds
+        : [...pane.tabIds, sanitizedTab.id];
 
       return {
         tabs: {
           ...prev.tabs,
-          [tab.id]: { ...prev.tabs[tab.id], ...tab },
+          [sanitizedTab.id]: { ...prev.tabs[sanitizedTab.id], ...sanitizedTab },
         },
         panes: {
           ...prev.panes,
           [paneId]: {
             ...pane,
             tabIds: nextTabIds,
-            activeTabId: tab.id,
+            activeTabId: sanitizedTab.id,
           },
         },
         focusedPaneId: paneId,

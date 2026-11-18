@@ -105,7 +105,7 @@ export function ConfigPerfilPage() {
     onSuccess: (saved) => {
       setPrefFeedback({
         kind: 'ok',
-        text: `Preferência ${saved.key} salva (versão ${saved.version}).`,
+        text: saved.key === 'ui.keyboard_hints' ? 'Preferência de atalhos salva.' : 'Preferência salva.',
       });
       void queryClient.invalidateQueries({ queryKey: ['control-plane', 'preferences'] });
     },

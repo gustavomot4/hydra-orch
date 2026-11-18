@@ -36,13 +36,30 @@ function buildCreateTiming(
   return { cron_expr: values.cronExpr.trim() };
 }
 
+function buildBudgetPolicyFromForm(
+  rawBudgetUsd: string | undefined,
+): { max_usd: number } | undefined {
+  const trimmed = (rawBudgetUsd ?? '').trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
+  return { max_usd: Number(parsed.toFixed(4)) };
+}
+
 export function buildCreateAutomationPayload(
   values: AutomationFormValues,
 ): AutomationCreatePayload {
   const workspaceId = values.workspaceId.trim();
   const projectId = values.projectId.trim();
-  const retries = Math.trunc(Number(values.maxRetries.trim() === '' ? '0' : values.maxRetries.trim()));
+  const retries = Math.trunc(
+    Number(values.maxRetries.trim() === '' ? '0' : values.maxRetries.trim()),
+  );
   const timing = buildCreateTiming(values);
+  const budgetPolicy = buildBudgetPolicyFromForm(values.maxBudgetUsd);
 
   const payload: AutomationCreatePayload = {
     name: values.name.trim(),
@@ -63,6 +80,9 @@ export function buildCreateAutomationPayload(
   if (projectId.length > 0) {
     payload.project_id = projectId;
   }
+  if (budgetPolicy) {
+    payload.budget_policy = budgetPolicy;
+  }
 
   return payload;
 }
@@ -73,10 +93,13 @@ export function buildUpdateAutomationPayload(
 ): AutomationUpdatePayload {
   const workspaceId = values.workspaceId.trim();
   const projectId = values.projectId.trim();
-  const retries = Math.trunc(Number(values.maxRetries.trim() === '' ? '0' : values.maxRetries.trim()));
+  const retries = Math.trunc(
+    Number(values.maxRetries.trim() === '' ? '0' : values.maxRetries.trim()),
+  );
   const timing = buildCreateTiming(values);
+  const budgetPolicy = buildBudgetPolicyFromForm(values.maxBudgetUsd);
 
-  return {
+  const payload: AutomationUpdatePayload = {
     name: values.name.trim(),
     prompt: values.prompt.trim(),
     ...timing,
@@ -91,6 +114,12 @@ export function buildUpdateAutomationPayload(
     max_retries: retries,
     expected_revision: expectedRevision,
   };
+
+  if (budgetPolicy) {
+    payload.budget_policy = budgetPolicy;
+  }
+
+  return payload;
 }
 
 function assertExclusiveTiming(payload: {
@@ -153,6 +182,9 @@ export async function createAutomation(
   if (body.interval_seconds === undefined) {
     delete body.interval_seconds;
   }
+  if (body.budget_policy === undefined) {
+    delete body.budget_policy;
+  }
   return client.request<AutomationSchedule>('/v1/control-plane/automations', {
     method: 'POST',
     body,
@@ -171,6 +203,9 @@ export async function updateAutomation(
   }
   if (body.interval_seconds === undefined) {
     delete body.interval_seconds;
+  }
+  if (body.budget_policy === undefined) {
+    delete body.budget_policy;
   }
   return client.request<AutomationSchedule>(
     `/v1/control-plane/automations/${encodeURIComponent(scheduleId)}`,

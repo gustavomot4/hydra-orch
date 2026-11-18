@@ -17,7 +17,10 @@ export interface WorkerCardProps {
 }
 
 function formatTraceTime(iso: string): string {
-  const parsed = new Date(iso);
+  const timestamp = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(iso)
+    ? iso.replace(' ', 'T') + 'Z'
+    : iso;
+  const parsed = new Date(timestamp);
   if (Number.isNaN(parsed.getTime())) {
     return iso;
   }
@@ -62,7 +65,7 @@ export function WorkerCard({ worker, onRetryTask, isRetrying = false }: WorkerCa
 
   const durationBadgeText =
     worker.durationSeconds !== null
-      ? `Worked for ${worker.durationSeconds}s`
+      ? `Trabalhou por ${worker.durationSeconds}s`
       : worker.status === 'running'
         ? 'Em execução'
         : 'Duração: —';
@@ -157,7 +160,7 @@ export function WorkerCard({ worker, onRetryTask, isRetrying = false }: WorkerCa
           type="button"
           aria-expanded={traceExpanded}
           onClick={() => setTraceExpanded((prev) => !prev)}
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-[#969696] transition-colors hover:text-[#E8E8E8]"
+          className="inline-flex min-h-[24px] items-center gap-1 text-xs [@media(pointer:coarse)]:min-h-[44px] font-medium text-[#969696] transition-colors hover:text-[#E8E8E8]"
         >
           {traceExpanded ? (
             <ChevronDown aria-hidden="true" className="h-3.5 w-3.5" />

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ControlPlaneClient, RequestOptions } from '@/hook/useControlPlaneClient';
 import { ControlPlaneApiError } from '@/type/controlPlane';
@@ -221,7 +221,7 @@ describe('GovernancePage (Figma 7:205 Recursos)', () => {
     expect(secretsTab).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByTestId('secrets-transports-budget-panel')).toBeInTheDocument();
 
-    fireEvent.keyDown(secretsTab, { key: 'Home' });
+    await act(async () => { fireEvent.keyDown(secretsTab, { key: 'Home' }); });
     expect(skillsTab).toHaveAttribute('aria-selected', 'true');
   });
 

@@ -393,25 +393,27 @@ describe('T38 AttachmentDropzone & AttachmentList (UI04 / UI05)', () => {
     expect(Array.from(decoded)).toEqual(Array.from(binaryBytes));
 
     // Resolve first attempt as local_ready
-    deferred.resolve(
-      new Response(
-        JSON.stringify({
-          attachment_id: 'att-bin-0',
-          workspace_id: 'ws-1',
-          session_id: 'sess-local',
-          host_id: 'local',
-          filename: 'screenshot.png',
-          mime_type: 'image/png',
-          size_bytes: binaryBytes.length,
-          sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-          storage_rel_path: 'files/sess-local/att-bin-0_screenshot.png',
-          transfer_status: 'local_ready',
-          remote_confirmed: false,
-          created_at: '2026-11-13T00:00:00Z',
-        }),
-        { status: 201 },
-      ),
-    );
+    await act(async () => {
+      deferred.resolve(
+        new Response(
+          JSON.stringify({
+            attachment_id: 'att-bin-0',
+            workspace_id: 'ws-1',
+            session_id: 'sess-local',
+            host_id: 'local',
+            filename: 'screenshot.png',
+            mime_type: 'image/png',
+            size_bytes: binaryBytes.length,
+            sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+            storage_rel_path: 'files/sess-local/att-bin-0_screenshot.png',
+            transfer_status: 'local_ready',
+            remote_confirmed: false,
+            created_at: '2026-11-13T00:00:00Z',
+          }),
+          { status: 201 },
+        ),
+      );
+    });
 
     const readyRow = await screen.findByTestId('attachment-item-att-bin-0');
     expect(readyRow).toHaveAttribute('data-upload-status', 'local_ready');
@@ -554,7 +556,9 @@ describe('T38 DictationControl (7:679, 7:1039 / UI08)', () => {
 
     const root = screen.getByTestId('dictation-control');
     expect(root).toHaveAttribute('data-dictation-state', 'unavailable');
+    expect(DICTATION_NOTICE).not.toMatch(/RF36/i);
     expect(screen.getByTestId('dictation-mode-notice')).toHaveTextContent(DICTATION_NOTICE);
+    expect(root).not.toHaveTextContent(/RF36/i);
     expect(screen.getByTestId('dictation-unavailable-notice')).toHaveTextContent(
       'Ditado por voz indisponível neste navegador',
     );

@@ -147,7 +147,7 @@ describe('Approved dark design tokens & PT-BR shell invariants', () => {
     const qc = createHydraQueryClient();
     const { container } = render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={['/']}>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/']}>
           <HydraShell />
         </MemoryRouter>
       </QueryClientProvider>,

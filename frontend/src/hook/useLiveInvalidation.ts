@@ -15,6 +15,7 @@ export function useLiveInvalidation(path: string | null, keys: readonly (readonl
     if (!path || !token) return;
     const controller = new AbortController();
     let cursor = '0';
+    let reconnectDelay = 1000;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const refresh = () => {
       if (!refreshTimer)
@@ -31,7 +32,7 @@ export function useLiveInvalidation(path: string | null, keys: readonly (readonl
           controller.signal.removeEventListener('abort', finish);
           resolve();
         };
-        const timer = setTimeout(finish, 1000);
+        const timer = setTimeout(finish, reconnectDelay);
         controller.signal.addEventListener('abort', finish, { once: true });
       });
     async function connect() {
@@ -45,6 +46,7 @@ export function useLiveInvalidation(path: string | null, keys: readonly (readonl
             lock('Conecte-se novamente para acompanhar o trabalho.');
             return;
           }
+          if (response.status === 403 || response.status === 404) return;
           // Run streams can expire their replay cursor; recover from a snapshot.
           if (response.status === 410) cursor = '0';
           if (!response.ok || !response.body) throw new Error('stream');
@@ -54,6 +56,7 @@ export function useLiveInvalidation(path: string | null, keys: readonly (readonl
           const decoder = new TextDecoder();
           const parser = createParser((event) => {
             if (event.type !== 'event') return;
+            reconnectDelay = 1000;
             if (event.id) cursor = event.id;
             refresh();
           });
@@ -72,6 +75,7 @@ export function useLiveInvalidation(path: string | null, keys: readonly (readonl
         if (!controller.signal.aborted) {
           setConnected(false);
           await pause();
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
         }
       }
     }

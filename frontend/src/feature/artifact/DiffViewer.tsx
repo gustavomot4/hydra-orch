@@ -75,7 +75,7 @@ export function DiffViewer({
         <p className="p-4 text-xs text-[#969696]">Nenhuma alteração de diff para exibir.</p>
       ) : layout === 'unified' ? (
         <div className="overflow-x-auto font-mono text-xs">
-          <table className="w-full border-collapse">
+          <table role="presentation" className="w-full border-collapse">
             <tbody>
               {parsed.rows.map((row, idx) => {
                 const rowClasses =
@@ -108,7 +108,7 @@ export function DiffViewer({
         </div>
       ) : (
         <div className="overflow-x-auto font-mono text-xs">
-          <table className="w-full border-collapse table-fixed">
+          <table role="presentation" className="w-full border-collapse table-fixed">
             <thead>
               <tr className="border-b border-[#303030] bg-[#181818] text-[11px] text-[#969696]">
                 <th className="w-11 px-2 py-1 text-right font-normal">Orig.</th>

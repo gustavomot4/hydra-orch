@@ -27,8 +27,8 @@ export function ConversationConnectionSettings() {
   const [testing, setTesting] = useState(false);
   useEffect(() => {
     if (query.data) {
-      setUrl(query.data.base_url);
-      setEnabled(query.data.enabled);
+      setUrl(query.data.base_url ?? '');
+      setEnabled(Boolean(query.data.enabled));
     }
   }, [query.data]);
   async function save() {

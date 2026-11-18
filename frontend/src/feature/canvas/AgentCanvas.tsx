@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { CSSProperties, useEffect, useId, useRef, useState } from 'react';
 import { Hand, Maximize, Minus, Move, Network, Plus, RotateCcw } from 'lucide-react';
 import {
   CanvasGraph,
@@ -95,7 +95,27 @@ export function AgentCanvas({
   const drag = useRef<{ id?: string; x: number; y: number; start: Point } | null>(null);
   const suppressClick = useRef(false);
   const [dragging, setDragging] = useState(false);
-  const identity = graph.nodes.map((n) => n.id).join('|');
+  const identity = JSON.stringify(graph.nodes.map((n) => n.id));
+  const [nodeHeights, setNodeHeights] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const cards = stage.current?.querySelectorAll<HTMLElement>('[data-canvas-node]');
+    if (!cards || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const updates: Record<string, number> = {};
+      for (const entry of entries) {
+        const card = entry.target as HTMLElement;
+        const id = card.dataset.canvasNode;
+        if (id) updates[id] = card.offsetHeight || NODE_HEIGHT;
+      }
+      setNodeHeights((previous) =>
+        Object.entries(updates).some(([id, height]) => previous[id] !== height)
+          ? { ...previous, ...updates }
+          : previous,
+      );
+    });
+    cards.forEach((card) => observer.observe(card));
+    return () => observer.disconnect();
+  }, [identity]);
   useEffect(() => {
     setPositions((previous) => {
       const next = restore(workId, nodesRef.current);
@@ -126,12 +146,12 @@ export function AgentCanvas({
     }, 200);
     return () => clearTimeout(timer);
   }, [view, workId]);
-  const bound = Object.values(positions).reduce(
-    (r, p) => ({
+  const bound = Object.entries(positions).reduce(
+    (r, [id, p]) => ({
       left: Math.min(r.left, p.x),
       top: Math.min(r.top, p.y),
       right: Math.max(r.right, p.x + NODE_WIDTH),
-      bottom: Math.max(r.bottom, p.y + NODE_HEIGHT),
+      bottom: Math.max(r.bottom, p.y + (nodeHeights[id] ?? NODE_HEIGHT)),
     }),
     { left: 0, top: 0, right: 680, bottom: 500 },
   );
@@ -176,7 +196,7 @@ export function AgentCanvas({
   fitRef.current = fit;
   useEffect(() => {
     if (automaticFit.current) fitRef.current();
-  }, [textScale, positions]);
+  }, [textScale, positions, nodeHeights]);
   useEffect(() => {
     const element = stage.current;
     if (!element || typeof ResizeObserver === 'undefined') return;
@@ -303,8 +323,9 @@ export function AgentCanvas({
         <div
           className="agent-map-world"
           style={{
+            '--canvas-scale': view.scale * textScale,
             transform: `translate(${view.x}px,${view.y}px) scale(${view.scale * textScale})`,
-          }}
+          } as CSSProperties}
         >
           <svg className="agent-map-links" width="1" height="1" aria-hidden="true">
             <defs>
@@ -316,6 +337,8 @@ export function AgentCanvas({
               const a = positions[edge.source],
                 b = positions[edge.target];
               if (!a || !b) return null;
+              const sourceHeight = nodeHeights[edge.source] ?? NODE_HEIGHT;
+              const targetHeight = nodeHeights[edge.target] ?? NODE_HEIGHT;
               const horizontal =
                 Math.abs(a.y - b.y) < NODE_HEIGHT && Math.abs(a.x - b.x) > NODE_WIDTH;
               const right = b.x > a.x;
@@ -323,11 +346,11 @@ export function AgentCanvas({
               const x1 = horizontal
                   ? a.x + (right ? NODE_WIDTH : 0)
                   : a.x + NODE_WIDTH / 2 + (upwards ? 50 : 0),
-                y1 = horizontal ? a.y + NODE_HEIGHT / 2 : a.y + (upwards ? 0 : NODE_HEIGHT);
+                y1 = horizontal ? a.y + sourceHeight / 2 : a.y + (upwards ? 0 : sourceHeight);
               const x2 = horizontal
                   ? b.x + (right ? 0 : NODE_WIDTH)
                   : b.x + NODE_WIDTH / 2 + (upwards ? 50 : 0),
-                y2 = horizontal ? b.y + NODE_HEIGHT / 2 : b.y + (upwards ? NODE_HEIGHT : 0);
+                y2 = horizontal ? b.y + targetHeight / 2 : b.y + (upwards ? targetHeight : 0);
               const bend = (y1 + y2) / 2;
               const path = horizontal
                 ? `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`
@@ -368,6 +391,7 @@ export function AgentCanvas({
                   width: NODE_WIDTH,
                   minHeight: NODE_HEIGHT,
                 }}
+                data-canvas-node={node.id}
                 data-testid={`agent-node-${node.id}`}
               >
                 <button
@@ -421,11 +445,12 @@ export function AgentCanvas({
                       start: position,
                     };
                   }}
-                  onClick={() => {
-                    if (suppressClick.current) {
+                  onClick={(event) => {
+                    if (suppressClick.current && event.detail !== 0) {
                       suppressClick.current = false;
                       return;
                     }
+                    suppressClick.current = false;
                     onSelect(node.id);
                   }}
                   onFocus={() => {
@@ -516,7 +541,7 @@ export function AgentCanvas({
                   x={positions[node.id].x}
                   y={positions[node.id].y}
                   width={NODE_WIDTH}
-                  height={NODE_HEIGHT}
+                  height={nodeHeights[node.id] ?? NODE_HEIGHT}
                   rx="22"
                   className={node.id === selected ? 'active' : ''}
                 />

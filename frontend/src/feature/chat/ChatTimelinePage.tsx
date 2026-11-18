@@ -479,7 +479,7 @@ export function ChatTimelinePage({
       client={activeClient}
       onRefreshSnapshot={() => void loadSnapshotOnly(effectiveRunId)}
       onReconnectStream={() => startEventStream(effectiveRunId)}
-      onRetryTask={handleRetryTask}
+      onRetryTask={snapshot?.status === 'succeeded' || snapshot?.status === 'cancelled' ? undefined : handleRetryTask}
       onInterventionResponded={handleInterventionResponded}
       onOpenTerminal={onOpenTerminal}
       composerSlot={

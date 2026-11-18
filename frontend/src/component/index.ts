@@ -5,5 +5,4 @@ export * from './PaneLayout';
 export * from './Sidebar';
 export * from './StatusBadge';
 export * from './TabBar';
-export * from './UsageBar';
 export * from './WorkspaceTree';

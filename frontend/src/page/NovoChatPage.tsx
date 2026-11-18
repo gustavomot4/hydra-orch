@@ -11,6 +11,7 @@ import {
   clearPendingSend,
   pendingSendKey,
   defaultRoute,
+  conversationSendError,
   routeSelection,
 } from '@/feature/chat/conversationTypes';
 import { ConversationRoutePicker } from '@/feature/chat/ConversationRoutePicker';
@@ -19,7 +20,6 @@ import { ConversationWorkflow, ExecutionMode } from '@/feature/chat/Conversation
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useWorkspaceHierarchy } from '@/hook/useWorkspaceHierarchy';
 import { useLayoutStore } from '@/store/layoutStore';
-import { ControlPlaneApiError } from '@/type/controlPlane';
 
 export interface ComposerSlotProps {
   draft: string;
@@ -65,6 +65,7 @@ export function NovoChatPage({
   const [accessMode, setAccessMode] = useState('read-only');
   const [error, setError] = useState<string | null>(null);
   const [folder, setFolder] = useState('');
+  const [folderError, setFolderError] = useState<string | null>(null);
   const [folderOpen, setFolderOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [pickingFolder, setPickingFolder] = useState(false);
@@ -86,10 +87,9 @@ export function NovoChatPage({
     available.find((a) => a.id === executor)?.id ?? available[0]?.id ?? executor;
   useEffect(() => {
     document.title = 'Novo chat · Hydra';
-    headingRef.current?.focus();
   }, []);
   useEffect(() => {
-    if (error) errorRef.current?.focus();
+    if (error) errorRef.current?.focus({ preventScroll: true });
   }, [error]);
   const create = useMutation({
     mutationFn: async () => {
@@ -147,21 +147,13 @@ export function NovoChatPage({
       onStarted?.();
       navigate(route);
     },
-    onError: (err) =>
-      setError(
-        err instanceof ControlPlaneApiError && err.status === 404
-          ? 'O backend aberto ainda não tem o fluxo de conversa. Reinicie o backend e tente novamente. Sua mensagem foi preservada.'
-          : err instanceof ControlPlaneApiError
-            ? err.payload.message
-            : err instanceof Error
-              ? err.message
-              : 'Não foi possível enviar. Tente novamente.',
-      ),
+    onError: (err) => setError(conversationSendError(err, attachmentIds.length > 0)),
     onSettled: () => {
       inFlight.current = false;
     },
   });
   const register = useMutation({
+    onMutate: () => setFolderError(null),
     mutationFn: async (selectedFolder: string | undefined) => {
       const chosen = (selectedFolder ?? folder).trim().replace(/^"(.*)"$/, '$1');
       const normalize = (value: string) =>
@@ -186,12 +178,14 @@ export function NovoChatPage({
       setFolderOpen(false);
       setError(null);
     },
-    onError: (err) =>
-      setError(err instanceof Error ? err.message : 'Não foi possível cadastrar a pasta.'),
+    onError: (err) => {
+      setFolderError(err instanceof Error ? err.message : 'Não foi possível cadastrar a pasta.');
+      setFolderOpen(true);
+    },
   });
   const chooseFolder = async () => {
     setPickingFolder(true);
-    setError(null);
+    setFolderError(null);
     try {
       const selected = await client.request<{ path: string | null }>('/v1/launcher/pick-folder', {
         method: 'POST',
@@ -201,7 +195,7 @@ export function NovoChatPage({
         register.mutate(selected.path);
       }
     } catch (err) {
-      setError(
+      setFolderError(
         err instanceof Error
           ? err.message
           : 'Não foi possível abrir o seletor. Informe o caminho da pasta.',
@@ -301,9 +295,13 @@ export function NovoChatPage({
       <ChatDialog
         title="Adicionar pasta"
         open={folderOpen}
-        onOpenChange={setFolderOpen}
+        onOpenChange={(open) => {
+          setFolderOpen(open);
+          if (!open) setFolderError(null);
+        }}
         description="Escolha a pasta do projeto ou informe o caminho neste computador."
       >
+        {folderError && <p role="alert" className="chat-error">{folderError}</p>}
         <form
           className="mt-2 flex flex-wrap items-end gap-2"
           onSubmit={(e) => {

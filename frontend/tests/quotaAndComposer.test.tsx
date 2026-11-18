@@ -111,7 +111,7 @@ describe('PromptComposer (T33) and QuotaAccountsPage (7:279)', () => {
     const qc = createHydraQueryClient();
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <NovoChatPage
             renderComposer={(slotProps) => (
               <PromptComposer {...slotProps} sessionKey="novo-chat-test" />
@@ -279,7 +279,7 @@ describe('PromptComposer (T33) and QuotaAccountsPage (7:279)', () => {
 
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <QuotaAccountsPage />
         </MemoryRouter>
       </QueryClientProvider>,

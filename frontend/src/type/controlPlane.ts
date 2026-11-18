@@ -6,6 +6,7 @@ export const ApiErrorSchema = z.object({
   run_id: z.string().nullable().optional().default(null),
   retryable: z.boolean().optional().default(false),
   details: z.unknown().optional(),
+  conflicts: z.array(z.string()).optional(),
 });
 
 export type ApiError = z.infer<typeof ApiErrorSchema>;

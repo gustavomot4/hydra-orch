@@ -7,6 +7,7 @@ export type QuickOpenItemKind =
   | 'project'
   | 'run'
   | 'session'
+  | 'conversation'
   | 'artifact';
 
 export type QuickOpenTabHint = 'workspace' | 'chat' | 'terminal' | 'artifact';
@@ -18,6 +19,7 @@ export type QuickOpenScope =
   | 'projects'
   | 'runs'
   | 'sessions'
+  | 'conversations'
   | 'artifacts';
 
 export interface QuickOpenScopeTab {
@@ -32,6 +34,7 @@ export const QUICK_OPEN_SCOPES: readonly QuickOpenScopeTab[] = [
   { id: 'projects', label: 'Projetos' },
   { id: 'runs', label: 'Runs' },
   { id: 'sessions', label: 'Sessões' },
+  { id: 'conversations', label: 'Conversas' },
   { id: 'artifacts', label: 'Artefatos' },
 ];
 
@@ -41,6 +44,7 @@ export const QUICK_OPEN_KIND_LABELS: Record<QuickOpenItemKind, string> = {
   project: 'Projeto',
   run: 'Run',
   session: 'Sessão',
+  conversation: 'Conversa',
   artifact: 'Artefato',
 };
 
@@ -52,7 +56,7 @@ export const QUICK_OPEN_TAB_HINT_LABELS: Record<QuickOpenTabHint, string> = {
 };
 
 export const QuickOpenSearchItemSchema = z.object({
-  kind: z.enum(['area', 'workspace', 'project', 'run', 'session', 'artifact']),
+  kind: z.enum(['area', 'workspace', 'project', 'run', 'session', 'conversation', 'artifact']),
   id: z.string(),
   title: z.string(),
   subtitle: z.string().optional().default(''),

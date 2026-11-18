@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { ControlPlaneApiError } from '@/type/controlPlane';
@@ -97,11 +97,11 @@ class FakeWebSocket implements PtyWebSocketLike {
 
   emitOpen(): void {
     this.readyState = 1;
-    this.onopen?.(new Event('open'));
+    act(() => this.onopen?.(new Event('open')));
   }
 
   emitServerJson(payload: unknown): void {
-    this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(payload) }));
+    act(() => this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(payload) })));
   }
 
   emitError(): void {
@@ -367,7 +367,7 @@ describe('TerminalPane & SplitTerminalView (PTY)', () => {
       expect(screen.getByTestId('terminal-output')).toHaveTextContent('backlog restaurado');
     });
     expect(screen.getByText(/Cursor after_seq=0 expirado \(HTTP 410\)/i)).toBeInTheDocument();
-    expect(screen.getByText('Código de saída: 0')).toBeInTheDocument();
+    expect(screen.getByTestId('pty-exit-code')).toHaveTextContent('Código de saída: 0');
   });
 
   it('supports interrupt and keep_running=false termination in TerminalCloseDialog and preserves split/single panes in SplitTerminalView', async () => {

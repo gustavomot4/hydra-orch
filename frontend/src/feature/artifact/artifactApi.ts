@@ -67,23 +67,42 @@ export async function getArtifactPreview(
   );
 }
 
-const SCRIPT_BLOCK_RE = /<\s*script\b[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi;
-const STRAY_SCRIPT_TAG_RE = /<\s*\/?\s*script\b[^>]*>/gi;
-const DANGEROUS_EMBED_RE =
-  /<\s*(?:iframe|object|embed|svg|math)\b[^>]*>[\s\S]*?<\s*\/\s*(?:iframe|object|embed|svg|math)\s*>/gi;
-const SELF_CLOSING_EMBED_RE = /<\s*\/?\s*(?:iframe|object|embed|svg|math)\b[^>]*>/gi;
+const ACTIVE_TAG_RE = /<\s*(\/?)\s*(script|iframe|object|embed|svg|math)\b[^<>]*>/gi;
+
+function stripActiveTags(raw: string): string {
+  // Index closing tags in reverse once. Repeated unmatched openings must not
+  // trigger a separate scan of the remaining input for each opening.
+  const tags = [...raw.matchAll(ACTIVE_TAG_RE)];
+  const endByName = new Map<string, number>();
+  const ranges = tags.map(() => 0);
+  for (let index = tags.length - 1; index >= 0; index -= 1) {
+    const tag = tags[index];
+    const name = tag[2].toLowerCase();
+    const end = tag.index + tag[0].length;
+    if (tag[1]) endByName.set(name, end);
+    ranges[index] = tag[1] || /\/\s*>$/.test(tag[0]) ? end : (endByName.get(name) ?? end);
+  }
+
+  const output: string[] = [];
+  let cursor = 0;
+  tags.forEach((tag, index) => {
+    if (tag.index < cursor) return;
+    output.push(raw.slice(cursor, tag.index));
+    cursor = ranges[index];
+  });
+  output.push(raw.slice(cursor));
+  return output.join('');
+}
+
 const INLINE_EVENT_HANDLER_RE = /(?<=[\s<])on[a-z]{1,32}\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 const DANGEROUS_MD_LINK_RE =
-  /(\]\(\s*)(?:javascript\s*:|vbscript\s*:|data\s*:\s*text\/html\b)[^)]*\)/gi;
+  /(\]\(\s*)(?:javascript\s*:|vbscript\s*:|data\s*:\s*text\/html\b)[^)\]\r\n]*\)/gi;
 
 export function sanitizeMarkdownText(raw: string): {
   sanitized: string;
   strippedOnClient: boolean;
 } {
-  let out = raw.replace(SCRIPT_BLOCK_RE, '');
-  out = out.replace(STRAY_SCRIPT_TAG_RE, '');
-  out = out.replace(DANGEROUS_EMBED_RE, '');
-  out = out.replace(SELF_CLOSING_EMBED_RE, '');
+  let out = stripActiveTags(raw);
   out = out.replace(INLINE_EVENT_HANDLER_RE, '');
   out = out.replace(DANGEROUS_MD_LINK_RE, '$1#blocked-uri)');
   return {
@@ -94,7 +113,7 @@ export function sanitizeMarkdownText(raw: string): {
 
 export function isSafeMarkdownHref(rawUrl: string): boolean {
   const trimmed = rawUrl.trim();
-  if (!trimmed || trimmed === '#blocked-uri') {
+  if (!trimmed || trimmed === '#blocked-uri' || /[\\\p{Cc}]/u.test(trimmed) || trimmed.startsWith('//')) {
     return false;
   }
   const lower = trimmed.toLowerCase();

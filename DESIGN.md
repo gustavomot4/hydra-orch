@@ -12,6 +12,22 @@ colors:
   focus: "#ffab66"
   danger: "#ffaaa1"
   on-danger: "#28170b"
+typography:
+  title:
+    fontFamily: "Inter"
+    fontSize: 1.75rem
+    fontWeight: 600
+    lineHeight: 1.25
+  body:
+    fontFamily: "Inter"
+    fontSize: 1rem
+    fontWeight: 400
+    lineHeight: 1.5
+  code:
+    fontFamily: "JetBrains Mono"
+    fontSize: 0.875rem
+    fontWeight: 400
+    lineHeight: 1.5
 ---
 
 # Hydra — sistema visual
@@ -37,18 +53,25 @@ Fonte canônica: `frontend/src/style/tokens.css`. Tipografia Inter para interfac
 | Token | Cor | Uso |
 | --- | --- | --- |
 | `--bg-main` | #141414 | Fundo preto principal |
+| `--bg-rail` | #181818 | Trilho superior de abas e cabeçalhos discretos entre fundo e navegação |
 | `--bg-sidebar` | #1c1c1c | Navegação em cinza escuro neutro |
 | `--bg-surface` | #202020 | Cards e painéis elevados |
 | `--bg-hover` | #282828 | Hover e agrupamentos |
 | `--border` | #767676 | Controles e limites de superfícies, mínimo 3:1 sobre o hover |
+| `--canvas-dot` | #454545 | Grade pontilhada discreta de orientação espacial na Área de trabalho |
 | `--text-primary` | #e8e8e8 | Texto principal |
 | `--text-muted` | #b4b4b4 | Texto auxiliar |
 | `--accent` | #ffab66 | Ação principal, seleção, marca e foco |
+| `--accent-hover` | #ffc18c | Realce de ponteiro fino na ação principal mantendo texto escuro legível |
 | `--accent-soft` | #33251c | Pequenas áreas de seleção |
+| `--btn-primary-bg` | #ffab66 | Fundo da ação primária |
+| `--btn-primary-text` | #28170b | Texto escuro sobre ação primária (contraste 9,26:1) |
 | `--status-success` | #8ed8b0 | Conclusão verificada |
 | `--status-warning` | #f6cb79 | Espera ou atenção |
 | `--status-error` | #ffaaa1 | Falha |
 | `--status-info` | #8bcfe0 | Trabalho em andamento |
+
+Velaturas de diálogos modais usam preto translúcido (#000000) para isolar foco sem alterar a paleta de superfície; menus flutuantes sobre o canvas usam sombra escura discreta (#160b08) restrita à elevação.
 
 ## Área de trabalho
 
@@ -61,6 +84,7 @@ Dados vêm das conversas e execuções persistidas. Relações mostram delegaç�
 ## Do's and Don'ts
 
 - Inter é mantida porque preserva a continuidade da interface existente e oferece leitura consistente de português em telas operacionais.
+- JetBrains Mono é restrita a código, logs e identificadores técnicos porque preserva alinhamento tabular sem virar enfeite.
 - Laranja identifica a ação e a seleção porque foi a escolha explícita do dono; estados usam outras cores acompanhadas de texto e ícone.
 - Preto continua principal. Não pintar fundos, sidebar ou cards de marrom, nem usar degradês extensos em laranja.
 - Mostrar ação e último evento, sem gráficos ou porcentagens não observados.

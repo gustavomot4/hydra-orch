@@ -10,6 +10,13 @@ export type AutomationRunStatus =
   | 'skipped'
   | 'missed';
 
+export interface AutomationBudgetPolicy {
+  max_usd?: number | null;
+  max_tokens_in?: number | null;
+  max_tokens_out?: number | null;
+  [key: string]: unknown;
+}
+
 export interface AutomationSchedule {
   id: string;
   name: string;
@@ -25,6 +32,7 @@ export interface AutomationSchedule {
   overlap_policy: OverlapPolicy;
   missed_policy: MissedPolicy;
   max_retries: number;
+  budget_policy?: AutomationBudgetPolicy | null;
   next_run_at: string | null;
   last_run_at: string | null;
   revision: number;
@@ -46,6 +54,7 @@ export interface AutomationCreatePayload {
   overlap_policy: OverlapPolicy;
   missed_policy: MissedPolicy;
   max_retries: number;
+  budget_policy?: { max_usd: number } | null;
 }
 
 export interface AutomationUpdatePayload {
@@ -62,6 +71,7 @@ export interface AutomationUpdatePayload {
   overlap_policy?: OverlapPolicy;
   missed_policy?: MissedPolicy;
   max_retries?: number;
+  budget_policy?: { max_usd: number } | null;
   expected_revision: number;
 }
 
@@ -117,12 +127,19 @@ export interface AutomationFormValues {
   overlapPolicy: OverlapPolicy;
   missedPolicy: MissedPolicy;
   maxRetries: string;
+  maxBudgetUsd: string;
 }
 
 export interface AutomationFormValidationResult {
   valid: boolean;
   error: string | null;
 }
+
+export interface ExecutorOption {
+  id: string;
+  label: string;
+}
+
 
 export const COMMON_IANA_TIMEZONES: ReadonlyArray<string> = [
   'America/Sao_Paulo',
@@ -157,6 +174,12 @@ export const AUTOMATION_RUN_STATUS_META: Record<
   missed: { badgeStatus: 'stale', label: 'Perdida' },
 };
 
+const DEFAULT_EXECUTOR_LABELS: Record<string, string> = {
+  codex: 'Codex',
+  claude: 'Claude Code',
+  gemini: 'Gemini CLI',
+};
+
 const CRON_SHORTCUTS = new Set([
   '@hourly',
   '@daily',
@@ -167,8 +190,58 @@ const CRON_SHORTCUTS = new Set([
   '@annually',
 ]);
 
+export function buildExecutorOptions(
+  executors: ReadonlyArray<{ id: string; name?: string; driver?: string }> | undefined,
+  currentExecutorId?: string,
+): ExecutorOption[] {
+  const map = new Map<string, string>();
+
+  for (const ex of executors ?? []) {
+    const rawId = ex.id?.trim() ?? '';
+    if (!rawId) {
+      continue;
+    }
+    const isDriverFallback = /^driver:/i.test(rawId);
+    const canonicalId = isDriverFallback
+      ? ex.driver?.trim() || rawId.replace(/^driver:/i, '').trim()
+      : rawId;
+    if (!canonicalId) {
+      continue;
+    }
+    if (isDriverFallback && map.has(canonicalId)) {
+      continue;
+    }
+    const cleanName = ex.name?.trim() ?? '';
+    const defaultDisplay = DEFAULT_EXECUTOR_LABELS[canonicalId.toLowerCase()];
+    let label: string;
+    if (cleanName && cleanName.toLowerCase() !== canonicalId.toLowerCase()) {
+      label = `${cleanName} (${canonicalId})`;
+    } else if (defaultDisplay) {
+      label = `${defaultDisplay} (${canonicalId})`;
+    } else {
+      label = canonicalId;
+    }
+    map.set(canonicalId, label);
+  }
+
+  for (const [fallbackId, fallbackName] of Object.entries(DEFAULT_EXECUTOR_LABELS)) {
+    if (!map.has(fallbackId)) {
+      map.set(fallbackId, `${fallbackName} (${fallbackId})`);
+    }
+  }
+
+  const current = currentExecutorId?.trim() ?? '';
+  if (current && !map.has(current)) {
+    map.set(current, current);
+  }
+
+  return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
+}
+
 export function createDefaultAutomationFormValues(
-  defaults?: Partial<Pick<AutomationFormValues, 'workspaceId' | 'projectId' | 'targetHost'>>,
+  defaults?: Partial<
+    Pick<AutomationFormValues, 'workspaceId' | 'projectId' | 'targetHost' | 'maxBudgetUsd'>
+  >,
 ): AutomationFormValues {
   return {
     name: '',
@@ -185,6 +258,7 @@ export function createDefaultAutomationFormValues(
     overlapPolicy: 'skip',
     missedPolicy: 'skip',
     maxRetries: '0',
+    maxBudgetUsd: defaults?.maxBudgetUsd?.trim() ?? '',
   };
 }
 
@@ -193,6 +267,12 @@ export function formValuesFromSchedule(schedule: AutomationSchedule): Automation
     schedule.interval_seconds !== null &&
     schedule.interval_seconds !== undefined &&
     schedule.cron_expr === null;
+
+  const explicitMaxUsd = schedule.budget_policy?.max_usd;
+  const resolvedBudgetUsd =
+    typeof explicitMaxUsd === 'number' && Number.isFinite(explicitMaxUsd) && explicitMaxUsd > 0
+      ? String(explicitMaxUsd)
+      : '';
 
   return {
     name: schedule.name,
@@ -212,6 +292,7 @@ export function formValuesFromSchedule(schedule: AutomationSchedule): Automation
     overlapPolicy: schedule.overlap_policy,
     missedPolicy: schedule.missed_policy,
     maxRetries: String(schedule.max_retries ?? 0),
+    maxBudgetUsd: resolvedBudgetUsd,
   };
 }
 
@@ -265,7 +346,8 @@ export function validateAutomationForm(
       if (fields.length !== 5) {
         return {
           valid: false,
-          error: 'A expressão cron deve conter 5 campos (min hora dia mês dia_semana) ou um atalho padrão (@hourly, @daily).',
+          error:
+            'A expressão cron deve conter 5 campos (min hora dia mês dia_semana) ou um atalho padrão (@hourly, @daily).',
         };
       }
     }
@@ -295,6 +377,23 @@ export function validateAutomationForm(
       valid: false,
       error: 'O máximo de retentativas deve ser um inteiro entre 0 e 5.',
     };
+  }
+
+  const rawBudget = (values.maxBudgetUsd ?? '').trim();
+  if (values.enabled && rawBudget.length === 0) {
+    return {
+      valid: false,
+      error: 'Defina um orçamento máximo (USD) maior que zero para habilitar uma automação ativa.',
+    };
+  }
+  if (rawBudget.length > 0) {
+    const parsedBudget = Number(rawBudget);
+    if (!Number.isFinite(parsedBudget) || parsedBudget <= 0 || parsedBudget > 100_000) {
+      return {
+        valid: false,
+        error: 'O orçamento máximo (USD) deve ser um número maior que zero.',
+      };
+    }
   }
 
   return { valid: true, error: null };

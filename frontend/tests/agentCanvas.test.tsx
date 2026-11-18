@@ -71,7 +71,7 @@ function mount(element: React.ReactNode, entry = '/agentes?execucao=fixture-run'
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
-    <MemoryRouter initialEntries={[entry]}>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={[entry]}>
       <QueryClientProvider client={query}>{element}</QueryClientProvider>
     </MemoryRouter>,
   );

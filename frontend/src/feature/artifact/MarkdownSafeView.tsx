@@ -93,7 +93,11 @@ function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
   return parts;
 }
 
-function renderMarkdownBlocks(markdown: string, headingOffset = 0): ReactNode[] {
+function isPipeTable(lines: string[], index: number) {
+  return lines[index]?.includes('|') && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+(?:\|\s*)?$/.test(lines[index + 1] ?? '');
+}
+
+function renderMarkdownBlocks(markdown: string): ReactNode[] {
   const lines = markdown.replace(/\r\n/g, '\n').split('\n');
   const blocks: ReactNode[] = [];
   let idx = 0;
@@ -149,7 +153,7 @@ function renderMarkdownBlocks(markdown: string, headingOffset = 0): ReactNode[] 
     // Headings
     const headingMatch = /^(#{1,6})\s+(.*)$/.exec(line);
     if (headingMatch) {
-      const level = Math.min(6, headingMatch[1].length + headingOffset);
+      const level = Math.min(6, headingMatch[1].length + 1);
       const content = renderInlineMarkdown(headingMatch[2], `h-${blockKey}`);
       const sizeClass =
         level === 1
@@ -228,7 +232,7 @@ function renderMarkdownBlocks(markdown: string, headingOffset = 0): ReactNode[] 
     }
 
     // Pipe table
-    if (line.includes('|') && idx + 1 < lines.length && /^\s*\|?[\s:-]+\|/.test(lines[idx + 1])) {
+    if (isPipeTable(lines, idx)) {
       const headerCells = line
         .split('|')
         .map((c) => c.trim())
@@ -281,6 +285,7 @@ function renderMarkdownBlocks(markdown: string, headingOffset = 0): ReactNode[] 
     while (
       idx < lines.length &&
       lines[idx].trim() &&
+      !isPipeTable(lines, idx) &&
       !lines[idx].trim().startsWith('```') &&
       !/^(#{1,6})\s+/.test(lines[idx]) &&
       !lines[idx].trimStart().startsWith('>') &&
@@ -314,7 +319,7 @@ export function MarkdownSafeView({
   bare = false,
 }: MarkdownSafeViewProps) {
   const { sanitized, strippedOnClient } = useMemo(() => sanitizeMarkdownText(markdown), [markdown]);
-  const blocks = useMemo(() => renderMarkdownBlocks(sanitized, bare ? 1 : 0), [sanitized, bare]);
+  const blocks = useMemo(() => renderMarkdownBlocks(sanitized), [sanitized]);
   const anyScriptStripped = scriptStripped || strippedOnClient;
 
   return (

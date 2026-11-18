@@ -24,6 +24,7 @@ export interface DictationControlProps {
   lang?: string;
   disabled?: boolean;
   initialDraft?: string;
+  iconOnlyMobile?: boolean;
   className?: string;
 }
 
@@ -50,6 +51,7 @@ export function DictationControl({
   lang = 'pt-BR',
   disabled = false,
   initialDraft = '',
+  iconOnlyMobile = false,
   className = '',
 }: DictationControlProps) {
   const previewId = useId();
@@ -114,7 +116,18 @@ export function DictationControl({
     setErrorMessage(null);
     setState('listening');
 
-    const handleFailure = (code: 'not-allowed' | 'service-not-allowed' | 'unavailable' | 'aborted' | 'audio-capture' | 'no-speech' | 'network' | 'unknown', message?: string) => {
+    const handleFailure = (
+      code:
+        | 'not-allowed'
+        | 'service-not-allowed'
+        | 'unavailable'
+        | 'aborted'
+        | 'audio-capture'
+        | 'no-speech'
+        | 'network'
+        | 'unknown',
+      message?: string,
+    ) => {
       if (sessionTokenRef.current !== token) {
         return;
       }
@@ -182,9 +195,7 @@ export function DictationControl({
               return;
             }
             if (stateRef.current === 'listening') {
-              setState(
-                draftTextRef.current.trim().length > 0 ? 'draft_ready' : 'idle',
-              );
+              setState(draftTextRef.current.trim().length > 0 ? 'draft_ready' : 'idle');
             }
           },
         },
@@ -258,21 +269,22 @@ export function DictationControl({
 
   const badge = mapStateToBadge(state);
   const showPreview = state === 'draft_ready' || draftText.length > 0;
+  const labelVisibilityClass = iconOnlyMobile ? 'max-md:sr-only' : '';
 
   return (
     <section
       aria-label="Controle de ditado por voz"
       data-testid="dictation-control"
       data-dictation-state={state}
-      className={`rounded-2xl border border-[#303030] bg-[#1C1C1C] p-3 text-xs text-[#E8E8E8] ${className}`}
+      className={`rounded-2xl border border-[var(--border)] bg-[var(--bg-sidebar)] p-3 text-xs text-[var(--text-primary)] ${className}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 font-medium text-[#E8E8E8]">
+          <span className="inline-flex items-center gap-1.5 font-medium text-[var(--text-primary)]">
             {state === 'unavailable' || state === 'permission_denied' ? (
-              <MicOff aria-hidden="true" className="h-3.5 w-3.5 text-[#969696]" />
+              <MicOff aria-hidden="true" className="h-3.5 w-3.5 text-[var(--text-muted)]" />
             ) : (
-              <Mic aria-hidden="true" className="h-3.5 w-3.5 text-[#E8E8E8]" />
+              <Mic aria-hidden="true" className="h-3.5 w-3.5 text-[var(--text-primary)]" />
             )}
             <span>Ditado por voz</span>
           </span>
@@ -285,48 +297,49 @@ export function DictationControl({
             <button
               type="button"
               onClick={handleStop}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#3B82F6]/50 bg-[#3B82F6]/15 px-3 py-1.5 text-xs font-medium text-[#93C5FD] transition-colors hover:bg-[#3B82F6]/25"
+              aria-label={iconOnlyMobile ? 'Parar ditado' : undefined}
+              className="inline-flex min-h-[32px] min-w-[32px] items-center justify-center gap-1.5 rounded-lg border border-[var(--status-info)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-medium text-[var(--status-info)] transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
             >
               <Square aria-hidden="true" className="h-3 w-3" />
-              <span>Parar ditado</span>
+              <span className={labelVisibilityClass}>Parar ditado</span>
             </button>
           ) : state === 'permission_denied' || state === 'error' ? (
             <button
               type="button"
               disabled={disabled}
               onClick={startListening}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#303030] bg-[#202020] px-3 py-1.5 text-xs font-medium text-[#E8E8E8] transition-colors hover:bg-[#282828] disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label={iconOnlyMobile ? 'Tentar novamente' : undefined}
+              className="inline-flex min-h-[32px] min-w-[32px] items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
             >
               <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
-              <span>Tentar novamente</span>
+              <span className={labelVisibilityClass}>Tentar novamente</span>
             </button>
           ) : state === 'unavailable' ? (
             <button
               type="button"
               disabled
-              className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-[#303030] bg-[#141414] px-3 py-1.5 text-xs text-[#969696] opacity-70"
+              aria-label={iconOnlyMobile ? 'Ditado indisponível' : undefined}
+              className="inline-flex min-h-[32px] min-w-[32px] cursor-not-allowed items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-main)] px-3 py-1.5 text-xs text-[var(--text-muted)] opacity-70 max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
             >
               <MicOff aria-hidden="true" className="h-3.5 w-3.5" />
-              <span>Ditado indisponível</span>
+              <span className={labelVisibilityClass}>Ditado indisponível</span>
             </button>
           ) : (
             <button
               type="button"
               disabled={disabled}
               onClick={startListening}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#303030] bg-[#202020] px-3 py-1.5 text-xs font-medium text-[#E8E8E8] transition-colors hover:bg-[#282828] disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label={iconOnlyMobile ? 'Iniciar ditado' : undefined}
+              className="inline-flex min-h-[32px] min-w-[32px] items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
             >
-              <Mic aria-hidden="true" className="h-3.5 w-3.5 text-[#969696]" />
-              <span>Iniciar ditado</span>
+              <Mic aria-hidden="true" className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+              <span className={labelVisibilityClass}>Iniciar ditado</span>
             </button>
           )}
         </div>
       </div>
 
-      <p
-        data-testid="dictation-mode-notice"
-        className="mt-1.5 text-xs text-[#969696]"
-      >
+      <p data-testid="dictation-mode-notice" className="mt-1.5 text-xs text-[var(--text-muted)]">
         {DICTATION_NOTICE}
       </p>
 
@@ -334,7 +347,7 @@ export function DictationControl({
         <div
           role="status"
           data-testid="dictation-unavailable-notice"
-          className="mt-2.5 rounded-xl border border-[#303030] bg-[#141414] px-3 py-2 text-xs text-[#969696]"
+          className="mt-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-main)] px-3 py-2 text-xs text-[var(--text-muted)]"
         >
           {DICTATION_STATE_LABELS.unavailable}
         </div>
@@ -344,7 +357,7 @@ export function DictationControl({
         <div
           role="alert"
           data-testid="dictation-error-notice"
-          className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 px-3 py-2 text-xs text-[#FCA5A5]"
+          className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--status-error)] bg-[var(--bg-main)] px-3 py-2 text-xs text-[var(--status-error)]"
         >
           <div className="flex min-w-0 flex-1 items-start gap-2">
             <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -354,7 +367,7 @@ export function DictationControl({
             type="button"
             disabled={disabled}
             onClick={startListening}
-            className="shrink-0 rounded-md border border-[#EF4444]/40 bg-[#202020] px-2.5 py-1 text-xs font-medium text-[#E8E8E8] hover:bg-[#282828]"
+            className="min-h-[32px] min-w-[32px] shrink-0 rounded-md border border-[var(--status-error)] bg-[var(--bg-surface)] px-2.5 py-1 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
           >
             Tentar novamente
           </button>
@@ -364,16 +377,13 @@ export function DictationControl({
       {showPreview ? (
         <div
           data-testid="dictation-draft-preview"
-          className="mt-3 space-y-2 rounded-xl border border-[#303030] bg-[#141414] p-3"
+          className="mt-3 space-y-2 rounded-xl border border-[var(--border)] bg-[var(--bg-main)] p-3"
         >
-          <div className="flex items-center justify-between gap-2">
-            <label
-              htmlFor={previewId}
-              className="text-xs font-medium text-[#E8E8E8]"
-            >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label htmlFor={previewId} className="text-xs font-medium text-[var(--text-primary)]">
               Rascunho revisável do ditado
             </label>
-            <span className="text-xs text-[#969696]">
+            <span className="text-xs text-[var(--text-muted)]">
               Revise antes de inserir — não envia automaticamente
             </span>
           </div>
@@ -389,14 +399,14 @@ export function DictationControl({
               setDraftText(nextValue);
             }}
             placeholder="O texto transcrito aparecerá aqui para revisão..."
-            className="w-full resize-y rounded-lg border border-[#303030] bg-[#202020] p-2.5 text-sm text-[#E8E8E8] placeholder:text-[#969696] focus:border-[#3B82F6] focus:outline-none"
+            className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] p-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
           />
 
           <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={handleDiscard}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#303030] bg-[#202020] px-3 py-1.5 text-xs text-[#969696] transition-colors hover:bg-[#282828] hover:text-[#E8E8E8]"
+              className="inline-flex min-h-[32px] min-w-[32px] items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
             >
               <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
               <span>Descartar</span>
@@ -406,7 +416,7 @@ export function DictationControl({
               type="button"
               disabled={draftText.trim().length === 0}
               onClick={handleInsert}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-3 py-1.5 text-xs font-medium text-[#181818] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-[32px] min-w-[32px] items-center justify-center gap-1.5 rounded-lg bg-[var(--btn-primary-bg)] px-3 py-1.5 text-xs font-medium text-[var(--btn-primary-text)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50 max-md:min-h-[44px] max-md:min-w-[44px] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:min-w-[44px]"
             >
               <Check aria-hidden="true" className="h-3.5 w-3.5" />
               <span>Inserir no rascunho</span>

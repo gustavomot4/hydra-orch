@@ -97,10 +97,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: "frontend/package-lock.json"
 
@@ -125,6 +125,18 @@ jobs:
         env:
           HYDRA_OFFLINE_CI: "1"
         run: npx playwright test
+
+      - name: Audit the production frontend with the isolated accessibility fixture
+        working-directory: frontend
+        env:
+          HYDRA_E2E_PRODUCTION: "1"
+          HYDRA_E2E_KIT_AUTH: "1"
+          HYDRA_API_TOKEN: "hydra-kit-isolated-test-token-0123456789"
+          HYDRA_RUN_KIT: "1"
+        run: |
+          export CHROME_PATH="$(node -p "require('playwright').chromium.executablePath()")"
+          npx vite build --config tests/e2e/vite.e2e.config.ts --outDir ../ws/b_output/compact-production --emptyOutDir
+          npx playwright test --grep 'frontend kit'
 
   driver-certification:
     name: "External CLI Driver Certification (Opt-In)"
