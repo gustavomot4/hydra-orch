@@ -23,7 +23,7 @@ export function ConversationWorkflow({
           name={group}
           className="h-6 w-6"
           checked={mode === 'single'}
-          onChange={() => onChange('single', false)}
+          onChange={() => onChange('single', automatic)}
         />
         Um agente acompanha o pedido
       </label>
@@ -33,33 +33,22 @@ export function ConversationWorkflow({
           name={group}
           className="h-6 w-6"
           checked={mode === 'swarm'}
-          onChange={() => onChange('swarm', automatic)}
+          onChange={() => onChange('swarm', true)}
         />
         Coordenar tarefas com agentes
       </label>
-      {mode === 'swarm' && (
-        <>
-          <p>
-            O coordenador lê o projeto, cria até quatro tarefas e executa até duas em paralelo.
-            Verificações e revisão de agente precedem a consolidação na cópia da conversa. Permita
-            edições para executar; o Hydra prepara automaticamente o isolamento da pasta.
-          </p>
-          <label className="flex min-h-11 cursor-pointer items-center gap-3">
-            <input
-              type="checkbox"
-              className="h-6 w-6 shrink-0"
-              checked={automatic}
-              onChange={(e) => onChange(mode, e.target.checked)}
-            />
-            Escolher entre combos OmniRoute já testados para cada tarefa
-          </label>
-          {automatic && (
-            <p>
-              A escolha considera o nome do combo e a latência observada no teste. Ela mantém o
-              agente e a conexão escolhidos; ainda não compara qualidade por tarefa.
-            </p>
-          )}
-        </>
+      {mode === 'swarm' && <p>Até quatro tarefas, com verificações e revisão na cópia isolada.</p>}
+      <label className="flex min-h-11 cursor-pointer items-center gap-3">
+        <input
+          type="checkbox"
+          className="h-6 w-6 shrink-0"
+          checked={automatic}
+          onChange={(event) => onChange(mode, event.target.checked)}
+        />
+        Escolher modelo automaticamente
+      </label>
+      {automatic && (
+        <p>O Hydra avalia as capacidades e a cota conhecida dentro da conexão selecionada.</p>
       )}
     </fieldset>
   );

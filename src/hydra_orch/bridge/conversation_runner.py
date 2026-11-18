@@ -170,7 +170,8 @@ class ConversationRunner:
                         raise ContractViolation('context_path_escape', 'O diretório temporário do agente não é seguro.')
                     private_temp.mkdir(parents=True, exist_ok=True)
                     catalog = await asyncio.to_thread(gateway_catalog, executable, target, home)
-                    base_url, token, observed = transport.enter_context(codex_transport(base_url, token, target))
+                    transport_options = {'accept_requested_model': True} if route.get('target_kind') == 'model' else {}
+                    base_url, token, observed = transport.enter_context(codex_transport(base_url, token, target, **transport_options))
                     provider = {'name': 'OmniRoute', 'base_url': base_url, 'env_key': 'OMNIROUTE_API_KEY',
                                 'wire_api': 'responses', 'requires_openai_auth': False}
                     inline = '{' + ','.join(f'{k}={json.dumps(v)}' for k, v in provider.items()) + '}'
@@ -291,6 +292,7 @@ class ConversationRunner:
         text_seen = False
         partial = False
         observed_agents = {}
+        identities = []
 
         async def read_errors():
             while chunk := await process.stderr.read(4096):
@@ -306,12 +308,19 @@ class ConversationRunner:
             process.stdin.close()
             async def consume():
                 nonlocal text_seen, partial
+                from hydra_orch.core.model_selection import cli_reported_model, observed_identity
                 while line := await process.stdout.readline():
                     try:
                         event = json.loads(line)
                     except (ValueError, UnicodeDecodeError):
                         continue
+                    if not isinstance(event, dict):
+                        continue
                     kind = event.get("type")
+                    identity = observed_identity(cli_reported_model(driver, event), 'cli', conversation.get('route') or {})
+                    if identity and identity not in identities and len(identities) < 50:
+                        identities.append(identity)
+                        await emit('execution.model', identity)
                     from hydra_orch.bridge.agent_observation import observations
                     for agent in observations(driver, event, observed_agents):
                         if agent['id'] in observed_agents or len(observed_agents) < 128:
@@ -381,6 +390,14 @@ class ConversationRunner:
             if observed.get('models'):
                 metrics['models'] = observed['models']
                 metrics['model_source'] = observed['source']
+                from hydra_orch.core.model_selection import observed_identity
+                for model in observed['models']:
+                    identity = observed_identity(model, observed['source'], conversation.get('route') or {})
+                    if identity:
+                        identities.append(identity)
+            if identities:
+                metrics['identity'] = identities[-1]
+                metrics['identities'] = identities
             # Metrics must never mask cancellation or the original process failure.
             from contextlib import suppress
             with suppress(Exception):

@@ -484,3 +484,73 @@ async def test_cancel_coordination_terminates_owned_worker_and_preserves_origina
         if not execution.done():
             execution.cancel()
             await asyncio.gather(execution,return_exceptions=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize('broken_lockfile', [False, True])
+async def test_frontend_worktree_installs_foundation_dependencies_then_repairs_types(service, tmp_path, broken_lockfile):
+    import shutil
+    compiler = Path(__file__).resolve().parents[1] / 'frontend/node_modules/typescript/bin/tsc'
+    if not compiler.is_file() or not shutil.which('node') or not shutil.which('npm'):
+        pytest.skip('Requires Node, npm, and the repository frontend toolchain')
+    repo = service.runs.repo_root
+    package = repo / 'frontend/vendor/typescript'
+    (package / 'bin').mkdir(parents=True)
+    (package / 'package.json').write_text('{"name":"typescript","version":"1.0.0"}', encoding='utf-8')
+    (package / 'bin/tsc').write_text(f'require({json.dumps(str(compiler))})\n', encoding='utf-8')
+    (repo / 'frontend/tsconfig.json').write_text('{"compilerOptions":{"types":[]},"files":["app.ts"]}', encoding='utf-8')
+    subprocess.run(['git', 'add', 'frontend'], cwd=repo, check=True)
+    subprocess.run(['git', 'commit', '-m', 'fixture frontend compiler'], cwd=repo, check=True, capture_output=True)
+
+    foundation = {**task('foundation'), 'paths': ['frontend/package.json', 'frontend/package-lock.json'],
+                  'check_kind': 'docs', 'check_paths': ['README.md']}
+    frontend = {**task('frontend', ['foundation']), 'paths': ['frontend/app.ts'],
+                'check_kind': 'typescript', 'check_cwd': 'frontend', 'check_paths': ['tsconfig.json']}
+    class FrontendCLI(CoordinatedCLI):
+        async def invocation(self, child, cwd):
+            code = r'''
+from pathlib import Path
+import json, sys
+prompt = sys.stdin.read()
+root = Path('frontend')
+if 'Trabalhe somente nos arquivos: frontend/package.json' in prompt:
+    package = {'name': 'fixture', 'devDependencies': {'typescript': 'file:vendor/typescript'}}
+    lock = {'name': 'fixture', 'lockfileVersion': 3, 'packages': {
+        '': package,
+        'node_modules/typescript': {'resolved': 'vendor/typescript', 'link': True},
+        'vendor/typescript': {'name': 'typescript', 'version': '1.0.0', 'dev': True},
+    }}
+    (root / 'package.json').write_text(json.dumps(package))
+    (root / 'package-lock.json').write_text('invalid-lockfile' if sys.argv[1] == 'True' else json.dumps(lock))
+else:
+    assert not (root / 'node_modules').exists()
+    app = root / 'app.ts'
+    if 'A revisão anterior foi restaurada' in prompt:
+        assert 'TS2322' in prompt
+        assert 'const size: number = "errado"' in app.read_text()
+        app.write_text('const size: number = 2;\n')
+    else:
+        app.write_text('const size: number = "errado";\n')
+print(json.dumps({'type': 'turn.completed', 'model': 'gpt-test-observed'}))
+'''
+            return [sys.executable, '-c', code, str(broken_lockfile)], {}, ExitStack(), {}
+
+    service.runner = FrontendCLI({'objective': 'Preparar e verificar frontend', 'foundation_id': 'foundation',
+                                  'tasks': [foundation, frontend]}, tmp_path)
+    cid, _ = await create(service, access_mode='workspace-write', execution_mode='swarm')
+    await service._execute(await service.claim())
+    snapshot = await service.snapshot(cid)
+    turn = snapshot['turns'][0]
+    progress = turn['coordination']['tasks']['frontend']
+    if broken_lockfile:
+        assert turn['state'] == 'failed'
+        assert 'prepare-node-frontend' in turn['error']
+        assert [attempt['state'] for attempt in progress['attempts']] == ['failed']
+        assert not (repo / 'frontend/node_modules').exists()
+        return
+    assert turn['state'] == 'completed', turn['error']
+    assert [attempt['state'] for attempt in progress['attempts']] == ['failed', 'ready_for_review']
+    assert progress['identity']['model'] == 'gpt-test-observed'
+    assert not (repo / 'frontend/app.ts').exists()
+    assert not (repo / 'frontend/node_modules').exists()
+    assert (Path(snapshot['workspace_path']) / 'frontend/app.ts').read_text() == 'const size: number = 2;\n'
+    original = await service.store.get_attempt(progress['attempts'][0]['id'])
+    assert 'errado' in (Path(original.workspace_path) / 'frontend/app.ts').read_text()

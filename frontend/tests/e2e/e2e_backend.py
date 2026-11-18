@@ -48,7 +48,7 @@ def _create_fake_shims(bin_dir: Path) -> None:
     bin_dir.mkdir(parents=True, exist_ok=True)
     fake_cli = bin_dir / "fake_cli.py"
     fake_cli.write_text(
-        "import sys,json,time\n"
+        "import sys,json,time,pathlib\n"
         "tool = sys.argv[1] if len(sys.argv) > 1 else 'cli'\n"
         "if '--version' in sys.argv:\n"
         "    print(tool + ' controlled-e2e-1')\n"
@@ -58,7 +58,11 @@ def _create_fake_shims(bin_dir: Path) -> None:
         "    sys.exit(0)\n"
         "if 'exec' in sys.argv or '--print' in sys.argv:\n"
         "    prompt = sys.stdin.read()\n"
-        "    print(json.dumps({'type':'thread.started','thread_id':'controlled-chat-session'}), flush=True)\n"
+        "    model = sys.argv[sys.argv.index('--model')+1] if '--model' in sys.argv else 'gpt-e2e-test'\n"
+        "    print(json.dumps({'type':'thread.started','thread_id':'controlled-chat-session','model':model}), flush=True)\n"
+        "    if 'E2E arquivo para revisão' in prompt:\n"
+        "        pathlib.Path('README.md').write_text('# Revisão de teste\\nGuia de início atualizado.\\n', encoding='utf-8')\n"
+        "        pathlib.Path('src/calc.py').write_text('def double(x):\\n    return x + x\\n', encoding='utf-8')\n"
         "    print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':'Li o README. Primeiro, instale as dependencias.'}}), flush=True)\n"
         "    time.sleep(4 if 'aguarde' not in prompt.lower() else 20)\n"
         "    text = 'Segundo passo detalhado: execute npm run dev.' if 'resume' in sys.argv else 'Segundo, inicie com npm run dev.'\n"

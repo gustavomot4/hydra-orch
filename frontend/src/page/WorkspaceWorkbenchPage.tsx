@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import * as Tabs from '@radix-ui/react-tabs';
 import { useQuery } from '@tanstack/react-query';
 import { FileCode2, FolderGit2, GitMerge, Package, RefreshCw } from 'lucide-react';
@@ -7,6 +7,7 @@ import { StatusBadge } from '@/component/StatusBadge';
 import { statusLabel } from '@/component/statusMeta';
 import { ArtifactViewer } from '@/feature/artifact';
 import { ConflictWorkbench, PrPackagePanel } from '@/feature/conflict';
+import { ConversationChanges } from '@/feature/chat/ConversationChanges';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { useLayoutStore } from '@/store/layoutStore';
 import { RunListResponse, RunSummary } from '@/type/controlPlane';
@@ -24,6 +25,9 @@ export function WorkspaceWorkbenchPage({
 }: WorkspaceWorkbenchPageProps) {
   const client = useControlPlaneClient();
   const navigate = useNavigate();
+  const location = useLocation();
+  const params = new URLSearchParams(location.pathname === '/workspace' ? location.search : '');
+  const advanced = params.has('advanced');
   const selectedRunId = useLayoutStore((s) => s.selectedRunId);
   const selectedProjectId = useLayoutStore((s) => s.selectedProjectId);
   const selectHierarchy = useLayoutStore((s) => s.selectHierarchy);
@@ -31,19 +35,35 @@ export function WorkspaceWorkbenchPage({
 
   const [section, setSection] = useState<WorkbenchSection>(initialSection);
   const [explicitRunId, setExplicitRunId] = useState<string | null>(initialRunId);
+  const selectedWorkId = explicitRunId ?? selectedRunId;
+  const requestedChat = params.get('chat') ?? (selectedWorkId?.startsWith('conversation-') ? selectedWorkId : null);
+  const recent = useQuery({
+    queryKey: ['control-plane', 'reviewable-conversations', selectedProjectId],
+    queryFn: ({ signal }) => {
+      const filters = new URLSearchParams({ limit: '30' });
+      if (selectedProjectId) filters.set('project_id', selectedProjectId);
+      return client.request<{ items: { id: string; access_mode: string; workspace_path?: string }[] }>(
+        `/v1/control-plane/conversations?${filters}`, { signal },
+      );
+    },
+    enabled: !advanced && !selectedWorkId && !requestedChat,
+    retry: false,
+  });
+  const conversationId = advanced ? null : requestedChat ?? recent.data?.items?.find(
+    (item) => item.access_mode === 'workspace-write' && item.workspace_path,
+  )?.id;
 
   const runsQuery = useQuery<RunListResponse>({
     queryKey: ['control-plane', 'workbench-runs', selectedProjectId ?? 'all'],
     queryFn: () => client.listRuns({ page: 1, size: 50 }),
+    enabled: !conversationId,
     retry: false,
     staleTime: 10_000,
   });
 
   const runs: RunSummary[] = runsQuery.data?.items ?? [];
-  const selectedWorkId = explicitRunId ?? selectedRunId;
-  const conversationId = selectedWorkId?.startsWith('conversation-') ? selectedWorkId : null;
   const resolvedRunId =
-    (conversationId ? null : selectedWorkId) ??
+    (selectedWorkId?.startsWith('conversation-') ? null : selectedWorkId) ??
     runs.find((r) => !selectedProjectId || r.project_id === selectedProjectId)?.id ??
     runs[0]?.id ??
     null;
@@ -55,6 +75,16 @@ export function WorkspaceWorkbenchPage({
   }, [initialRunId]);
 
   const activeRun = runs.find((r) => r.id === resolvedRunId) ?? null;
+
+  if (conversationId) return (
+    <div data-testid="workspace-workbench-page" className="mx-auto w-full max-w-6xl space-y-5 p-4 md:p-6">
+      <ConversationChanges key={conversationId} conversationId={conversationId} />
+      <details className="border-t border-[var(--border)] pt-2">
+        <summary className="min-h-11 cursor-pointer py-2 text-sm">Opções avançadas</summary>
+        <Link className="chat-text-button underline" to="/workspace?advanced=1">Ver conflitos, artefatos e pacotes de PR</Link>
+      </details>
+    </div>
+  );
 
   return (
     <div
@@ -114,15 +144,7 @@ export function WorkspaceWorkbenchPage({
         </div>
       </header>
 
-      {conversationId ? (
-        <section className="rounded-xl border border-[var(--border)] p-4">
-          <h2 className="text-base font-semibold">Alterações da conversa</h2>
-          <p className="my-2 text-sm text-[var(--text-muted)]">Revise os arquivos e aplique as alterações pelo histórico do pedido.</p>
-          <Link className="chat-text-button underline" to={`/chat/${encodeURIComponent(conversationId)}`}>
-            Abrir conversa para revisar
-          </Link>
-        </section>
-      ) : !resolvedRunId ? (
+      {!resolvedRunId ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#303030] bg-[#1C1C1C] p-8 text-center">
           <p className="text-sm font-medium text-[#E8E8E8]">
             Nenhuma run selecionada para revisão ou inspeção de artefatos

@@ -7,14 +7,16 @@ export function taskState(
 ) {
   const validation = (progress?.operation ?? task.operation) === 'validate';
   let state = progress?.state ?? 'planned';
-  if (['starting', 'running'].includes(state) && ['failed', 'cancelled'].includes(turnState ?? ''))
+  const working = ['starting', 'running', 'repairing'].includes(state);
+  if (working && ['failed', 'cancelled'].includes(turnState ?? ''))
     state = 'stopped';
-  if (['starting', 'running'].includes(state) && turnState === 'stopping') state = 'stopping';
-  if (['starting', 'running'].includes(state) && turnState === 'completed') state = 'unknown';
+  if (working && turnState === 'stopping') state = 'stopping';
+  if (working && turnState === 'completed') state = 'unknown';
   const labels: Record<string, string> = {
     planned: 'Não iniciada',
     starting: 'Iniciando',
     running: validation ? 'Verificando' : 'Trabalhando',
+    repairing: 'Corrigindo os checks',
     accepted: validation ? 'Validada' : 'Revisão aprovada',
     completed: 'Concluída',
     failed: 'Falhou',
@@ -30,7 +32,7 @@ export function taskState(
     ? 'success'
     : ['failed', 'rejected'].includes(state)
       ? 'error'
-      : ['starting', 'running'].includes(state)
+      : ['starting', 'running', 'repairing'].includes(state)
         ? 'info'
         : 'muted';
   const symbol = tone === 'success' ? '✓' : tone === 'error' ? '!' : tone === 'info' ? '▶' : '◇';

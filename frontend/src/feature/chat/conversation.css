@@ -197,6 +197,17 @@
 .chat-choice {
   max-width: 100%;
 }
+.chat-text-button.chat-primary-action {
+  border: 1px solid var(--btn-primary-bg);
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  font-weight: 650;
+}
+@media (hover: hover) and (pointer: fine) {
+  .chat-text-button.chat-primary-action:hover {
+    background: var(--accent-hover);
+  }
+}
 .chat-choice-label {
   color: var(--text-muted);
   font-size: 0.75rem;

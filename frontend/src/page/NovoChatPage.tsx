@@ -106,7 +106,7 @@ export function NovoChatPage({
         access_mode: accessMode,
         draft_session_id: `draft-${activeProject.id}`,
         attachment_ids: attachmentIds,
-        ...(executionMode !== 'single'
+        ...(executionMode !== 'single' || autoRoute
           ? { execution_mode: executionMode, auto_route: autoRoute }
           : {}),
         ...(route.connection_mode !== 'direct' || route.target_ref

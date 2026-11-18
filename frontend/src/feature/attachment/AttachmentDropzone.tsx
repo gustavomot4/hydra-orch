@@ -113,6 +113,7 @@ export function AttachmentDropzone({
 
   const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachButtonRef = useRef<HTMLButtonElement>(null);
   const dragDepthRef = useRef(0);
   const seqRef = useRef(0);
 
@@ -237,7 +238,7 @@ export function AttachmentDropzone({
           host_id: hostId,
         });
 
-        const view = attachmentRefToView(created);
+        const view = { ...attachmentRefToView(created), file };
         commitItems((prev) => prev.map((entry) => (entry.id === itemId ? view : entry)));
         onUploaded?.(created);
       } catch (err) {
@@ -363,7 +364,7 @@ export function AttachmentDropzone({
           item.session_id,
           item.attachment_id,
         );
-        const view = attachmentRefToView(confirmed);
+        const view = { ...attachmentRefToView(confirmed), file: item.file };
         commitItems((prev) => prev.map((entry) => (entry.id === item.id ? view : entry)));
         onConfirmed?.(confirmed);
       } catch (err) {
@@ -403,12 +404,14 @@ export function AttachmentDropzone({
     (item: AttachmentItemView) => {
       commitItems((prev) => prev.filter((entry) => entry.id !== item.id));
       setErrorBanner((prev) => (prev?.itemId === item.id ? null : prev));
+      attachButtonRef.current?.focus({ preventScroll: true });
     },
     [commitItems],
   );
 
   const attachControl = (
     <button
+      ref={attachButtonRef}
       type="button"
       aria-label="Anexar arquivo"
       disabled={disabled}
@@ -419,6 +422,19 @@ export function AttachmentDropzone({
       <span>Anexar arquivo</span>
     </button>
   );
+  const attachmentList =
+    showList && (!compact || resolvedItems.length > 0) ? (
+      <div className={compact ? 'mb-2' : 'mt-3'}>
+        <AttachmentList
+          items={resolvedItems}
+          compact={compact}
+          onConfirmTransfer={handleConfirmTransfer}
+          onRetry={handleRetryItem}
+          onDismiss={handleDismissItem}
+          onRemove={handleDismissItem}
+        />
+      </div>
+    ) : null;
   return (
     <div
       data-testid="attachment-dropzone"
@@ -460,6 +476,7 @@ export function AttachmentDropzone({
         className="sr-only"
       />
 
+      {compact && attachmentList}
       {children ? (
         <div className={compact ? 'mb-2' : 'mb-3'}>
           {typeof children === 'function' ? children(attachControl) : children}
@@ -524,17 +541,7 @@ export function AttachmentDropzone({
         </div>
       ) : null}
 
-      {showList && (!compact || resolvedItems.length > 0) ? (
-        <div className="mt-3">
-          <AttachmentList
-            items={resolvedItems}
-            onConfirmTransfer={handleConfirmTransfer}
-            onRetry={handleRetryItem}
-            onDismiss={handleDismissItem}
-            onRemove={handleDismissItem}
-          />
-        </div>
-      ) : null}
+      {!compact && attachmentList}
     </div>
   );
 }

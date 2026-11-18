@@ -164,7 +164,7 @@ export function HydraShell() {
         id: 'tab:workspaces',
         kind: 'workspace',
         title: 'Alterações',
-        route: '/workspace',
+        route: path + location.search,
         closable: true,
       });
     } else if (path === '/recursos') {

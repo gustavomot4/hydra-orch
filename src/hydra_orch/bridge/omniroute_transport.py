@@ -30,7 +30,7 @@ def function_request(body, target, *, tools_admitted=False):
 
 
 @contextmanager
-def codex_transport(base_url, upstream_key, target):
+def codex_transport(base_url, upstream_key, target, *, accept_requested_model=False):
     delegate = secrets.token_urlsafe(32)
     stopped = threading.Event()
     observed = {'models': [], 'source': 'omniroute.responses'}
@@ -65,6 +65,7 @@ def codex_transport(base_url, upstream_key, target):
                 with httpx.Client(timeout=httpx.Timeout(60, connect=3)) as client:
                     with client.stream('POST', base_url.rstrip('/') + '/responses', json=payload,
                                        headers={'Authorization': 'Bearer ' + upstream_key, 'Accept-Encoding': 'identity'}) as response:
+                        observed['http_status'] = response.status_code
                         self.send_response(response.status_code)
                         self.send_header('Content-Type', response.headers.get('Content-Type', 'application/json'))
                         self.send_header('Cache-Control', 'no-store')
@@ -82,7 +83,8 @@ def codex_transport(base_url, upstream_key, target):
                                     try:
                                         event = json.loads(line[6:])
                                         model = event.get('response', {}).get('model')
-                                        if isinstance(model, str) and model != target and model not in observed['models']:
+                                        if (isinstance(model, str) and (model != target or accept_requested_model)
+                                                and model not in observed['models'] and len(observed['models']) < 50):
                                             observed['models'].append(model)
                                     except (ValueError, AttributeError):
                                         pass

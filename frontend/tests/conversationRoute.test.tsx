@@ -208,6 +208,7 @@ describe('conversation route choices', () => {
           diff: '',
           attachments: [],
           route: first,
+          identity: { model: 'model-a', company: null, source: 'cli' },
         },
       ],
     };
@@ -239,14 +240,14 @@ describe('conversation route choices', () => {
     await user.click(await screen.findByRole('button', { name: /^Modelo:/ }));
     await user.click(screen.getByRole('button', { name: 'Modelo B' }));
     await user.click(screen.getByRole('radio', { name: 'Coordenar tarefas com agentes' }));
-    await user.click(screen.getByRole('checkbox', { name: /Escolher entre combos/ }));
+    expect(screen.getByRole('checkbox', { name: 'Escolher modelo automaticamente' })).toBeChecked();
     await user.click(screen.getByRole('button', { name: 'Usar nos próximos envios' }));
     await waitFor(() => expect(changes).toHaveLength(1));
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Cancelar troca' })).not.toBeInTheDocument(),
     );
     expect(screen.getByText('Decisão: usar verde')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Codex · model-a' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'model-a' })).toBeInTheDocument();
     expect(changes[0]).toMatchObject({
       expected_revision: 0,
       route: { target_ref: 'model-b' },

@@ -441,14 +441,17 @@ def snapshot(source: Path, directory: Path) -> Path:
     return working
 
 
-def diff(baseline: Path, working: Path) -> str:
+def diff(baseline: Path, working: Path, *, path: Path | None = None) -> str:
     if is_link_or_junction(baseline):
         raise ContractViolation(
             "scope_violation",
             "A cópia contém um link que exige revisão. Os arquivos foram preservados.",
         )
     assert_no_links_in_tree(working)
-    names = set(files(baseline)) | set(files(working))
+    names = set(files(baseline)) | set(files(working)) if path is None else {path}
+    if path is not None and (path.is_absolute() or '..' in path.parts or
+                             has_link_on_rel_path(baseline, path) or has_link_on_rel_path(working, path)):
+        raise ContractViolation('scope_violation', 'O arquivo selecionado está fora da revisão.')
     result = ""
     for name in sorted(names):
         before, after = baseline / name, working / name

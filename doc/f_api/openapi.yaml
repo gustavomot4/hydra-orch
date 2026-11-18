@@ -6462,6 +6462,30 @@ paths:
           description: Workspace não encontrado
         '409':
           description: Workspace possui projetos vinculados ou conflito de revisão
+  /v1/control-plane/conversations/{conversation_id}/changes:
+    get:
+      tags: [Conversations]
+      summary: Conferir alterações da conversa e consultar o diff de um arquivo
+      operationId: inspectConversationChanges
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: path
+          in: query
+          schema: {type: string, maxLength: 4096}
+      responses:
+        '200':
+          description: Arquivos, conflitos e comparação do arquivo solicitado
+        '400':
+          description: A conversa ainda não possui uma cópia para edição
+        '404':
+          description: Conversa ou arquivo não encontrado
+        '409':
+          description: A conversa está em execução
   /v1/control-plane/conversations/{conversation_id}/apply:
     post:
       tags:

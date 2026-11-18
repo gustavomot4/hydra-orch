@@ -26,6 +26,12 @@ export interface ConversationRoute {
   target_ref: string;
 }
 
+export interface ReportedModel {
+  model: string;
+  company: string | null;
+  source: string;
+}
+
 export function defaultRoute(executor: 'codex' | 'claude' = 'codex'): ConversationRoute {
   return { executor, connection_mode: 'direct', target_kind: 'model', target_ref: '' };
 }
@@ -60,6 +66,8 @@ export interface CoordinationProgress {
   summary?: string;
   checks?: CoordinationCheck[];
   route?: ConversationRoute;
+  identity?: ReportedModel | null;
+  attempts?: { id: string; ordinal: number; identity: ReportedModel | null; route: ConversationRoute; state: string }[];
 }
 
 export interface ConversationTurn {
@@ -72,6 +80,9 @@ export interface ConversationTurn {
   diff: string;
   attachments: { filename: string; attachment_id: string }[];
   route?: ConversationRoute;
+  effective_route?: ConversationRoute | null;
+  context_checkpoint?: { route_reason?: string };
+  identity?: ReportedModel | null;
   route_revision?: number;
   execution_mode?: 'single' | 'swarm';
   coordination?: {
@@ -112,6 +123,7 @@ export interface ConversationSnapshot {
     model: string;
     summary: string;
     source: 'cli';
+    identity?: ReportedModel | null;
   }[];
 }
 

@@ -473,13 +473,13 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     await page.reload();
     await waitForFixtureTurn(page, 1);
     await expect(
-      page.getByTestId('conversation-turn-1').getByRole('heading', { name: 'Codex · model-a' }),
+      page.getByTestId('conversation-turn-1').getByRole('heading', { name: 'model-a' }),
     ).toBeVisible();
     await expect(
-      page.getByTestId('conversation-turn-2').getByRole('heading', { name: 'Codex · model-b' }),
+      page.getByTestId('conversation-turn-2').getByRole('heading', { name: 'model-b' }),
     ).toBeVisible();
     await expect(
-      page.getByTestId('conversation-turn-3').getByRole('heading', { name: 'Codex · model-a' }),
+      page.getByTestId('conversation-turn-3').getByRole('heading', { name: 'model-a' }),
     ).toBeVisible();
     await expect(
       page.getByText('Decisão antiga: preservar o README', { exact: true }).last(),
@@ -497,7 +497,7 @@ test.describe('M5 Acceptance E2E (Cenário Integrado 10 passos + WCAG AA + Respo
     const url = page.url();
     await page.getByRole('button', { name: /Trocar modelo ou combo/ }).click();
     await page.getByRole('radio', { name: 'Coordenar tarefas com agentes' }).check();
-    await page.getByRole('checkbox', { name: /Escolher entre combos/ }).check();
+    await page.getByRole('checkbox', { name: 'Escolher modelo automaticamente' }).check();
     await runAxeWcagAA(page, 'opções de execução');
     await checkConversationLayout(page, 'route_workflow');
     await page.screenshot({
@@ -997,4 +997,72 @@ test('keeps composer settings in reach, renders Markdown and adds CLI agents fro
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 375, height: 812 });
   await page.screenshot({ path: '../ws/b_output/chat_ux/new_chat_mobile.png', fullPage: true });
+});
+test('reviews and applies a recorded conversation change and shows the observed model and image', async ({ page }) => {
+  await loginControlPlane(page);
+  const headers = { Authorization: `Bearer ${E2E_TOKEN}` };
+  const projects = await (await page.request.get('/v1/control-plane/projects', { headers })).json();
+  const project = projects.find((item: { name: string }) => item.name === 'hydra-e2e-repo');
+  expect(project).toBeDefined();
+  const created = await page.request.post('/v1/control-plane/conversations', {
+    headers,
+    data: {
+      project_id: project.id,
+      executor: 'codex',
+      content: 'E2E arquivo para revisão — Atualizar guia de início',
+      access_mode: 'workspace-write',
+      idempotency_key: 'e2e-review-files-main-0001',
+    },
+  });
+  expect(created.ok(), await created.text()).toBe(true);
+  const { conversation_id: id } = await created.json();
+  const screenshotDir = '../ws/b_output/conversa-coordenacao';
+  fs.mkdirSync(screenshotDir, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/chat/${id}`);
+  await expect(page.getByRole('heading', { name: 'gpt-e2e-test OpenAI' })).toBeVisible();
+  await expect(page.getByText('Resposta concluída', { exact: true })).toBeVisible();
+  const upload = page.getByTestId('conversation-page').locator('input[type="file"]');
+  const image = { name: 'referencia.png', mimeType: 'image/png', buffer: fs.readFileSync('../ws/b_output/entrega-demo/site-desktop.png') };
+  await upload.setInputFiles(image);
+  await expect(page.getByRole('img', { name: 'Prévia de referencia.png' })).toBeVisible();
+  await expect(page.getByTestId('attachment-list')).toContainText('Pronto local');
+  const remove = page.getByRole('button', { name: 'Remover anexo referencia.png' });
+  await remove.press('Enter');
+  await expect(page.getByRole('img', { name: 'Prévia de referencia.png' })).toHaveCount(0);
+  await upload.setInputFiles(image);
+  await page.getByLabel('Sua mensagem').fill('Use esta imagem como referência para o cabeçalho.');
+  await expect(page.getByRole('img', { name: 'Prévia de referencia.png' })).toBeVisible();
+  await runAxeWcagAA(page, 'conversa com prévia de imagem');
+  await page.screenshot({ path: `${screenshotDir}/chat.png`, fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.screenshot({ path: `${screenshotDir}/chat_celular.png`, fullPage: true });
+  await checkConversationLayout(page, 'chat_com_previa');
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  await page.getByRole('link', { name: 'Ver agentes' }).click();
+  await expect(page.getByTestId('agent-inspector')).toContainText('gpt-e2e-test');
+  await runAxeWcagAA(page, 'área de trabalho com identidade observada');
+  await page.screenshot({ path: `${screenshotDir}/area_de_trabalho.png`, fullPage: true });
+
+  await page.goto(`/workspace?chat=${id}`);
+  await expect(page.getByRole('heading', { name: 'Arquivos alterados' })).toBeVisible();
+  await page.getByRole('button', { name: /src\/calc\.py/ }).click();
+  await expect(page.getByTestId('diff-viewer')).toContainText('return x + x');
+  await runAxeWcagAA(page, 'revisão por arquivo');
+  await page.screenshot({ path: `${screenshotDir}/alteracoes.png`, fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.screenshot({ path: `${screenshotDir}/alteracoes_celular.png`, fullPage: true });
+  await checkConversationLayout(page, 'alteracoes_por_arquivo');
+  const applyResponse = page.waitForResponse(
+    (response) => response.url().endsWith(`/conversations/${id}/apply`) && response.request().method() === 'POST',
+  );
+  await page.getByRole('button', { name: 'Aplicar ao projeto', exact: true }).click();
+  const applied = await applyResponse;
+  expect(applied.ok(), await applied.text()).toBe(true);
+  expect(await applied.json()).toMatchObject({
+    status: 'applied',
+    applied_files: expect.arrayContaining(['src/calc.py']),
+  });
+  await expect(page.getByRole('status').filter({ hasText: 'O projeto já está atualizado' })).toBeVisible();
 });

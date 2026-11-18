@@ -1,4 +1,5 @@
 import { CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
+import { ModelIdentity } from '@/feature/chat/ModelIdentity';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -147,19 +148,8 @@ export function AgentWorkspacePage() {
   }
   return (
     <div className="canvas-page" data-testid="agent-workspace-page">
-      <header className="canvas-page-header">
-        <div>
-          <span className="canvas-eyebrow">Hydra · Seu trabalho</span>
-          <h1 ref={heading} tabIndex={-1}>
-            Área de trabalho
-          </h1>
-        </div>
-        <Link to="/" className="canvas-button canvas-primary">
-          <MessageSquarePlus size={18} aria-hidden="true" />
-          Novo pedido
-        </Link>
-      </header>
-      <div className="canvas-toolbar">
+      <header className="canvas-toolbar canvas-page-header">
+        <h1 ref={heading} tabIndex={-1}>Área de trabalho</h1>
         <button
           className="canvas-icon-button"
           aria-label={
@@ -205,6 +195,10 @@ export function AgentWorkspacePage() {
             />
           </div>
         </details>
+        <Link to="/" className="canvas-button canvas-primary">
+          <MessageSquarePlus size={18} aria-hidden="true" />
+          Novo pedido
+        </Link>
         <div className="canvas-switch" role="group" aria-label="Visualização do trabalho">
           <button aria-pressed={view === 'canvas'} onClick={() => setView('canvas')}>
             <Network size={16} />
@@ -226,7 +220,7 @@ export function AgentWorkspacePage() {
         >
           <RefreshCw size={17} />
         </button>
-      </div>
+      </header>
       {busy ? (
         <div className="canvas-empty" role="status">
           <Network size={36} aria-hidden="true" />
@@ -301,7 +295,7 @@ export function AgentWorkspacePage() {
                       </span>
                       <strong>{node.title}</strong>
                       <span>
-                        {node.executor} · {node.model}
+                        {node.role === 'validation' ? 'Hydra · Verificação local' : <ModelIdentity identity={node.identity} />}
                       </span>
                       <p>{node.action}</p>
                     </button>

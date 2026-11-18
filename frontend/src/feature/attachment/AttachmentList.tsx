@@ -1,13 +1,5 @@
-import {
-  Check,
-  FileCode2,
-  FileImage,
-  FileText,
-  RefreshCw,
-  Server,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, FileCode2, FileImage, FileText, RefreshCw, Server, Trash2, X } from 'lucide-react';
 import { StatusBadge, StatusKind } from '@/component/StatusBadge';
 import {
   ATTACHMENT_STATUS_LABELS,
@@ -18,6 +10,7 @@ import {
 } from './attachmentTypes';
 
 export interface AttachmentListProps {
+  compact?: boolean;
   items: AttachmentItemView[];
   onConfirmTransfer?: (item: AttachmentItemView) => void | Promise<void>;
   onRetry?: (item: AttachmentItemView) => void | Promise<void>;
@@ -63,6 +56,19 @@ function AttachmentIcon({ mimeType }: { mimeType: string }) {
   return <FileText aria-hidden="true" className="h-4 w-4 shrink-0 text-[#E8E8E8]" />;
 }
 
+function ImageThumbnail({ file, filename }: { file: File; filename: string }) {
+  const [url, setUrl] = useState('');
+  useEffect(() => {
+    if (typeof URL.createObjectURL !== 'function') return;
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+  return url ? (
+    <img src={url} alt={`Prévia de ${filename}`} className="h-12 w-16 rounded-md object-cover" />
+  ) : null;
+}
+
 export function AttachmentList({
   items,
   onConfirmTransfer,
@@ -72,6 +78,7 @@ export function AttachmentList({
   emptyLabel = 'Nenhum anexo vinculado a esta sessão.',
   hideWhenEmpty = false,
   className = '',
+  compact = false,
 }: AttachmentListProps) {
   if (items.length === 0) {
     if (hideWhenEmpty) {
@@ -97,8 +104,7 @@ export function AttachmentList({
         const isRemote = item.host_id !== 'local';
         const needsConfirm = item.status === 'pending_remote_confirm';
         const isError = item.status === 'erro';
-        const canRemove =
-          onRemove && item.status !== 'preparando' && item.status !== 'enviando';
+        const canRemove = onRemove && item.status !== 'preparando' && item.status !== 'enviando';
 
         return (
           <li
@@ -108,15 +114,17 @@ export function AttachmentList({
             className="rounded-xl border border-[#303030] bg-[#202020] px-3 py-2.5 text-xs text-[#E8E8E8]"
           >
             <div className="flex flex-wrap items-start justify-between gap-2">
-              <div className="flex min-w-0 flex-1 items-start gap-2.5">
-                <div className="mt-0.5">
-                  <AttachmentIcon mimeType={item.mime_type} />
+              <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                <div className="shrink-0">
+                  {item.file && /^image\/(png|jpeg|webp|gif|bmp)$/.test(item.mime_type) ? (
+                    <ImageThumbnail file={item.file} filename={item.filename} />
+                  ) : (
+                    <AttachmentIcon mimeType={item.mime_type} />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="truncate font-medium text-[#E8E8E8]">
-                      {item.filename}
-                    </span>
+                    <span className="truncate font-medium text-[#E8E8E8]">{item.filename}</span>
                     <StatusBadge
                       status={resolveBadgeStatus(item.status)}
                       labelOverride={ATTACHMENT_STATUS_LABELS[item.status]}
@@ -133,13 +141,15 @@ export function AttachmentList({
                     ) : null}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#969696]">
-                    <span className="font-mono">{item.mime_type}</span>
-                    <span>{formatAttachmentSize(item.size_bytes)}</span>
-                    <span className="font-mono" title={item.sha256 ?? undefined}>
-                      SHA-256: {formatSha256Prefix(item.sha256, 12)}
-                    </span>
-                  </div>
+                  {!compact && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#969696]">
+                      <span className="font-mono">{item.mime_type}</span>
+                      <span>{formatAttachmentSize(item.size_bytes)}</span>
+                      <span className="font-mono" title={item.sha256 ?? undefined}>
+                        SHA-256: {formatSha256Prefix(item.sha256, 12)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -153,9 +163,7 @@ export function AttachmentList({
                     className="inline-flex items-center gap-1.5 rounded-lg bg-[#E8E8E8] px-2.5 py-1 text-xs font-medium text-[#181818] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Check aria-hidden="true" className="h-3.5 w-3.5" />
-                    <span>
-                      {item.confirming ? 'Confirmando...' : 'Confirmar transferência'}
-                    </span>
+                    <span>{item.confirming ? 'Confirmando...' : 'Confirmar transferência'}</span>
                   </button>
                 ) : null}
 
@@ -188,7 +196,7 @@ export function AttachmentList({
                     type="button"
                     onClick={() => onRemove(item)}
                     aria-label={`Remover anexo ${item.filename}`}
-                    className="inline-flex items-center justify-center rounded-lg border border-transparent p-1 text-[#969696] hover:border-[#303030] hover:bg-[#282828] hover:text-[#FCA5A5]"
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-transparent text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
                   >
                     <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
                   </button>

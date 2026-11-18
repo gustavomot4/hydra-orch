@@ -1,3 +1,4 @@
+import { ModelIdentity } from '@/feature/chat/ModelIdentity';
 import { CSSProperties, useEffect, useId, useRef, useState } from 'react';
 import { Hand, Maximize, Minus, Move, Network, Plus, RotateCcw } from 'lucide-react';
 import {
@@ -238,6 +239,18 @@ export function AgentCanvas({
     }));
   };
 
+  const placedLabels: Point[] = [];
+  const labelsOverlap = (point: Point) =>
+    placedLabels.some((placed) => Math.abs(point.x - placed.x) < 126 && Math.abs(point.y - placed.y) < 32)
+    || Object.entries(positions).some(([id, position]) =>
+      point.x + 60 > position.x && point.x - 60 < position.x + NODE_WIDTH
+      && point.y + 14 > position.y && point.y - 14 < position.y + (nodeHeights[id] ?? NODE_HEIGHT),
+    );
+  const edges = [...graph.edges].sort((left, right) =>
+    Number(right.source === selected || right.target === selected)
+    - Number(left.source === selected || left.target === selected),
+  );
+
   return (
     <div className="agent-map" data-testid="agent-map">
       <span ref={fontProbe} className="canvas-font-probe" aria-hidden="true" />
@@ -333,7 +346,7 @@ export function AgentCanvas({
                 <path d="M0 0 L8 4 L0 8" fill="var(--accent)" />
               </marker>
             </defs>
-            {graph.edges.map((edge, index) => {
+            {edges.map((edge) => {
               const a = positions[edge.source],
                 b = positions[edge.target];
               if (!a || !b) return null;
@@ -355,6 +368,11 @@ export function AgentCanvas({
               const path = horizontal
                 ? `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`
                 : `M${x1},${y1} C${x1},${bend} ${x2},${bend} ${x2},${y2}`;
+              const x = (x1 + x2) / 2;
+              const label = [0, -34, 34, -68, 68]
+                .map((offset) => ({ x, y: bend + offset }))
+                .find((point) => !labelsOverlap(point));
+              if (label) placedLabels.push(label);
               return (
                 <g key={edge.id}>
                   <path
@@ -362,14 +380,13 @@ export function AgentCanvas({
                     d={path}
                     markerEnd={`url(#${arrowId})`}
                   />
-                  <g
-                    transform={`translate(${(x1 + x2) / 2},${bend + (horizontal ? 0 : (index % 2) * 18)})`}
-                  >
-                    <rect x="-59" y="-13" width="118" height="26" rx="8" />
-                    <text textAnchor="middle" y="5">
-                      {edge.label}
-                    </text>
-                  </g>
+                  <title>{edge.label}</title>
+                  {label && (
+                    <g transform={`translate(${label.x},${label.y})`}>
+                      <rect x="-59" y="-13" width="118" height="26" rx="8" />
+                      <text textAnchor="middle" y="5">{edge.label}</text>
+                    </g>
+                  )}
                 </g>
               );
             })}
@@ -481,7 +498,7 @@ export function AgentCanvas({
                   </span>
                   <strong>{node.title}</strong>
                   <span className="agent-node-executor">
-                    {node.executor} · {node.model}
+                    {node.role === 'validation' ? 'Hydra · Verificação local' : <ModelIdentity identity={node.identity} />}
                   </span>
                   <span className={`canvas-status tone-${state.tone}`}>
                     <span aria-hidden="true">{state.symbol}</span>

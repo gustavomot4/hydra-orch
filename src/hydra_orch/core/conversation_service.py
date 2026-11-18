@@ -18,6 +18,7 @@ from hydra_orch.core.git_workspace import GitWorkspaceError, is_link_or_junction
 from hydra_orch.core.redaction import redact, redact_text
 from hydra_orch.core.conversation_route import ConversationRoute, route_from
 from hydra_orch.core.conversation_context import prepare_context
+from hydra_orch.core.model_selection import observed_identity
 from hydra_orch.model import ContractViolation
 
 
@@ -279,7 +280,11 @@ class ConversationService:
                 agents = {}
                 for event in reversed(agent_rows):
                     payload = json.loads(event['payload_json'])
-                    agents[(event['turn_id'], payload['id'])] = {**payload, 'turn_id': event['turn_id']}
+                    agent = {**payload, 'turn_id': event['turn_id']}
+                    identity = observed_identity(payload.get('model'), 'cli', {})
+                    if identity:
+                        agent['identity'] = identity
+                    agents[(event['turn_id'], payload['id'])] = agent
                 conv['agents'] = list(agents.values())
                 return conv
 
@@ -290,6 +295,14 @@ class ConversationService:
         turn["attachments"] = json.loads(turn.pop("attachment_json"))
         turn['route'] = json.loads(turn.pop('route_json', '{}'))
         turn['context_checkpoint'] = json.loads(turn.pop('context_checkpoint_json', '{}'))
+        execution = turn['context_checkpoint'].get('execution', {})
+        turn['identity'] = execution.get('identity') or turn['context_checkpoint'].get('observed_model')
+        if not turn['identity'] and execution.get('model_source') == 'omniroute.responses':
+            for model in reversed(execution.get('models', [])):
+                turn['identity'] = observed_identity(model, execution['model_source'], turn['route'])
+                if turn['identity']:
+                    break
+        turn['effective_route'] = turn['context_checkpoint'].get('effective_route')
         turn['coordination'] = json.loads(turn.pop('coordination_json', '{}'))
         turn['auto_route'] = bool(turn['auto_route'])
         return turn
@@ -672,7 +685,7 @@ class ConversationService:
         }
         return result, new_base_sha
 
-    async def inspect_changes(self, conversation_id: str) -> dict:
+    async def inspect_changes(self, conversation_id: str, *, path: str | None = None, include_context: bool = False) -> dict:
         await self.store.initialize()
         async with self.store._connect() as db:
             conv = await self._load_conversation_for_sync(db, conversation_id)
@@ -680,13 +693,34 @@ class ConversationService:
         if not project:
             raise ContractViolation("resource_not_found", "Projeto da conversa não encontrado.")
         mode, source_root, ws_target = self._resolve_sync_target(conv, project)
-        if mode == "folder":
-            status = await asyncio.to_thread(folder_workspace.inspect_sync_status, source_root, ws_target)
-            return {"mode": "folder", **status}
-        _, _, _, _, status = await asyncio.to_thread(
-            self._inspect_git_worktree_sync, source_root, ws_target, conv.get("base_sha")
-        )
-        return {"mode": "git", **status}
+        def review():
+            if mode == "folder":
+                status = folder_workspace.inspect_sync_status(source_root, ws_target)
+            else:
+                ws, working, baseline, _, status = self._inspect_git_worktree_sync(source_root, ws_target, conv.get('base_sha'))
+            result = {"mode": mode, **status}
+            if include_context:
+                result.update(project_name=project['name'], title=conv['title'])
+            if path is None:
+                return result
+            if path not in (*status['agent_added'], *status['agent_modified'], *status['agent_deleted']):
+                raise ContractViolation('resource_not_found', 'O arquivo não está na revisão atual.')
+            if mode == 'folder':
+                patch = folder_workspace.diff(ws_target / 'base', ws_target / 'work', path=Path(path))
+            else:
+                work = working / path
+                version = ws._run_git(['cat-file', '-s', f'{baseline}:{path}'], cwd=working)
+                before_size = int(version.stdout.strip()) if version.returncode == 0 and version.stdout.strip().isdigit() else 0
+                after_size = win_long_path(work).stat().st_size if win_long_path(work).is_file() else 0
+                if max(before_size, after_size) > 100000:
+                    patch = 'Arquivo grande. A alteração pode ser aplicada ao projeto.'
+                else:
+                    patch = ws._run_git(['diff', '--no-ext-diff', '--no-textconv', baseline, '--', f':(literal){path}'], cwd=working).stdout
+                    if not patch and path in status['agent_added']:
+                        patch = ws._run_git(['diff', '--no-index', '--no-ext-diff', '--no-textconv', '--', os.devnull, path], cwd=working).stdout
+            return {**result, 'path': path, 'diff': redact_text(patch)[:200000]}
+        async with self._get_sync_lock(source_root):
+            return await asyncio.to_thread(review)
 
     async def apply_changes(self, conversation_id: str, *, force: bool = False) -> dict:
         await self.store.initialize()
@@ -797,6 +831,12 @@ class ConversationService:
                 elif kind == 'execution.metrics':
                     await db.execute("UPDATE conversation_turns SET context_checkpoint_json=json_set(context_checkpoint_json,'$.execution',json(?)) WHERE id=?",
                                      (json.dumps(redact(payload)), tid))
+                elif kind == 'execution.model':
+                    await db.execute("UPDATE conversation_turns SET context_checkpoint_json=json_set(context_checkpoint_json,'$.observed_model',json(?)) WHERE id=?",
+                                     (json.dumps(redact(payload)), tid))
+                elif kind in ('execution.route', 'coordinator.route'):
+                    await db.execute("UPDATE conversation_turns SET context_checkpoint_json=json_set(context_checkpoint_json,'$.effective_route',json(?),'$.route_reason',?) WHERE id=?",
+                                     (json.dumps(redact(payload['route'])), redact_text(payload['reason']), tid))
                 elif kind.startswith('coordinator.'):
                     if kind == 'coordinator.plan':
                         await db.execute("UPDATE conversation_turns SET coordination_json=json_set(coordination_json,'$.plan',json(?),'$.run_id',?) WHERE id=?", (json.dumps(redact(payload['plan'])),payload['run_id'],tid))
@@ -888,6 +928,7 @@ class ConversationService:
             conv['route'] = selection
             conv['execution_mode'] = stored_turn['execution_mode']
             conv['auto_route'] = stored_turn['auto_route']
+            conv['_image_input'] = any(ref.get('mime_type', '').startswith('image/') for ref in stored_turn['attachments'])
             agent_state = self.runs.runtime_dir / 'conversation_agent' / cid
             if not agent_state.resolve().is_relative_to(self.runs.runtime_dir.resolve()):
                 raise ContractViolation('context_path_escape', 'O diretório do agente não é válido.')
@@ -902,6 +943,16 @@ class ConversationService:
                     raise ContractViolation('route_changed', 'O combo mudou após o envio. Revise a configuração e envie novamente; o histórico foi preservado.')
                 conv['_gateway_base_url'] = self.routes.gateway.base_url
                 conv['_gateway_token'] = self.routes.gateway._resolve_api_key()
+            route_reason = None
+            if conv['auto_route'] and stored_turn['execution_mode'] == 'single' and self.routes:
+                quota = await self.routes.gateway.get_quota_status() if selection['connection_mode'] == 'omniroute' else {}
+                selected, route_reason = await self.routes.choose(
+                    {key: selection[key] for key in ('executor', 'connection_mode', 'target_kind', 'target_ref')},
+                    category='ui' if conv['_image_input'] else 'code', image=conv['_image_input'], quota=quota,
+                    context=(len(turn['content']) + sum(len(t['content']) + len(t['response']) for t in previous) + 2) // 3,
+                )
+                conv['route'] = await self._validate_route(selected)
+                conv['native_session_id'] = last.get('native_session_id') if last and last.get('effective_route') == conv['route'] and last.get('execution_mode') == 'single' else None
             ws, cwd = await self._workspace(conv)
             async with self.store._connect() as db:
                 rows = await (await db.execute("""SELECT e.turn_id,e.seq,e.type,e.payload_json FROM conversation_events e
@@ -914,6 +965,8 @@ class ConversationService:
             async with self.store._connect() as db:
                 await db.execute("UPDATE conversation_turns SET context_strategy=?,context_checkpoint_json=? WHERE id=?", ("native" if conv.get("native_session_id") else "referenced_history", json.dumps(conv['_context_checkpoint']), tid))
             emit = lambda kind, payload: self._emit(turn, kind, payload)
+            if route_reason:
+                await emit('execution.route', {'route': conv['route'], 'reason': route_reason})
             if stored_turn['execution_mode'] == 'swarm':
                 if self.coordinator is None:
                     from hydra_orch.core.conversation_coordinator import ConversationCoordinator

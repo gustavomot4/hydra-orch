@@ -46,7 +46,7 @@ export function DiffViewer({
             type="button"
             aria-pressed={layout === 'unified'}
             onClick={() => setLayout('unified')}
-            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+            className={`inline-flex min-h-6 items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors [@media(pointer:coarse)]:min-h-11 ${
               layout === 'unified'
                 ? 'border-[#3B82F6]/60 bg-[#202020] text-[#E8E8E8]'
                 : 'border-[#303030] bg-[#181818] text-[#969696] hover:bg-[#282828] hover:text-[#E8E8E8]'
@@ -59,7 +59,7 @@ export function DiffViewer({
             type="button"
             aria-pressed={layout === 'side-by-side'}
             onClick={() => setLayout('side-by-side')}
-            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+            className={`inline-flex min-h-6 items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors [@media(pointer:coarse)]:min-h-11 ${
               layout === 'side-by-side'
                 ? 'border-[#3B82F6]/60 bg-[#202020] text-[#E8E8E8]'
                 : 'border-[#303030] bg-[#181818] text-[#969696] hover:bg-[#282828] hover:text-[#E8E8E8]'

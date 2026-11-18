@@ -1,3 +1,4 @@
+import { ModelIdentity } from '@/feature/chat/ModelIdentity';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -83,7 +84,7 @@ export function AgentInspector({
             {node.title}
           </h2>
           <p>
-            {node.executor} · {node.model}
+            {node.role === 'validation' ? 'Hydra · Verificação local' : <ModelIdentity identity={node.identity} />}
           </p>
         </div>
         <button className="canvas-icon-button" onClick={onClose} aria-label="Fechar detalhes">
@@ -94,6 +95,36 @@ export function AgentInspector({
         <span aria-hidden="true">{state.symbol}</span>
         {state.label}
       </div>
+      {node.route && (
+        <dl className="space-y-2 text-xs">
+          <div>
+            <dt className="text-[var(--text-muted)]">Conexão</dt>
+            <dd>{node.executor} · {node.route.connection_mode === 'omniroute' ? 'OmniRoute' : 'Direta'}</dd>
+          </div>
+          <div>
+            <dt className="text-[var(--text-muted)]">{node.route.target_kind === 'combo' ? 'Combo solicitado' : 'Modelo solicitado'}</dt>
+            <dd className="break-all">{node.route.target_ref || 'Padrão do agente'}</dd>
+          </div>
+          {node.routeReason && <div>
+            <dt className="text-[var(--text-muted)]">Motivo da escolha</dt>
+            <dd>{node.routeReason}</dd>
+          </div>}
+          {node.identity && <div>
+            <dt className="text-[var(--text-muted)]">Origem do modelo</dt>
+            <dd>{node.identity.source === 'cli' ? 'Evento da CLI' : 'Resposta do OmniRoute'}</dd>
+          </div>}
+        </dl>
+      )}
+      {node.attempts && node.attempts.length > 1 && (
+        <details className="text-sm">
+          <summary className="min-h-6 cursor-pointer">Tentativas</summary>
+          <ol className="space-y-1">
+            {node.attempts.map((attempt) => (
+              <li key={attempt.id}>{attempt.ordinal}. <ModelIdentity identity={attempt.identity} /></li>
+            ))}
+          </ol>
+        </details>
+      )}
       <div className="inspector-tabs" aria-label="Conteúdo dos detalhes">
         {(node.role === 'validation'
           ? ['Verificações', 'Atividade']

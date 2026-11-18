@@ -115,4 +115,8 @@ Cards conservam altura mínima lógica de 202px e crescem quando o título ou o 
 
 ## Evidência da implementação
 
+### Conversa, modelos e revisão por arquivo
+
+A rodada de conclusão segue as três telas apresentadas, mantendo a identidade atual. Em Conversa, a marca acompanha o identificador observado e o compositor mostra uma miniatura de imagem com remoção no próprio cartão. Na Área de trabalho, o seletor e Novo pedido compartilham o cabeçalho, e a rota selecionada aparece no inspetor. Em Alterações, o projeto, os arquivos e a comparação são o caminho principal. Ações de execução ficam no fluxo avançado. Os controles novos usam o alvo de toque e os tokens existentes.
+
 Registrar provas e limites da rodada no manual Windows e nos artefatos locais ignorados em `ws/b_output/`. Capturas com dados fictícios, sem contas, prompts ou projetos do operador. Verificador automatizado não substitui leitor de tela nem teste com pessoas.

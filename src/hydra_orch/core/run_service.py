@@ -178,10 +178,12 @@ class CheckRunner:
 
         env = filter_worker_env(allowed_env=allowed_env)
         env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+        env["HYDRA_CHECK_WORKSPACE"] = str(ws_real)
         effective_timeout = timeout_seconds or self.default_timeout_seconds
 
         results: List[CheckResult] = []
         artifacts: List[Artifact] = []
+        failed_node_preparations: set[Path] = set()
 
         for spec in checks:
             if spec.cwd:
@@ -202,21 +204,37 @@ class CheckRunner:
             exit_code = -1
             proc: Optional[asyncio.subprocess.Process] = None
             communication = None
+            command = list(spec.command)
+            node_binary = command[1] if (len(command) > 1 and Path(command[0]).name.casefold() in {'node', 'node.exe'}
+                                        and command[1].startswith("node_modules/")) else None
+            node_setup = tuple(spec.command[1:3]) == ('-m', 'hydra_orch.core.node_check')
+            if node_binary:
+                for candidate in (target_cwd, *target_cwd.parents):
+                    binary = candidate / node_binary
+                    if candidate.is_relative_to(ws_real) and binary.is_file() and binary.resolve().is_relative_to(ws_real):
+                        command[1] = str(binary)
+                        break
 
             try:
+                if node_binary and target_cwd in failed_node_preparations:
+                    raise ValueError("Verificação indisponível após falha na preparação das dependências.")
+                if node_binary and (target_cwd / command[1]).is_file() and not (target_cwd / command[1]).resolve().is_relative_to(ws_real):
+                    raise ValueError("O binário da verificação sai da cópia isolada.")
                 kwargs: Dict[str, Any] = {
                     "cwd": str(target_cwd),
                     "stdin": asyncio.subprocess.DEVNULL,
                     "stdout": asyncio.subprocess.PIPE,
                     "stderr": asyncio.subprocess.PIPE,
-                    "env": env,
+                    "env": ({key: value for key, value in env.items() if key not in {
+                        'OMNIROUTE_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY',
+                    }} if node_setup else env),
                 }
                 if os.name != "nt":
                     kwargs["start_new_session"] = True
                 else:
                     kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
 
-                proc = await asyncio.create_subprocess_exec(*spec.command, **kwargs)
+                proc = await asyncio.create_subprocess_exec(*command, **kwargs)
                 communication = asyncio.create_task(proc.communicate())
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
                     asyncio.shield(communication),
@@ -251,6 +269,8 @@ class CheckRunner:
                 exit_code = 1
 
             duration = max(time.perf_counter() - t0, 0.0)
+            if exit_code and node_setup:
+                failed_node_preparations.add(target_cwd)
             safe_chk = _sanitize_token(spec.check_id)
             stdout_file = checks_dir / f"{safe_chk}.stdout.log"
             stderr_file = checks_dir / f"{safe_chk}.stderr.log"
@@ -885,8 +905,24 @@ class RunService:
         cancel_ctx["ws_record"] = ws_record
 
         if resume_attempt is not None:
-            git_ws.restore_attempt_state(Path(resume_attempt.workspace_path), ws_record,
-                allowed_paths=task_spec.allowed_paths, forbidden_paths=forbidden_paths)
+            prior = await self.store.get_result_by_attempt(resume_attempt.attempt_id)
+            if prior and prior.patch_commit_sha and any(f.code == "acceptance_check_failed" for f in prior.failures):
+                # Checks may generate ignored or untracked output. Only copy the
+                # patch that passed scope validation before they ran.
+                patch = git_ws._run_git_bytes(
+                    ["diff", "--binary", "--no-ext-diff", effective_base, prior.patch_commit_sha],
+                    cwd=ws_record.canonical_path, check=True,
+                ).stdout
+                applied = git_ws._run_git_bytes(["apply", "--binary", "-"],
+                    cwd=ws_record.canonical_path, input_bytes=patch)
+                if applied.returncode or not git_ws.validate_worktree_scope(
+                    ws_record.canonical_path, base_sha=effective_base, allowed_paths=task_spec.allowed_paths,
+                    forbidden_paths=forbidden_paths,
+                ).valid:
+                    raise ContractViolation("handoff_scope_violation", "Não foi possível restaurar o patch verificado.")
+            else:
+                git_ws.restore_attempt_state(Path(resume_attempt.workspace_path), ws_record,
+                    allowed_paths=task_spec.allowed_paths, forbidden_paths=forbidden_paths)
         started_dt = datetime.now(timezone.utc)
         cancel_ctx["started_dt"] = started_dt
         running_attempt = TaskAttempt(

@@ -155,8 +155,9 @@ export function PromptComposer({
     setActiveIndex(0);
     if (nextCursor !== undefined) {
       setCursorPos(nextCursor);
+      const previousFocus = document.activeElement;
       requestAnimationFrame(() => {
-        if (textareaRef.current) {
+        if (textareaRef.current && document.activeElement === previousFocus) {
           textareaRef.current.focus();
           textareaRef.current.setSelectionRange(nextCursor, nextCursor);
         }

@@ -1,4 +1,5 @@
 import { CoordinationPanel } from './CoordinationPanel';
+import { ModelIdentity } from './ModelIdentity';
 import { ApplyConversationChanges } from './ApplyConversationChanges';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -77,6 +78,7 @@ export function ConversationPage({ conversationId }: { conversationId: string })
   const pageRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const followOutputRef = useRef(true);
+  const [historyAboveEnd, setHistoryAboveEnd] = useState(false);
   const renderedSeqRef = useRef<number | null>(null);
   const data = snapshot.data;
   useRouteCatalogWarmup(data?.route);
@@ -112,6 +114,7 @@ export function ConversationPage({ conversationId }: { conversationId: string })
     const onScroll = () => {
       followOutputRef.current =
         container.scrollHeight - container.scrollTop - container.clientHeight < 160;
+      setHistoryAboveEnd(!followOutputRef.current);
     };
     container.addEventListener('scroll', onScroll, { passive: true });
     return () => container.removeEventListener('scroll', onScroll);
@@ -384,9 +387,14 @@ export function ConversationPage({ conversationId }: { conversationId: string })
                 </div>
                 <div className="chat-assistant">
                   <h2 className="mb-2 text-sm font-semibold text-[#D1D1D1]">
-                    {(turn.route?.executor ?? data.executor) === 'codex' ? 'Codex' : 'Claude Code'}
-                    {turn.route?.target_ref && <> · {turn.route.target_ref}</>}
+                    <ModelIdentity identity={turn.identity} />
                   </h2>
+                  <details className="mb-2 text-xs text-[var(--text-muted)]">
+                    <summary className="min-h-[24px] w-fit cursor-pointer py-1">Rota usada</summary>
+                    <p>{(turn.route?.executor ?? data.executor) === 'codex' ? 'Codex' : 'Claude Code'}</p>
+                    <p>{(turn.effective_route ?? turn.route)?.target_ref || 'Padrão do agente'}</p>
+                    {turn.identity && <p>{turn.identity.source === 'cli' ? 'Modelo informado pela CLI' : 'Modelo informado pelo OmniRoute'}</p>}
+                  </details>
                   {data.tools
                     .filter((t) => t.turn_id === turn.id)
                     .slice(-1)
@@ -456,7 +464,12 @@ export function ConversationPage({ conversationId }: { conversationId: string })
                         Alterações registradas na cópia desta conversa.
                       </p>
                       {turn.id === latestDiff && !active && !hasPendingTurn && data.access_mode === 'workspace-write' && (
-                        <ApplyConversationChanges conversationId={conversationId} />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link className="chat-text-button" to={`/workspace?chat=${encodeURIComponent(conversationId)}`}>
+                            Revisão por arquivo
+                          </Link>
+                          <ApplyConversationChanges conversationId={conversationId} />
+                        </div>
                       )}
                       <pre className="whitespace-pre-wrap break-all rounded-lg border border-[#666] p-3 text-xs">
                         {turn.diff}
@@ -470,6 +483,21 @@ export function ConversationPage({ conversationId }: { conversationId: string })
         </div>
       </div>
       <div className="chat-dock">
+        {historyAboveEnd && (
+          <div className="chat-dock-inner flex justify-end">
+            <button type="button" className="chat-text-button" onClick={() => {
+              const transcript = transcriptRef.current;
+              if (!transcript) return;
+              followOutputRef.current = true;
+              transcript.scrollTop = transcript.scrollHeight;
+              setHistoryAboveEnd(false);
+              pageRef.current?.querySelector('textarea')?.focus({ preventScroll: true });
+            }}>
+              <ChevronDown size={16} aria-hidden="true" />
+              Ir para a última mensagem
+            </button>
+          </div>
+        )}
         <div className="chat-dock-inner chat-composer">
           {active && (
             <p className="mb-3 text-sm text-[#D1D1D1]">

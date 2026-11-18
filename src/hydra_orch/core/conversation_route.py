@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 
 from hydra_orch.core.redaction import redact
+from hydra_orch.core.model_selection import model_rank, unit_price
 from hydra_orch.model import ContractViolation
 
 
@@ -46,11 +47,13 @@ def identity(value):
 
 def direct_models(executor):
     if executor == 'claude':
-        return [{'id': x, 'name': x.capitalize()} for x in ('sonnet', 'opus', 'haiku')]
+        return [{'id': x, 'name': x.capitalize(), 'supports_vision': True} for x in ('sonnet', 'opus', 'haiku')]
     try:
         cache = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'models_cache.json'
         data = json.loads(cache.read_text(encoding='utf-8'))
-        return [{'id': m['slug'], 'name': m.get('display_name', m['slug'])} for m in data.get('models', [])
+        return [{'id': m['slug'], 'name': m.get('display_name', m['slug']),
+                 **{k: m[k] for k in ('context_window', 'input_modalities', 'supports_reasoning') if k in m}}
+                for m in data.get('models', [])
                 if m.get('visibility') == 'list' and isinstance(m.get('slug'), str) and 'auto-review' not in m['slug']]
     except (OSError, ValueError, TypeError):
         return []
@@ -221,6 +224,73 @@ class ConversationRoutes:
         if described['compatibility'] != 'verified':
             raise ContractViolation('route_unverified', 'Use Testar combinação para validar ferramentas e continuidade antes de enviar.')
         return described
+
+    async def choose(self, route, *, category, image=False, context=0, quota=None, excluded_target=None):
+        """Keep the configured executor and connection. Promote only admissible targets."""
+        quota = quota or {}
+        if route['connection_mode'] == 'direct':
+            entries = direct_models(route['executor'])
+            candidates = [(item['id'], 'model', [item]) for item in entries]
+        else:
+            raw = await self.raw()
+            catalog = await self.catalog(route['executor'], include_models=False)
+            entries = raw.get('models', [])
+            models = {item['id']: item for item in entries if isinstance(item, dict) and isinstance(item.get('id'), str)}
+            candidates = [(model, 'model', [item]) for model, item in models.items()]
+            combos = {item.get('name'): item for item in raw.get('combos', []) if isinstance(item, dict)}
+            for item in catalog['combos']:
+                if item['compatibility'] != 'verified':
+                    continue
+                try:
+                    leaves = self.leaves(combos[item['name']], combos)
+                except (KeyError, ValueError):
+                    continue
+                candidates.append((item['name'], 'combo', [models.get(model, {'id': model}) for model in leaves]))
+
+        try:
+            configured = json.loads(os.getenv('HYDRA_AUTO_MODEL_PRIORITY', '{}'))
+            priority = configured.get(category, []) if isinstance(configured, dict) else []
+        except ValueError:
+            priority = []
+        if not isinstance(priority, list):
+            priority = []
+        ceiling = None
+        for ref, kind, models in candidates:
+            if (ref, kind) == (route['target_ref'], route['target_kind']):
+                prices = [unit_price(item) for item in models]
+                if prices and all(price is not None for price in prices):
+                    ceiling = max(price[0] for price in prices), max(price[1] for price in prices)
+                break
+        ranked = []
+        excluded = False
+        for ref, kind, models in candidates:
+            if excluded_target and ((kind, ref) == excluded_target or excluded_target[0] == 'model'
+                                    and any(model['id'] == excluded_target[1] for model in models)):
+                continue
+            ranks = [model_rank(model['id'], model, category, quota, image, context) for model in models]
+            if not ranks or any(rank is None for rank in ranks):
+                if ref == route['target_ref'] and kind == route['target_kind']:
+                    excluded = True
+                continue
+            if ceiling is not None:
+                prices = [unit_price(item) for item in models]
+                if any(price is None or price[0] > ceiling[0] or price[1] > ceiling[1] for price in prices):
+                    continue
+            # Any configured fallback can be picked by the combo, so rank by weakest leaf.
+            preferred = -priority.index(ref) if ref in priority else -len(priority)
+            ranked.append((min(ranks), preferred, ref == route['target_ref'], kind, ref))
+        for _, _, _, kind, ref in sorted(ranked, reverse=True)[:32]:
+            candidate = {**route, 'target_kind': kind, 'target_ref': ref}
+            try:
+                await self.validate(candidate)
+            except ContractViolation:
+                continue
+            role = {'planning': 'planejamento', 'review': 'revisão', 'ui': 'interface',
+                    'code': 'código', 'tests': 'testes', 'docs': 'documentação'}[category]
+            return candidate, f'Seleção automática para {role}, conforme capacidades e cota conhecida.'
+        if excluded or (route['target_kind'], route['target_ref']) == excluded_target:
+            raise ContractViolation('route_unavailable', 'As rotas certificadas estão sem cota ou não atendem às capacidades desta tarefa. Escolha outra rota.')
+        return route, 'Rota selecionada na conversa. O catálogo não apresentou uma alternativa verificada para esta tarefa.'
 
     async def catalog(self, executor='codex', refresh=False, include_gateway=True, include_models=True):
         if not include_gateway:

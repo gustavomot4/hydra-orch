@@ -1,6 +1,14 @@
-# Próxima rodada de conversa e coordenação
+# Entrega de conversa e coordenação
 
-## Estado verificado
+## Implementação
+
+- A preparação de checks Node usa os binários da cópia isolada. A instalação usa o lockfile do gerenciador presente ou declarado no pacote. Em npm sem lockfile, resolve as versões permitidas pelo manifesto e conserva o repositório sem um novo lockfile. Yarn, pnpm e Bun exigem seu lockfile. Falhas de preparação têm evidência própria e interrompem os checks daquele pacote.
+- Quando um check de produto falha depois de um patch validado, o swarm tenta reparar uma vez na mesma base, com o patch restaurado e os diagnósticos anteriores. A cota de tentativas é de duas por tarefa. Se o transporte do OmniRoute indicar HTTP 429 durante uma execução automática, a segunda tentativa pode usar outra rota certificada, com a primeira tentativa preservada.
+- O seletor usa capacidades declaradas, certificação, famílias de modelos, cota medida e preços por token quando disponíveis. Continua na conexão e no executor escolhidos. `HYDRA_AUTO_MODEL_PRIORITY` aceita um objeto JSON com listas ordenadas de destinos para desempate por perfil (`planning`, `ui`, `code`, `review`, `tests`, `docs`). A seleção é uma política determinística com as evidências disponíveis no catálogo.
+- O chat e a Área de trabalho exibem o modelo quando a execução fornece um identificador observável. O inspetor conserva o combo, o motivo e as tentativas registradas. O compositor mostra miniaturas de imagens e mantém o envio no fluxo existente.
+- `/workspace?chat=<id>` abre a revisão da conversa. A tela lista os arquivos, consulta o diff do arquivo selecionado e aplica ao projeto pela sincronização existente. O acesso a conflitos de execução, artefatos e pacotes de PR fica nas opções avançadas.
+
+## Diagnóstico que originou a rodada
 
 | Pedido | Comportamento observado | Próximo passo |
 | --- | --- | --- |
@@ -35,4 +43,4 @@
 - **Alterações.** Começar com projeto, conversa, arquivos e diff. A ação **Aplicar ao projeto** deve indicar o destino, o estado e arquivos conflitantes. Expor o fluxo de PR, artefatos e resolução avançada sob demanda. Usar mensagem de conclusão quando o projeto já tiver o mesmo conteúdo.
 - Critério de aceite: compor e remover imagem por teclado, enviar e continuar no mesmo chat, diferenciar erro de upload de erro de rota, manter o histórico durante streaming e revisar/aplicar sem perder a seleção. Percorrer telas a 320 e 375 px, desktop, texto ampliado e cores forçadas. Validar as capturas do novo visual com o usuário antes da implementação da proposta.
 
-Os protótipos locais em `ws/b_output/proposta-chat/` usam um projeto fictício e dados de execução ilustrativos. A referência de marca para o símbolo de exemplo é a [página de diretrizes da OpenAI](https://openai.com/brand/).
+Os protótipos locais em `ws/b_output/proposta-chat/` usam dados fictícios. O frontend usa o Blossom publicado pela OpenAI e os símbolos de Alibaba Cloud, Anthropic, DeepSeek, Meta e Mistral AI do catálogo Simple Icons. A identificação por nome da empresa também aparece para as famílias reconhecidas sem símbolo local. [Diretrizes de marca da OpenAI](https://openai.com/brand/) · [Simple Icons](https://simpleicons.org/)

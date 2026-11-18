@@ -282,3 +282,44 @@ async def test_gateway_launch_uses_scoped_delegate_and_preserves_sandbox(tmp_pat
     assert 'HYDRA_API_TOKEN' not in captured['env']
     assert 'read-only' in captured['args']
     assert not any('never-send' in a for a in captured['args'])
+@pytest.mark.asyncio
+async def test_automatic_route_uses_task_capabilities_quota_and_configured_price():
+    class Catalog(ConversationRoutes):
+        async def raw(self):
+            return {'models': [
+                {'id': 'openai/o3', 'supports_reasoning': True, 'pricing': {'prompt': '1', 'completion': '2'}},
+                {'id': 'anthropic/claude-sonnet', 'supports_vision': True, 'pricing': {'prompt': '1', 'completion': '2'}},
+                {'id': 'google/gemini-flash', 'supports_vision': True, 'pricing': {'prompt': '.2', 'completion': '.4'}},
+                {'id': 'google/gemini-pro', 'supports_vision': True, 'supports_reasoning': True,
+                 'pricing': {'prompt': '4', 'completion': '8'}},
+            ], 'combos': [{'name': 'work', 'models': ['openai/o3', 'anthropic/claude-sonnet']}]}
+
+        async def catalog(self, *args, **kwargs):
+            return {'combos': [{'name': 'work', 'compatibility': 'verified'}]}
+
+        async def validate(self, route):
+            return {'compatibility': 'verified'}
+
+    routes = Catalog(None, None)
+    configured = {**target('work'), 'connection_mode': 'omniroute', 'target_kind': 'combo'}
+    plan, _ = await routes.choose(configured, category='planning')
+    assert plan['target_ref'] == 'openai/o3'
+    design, _ = await routes.choose(configured, category='ui', image=True)
+    assert design['target_ref'] == 'anthropic/claude-sonnet'
+    fallback, _ = await routes.choose(configured, category='ui', image=True,
+        quota={'claude_pro': {'status': 'available', 'remaining_percent': 0}})
+    assert fallback['target_ref'] == 'google/gemini-flash'
+    next_target, _ = await routes.choose(configured, category='planning', excluded_target=('model', 'openai/o3'))
+    assert next_target['target_ref'] != 'openai/o3'
+
+
+def test_observed_identity_does_not_treat_combo_as_model():
+    from hydra_orch.core.model_selection import cli_reported_model, observed_identity
+
+    combo = {'connection_mode': 'omniroute', 'target_kind': 'combo', 'target_ref': 'free-agent'}
+    assert observed_identity('free-agent', 'cli', combo) is None
+    assert observed_identity('openai/gpt-e2e-test', 'omniroute.responses', combo) == {
+        'model': 'openai/gpt-e2e-test', 'company': 'openai', 'source': 'omniroute.responses',
+    }
+    assert cli_reported_model('claude', {'type': 'assistant', 'parent_tool_use_id': 'child',
+                                          'message': {'model': 'claude-other'}}) is None

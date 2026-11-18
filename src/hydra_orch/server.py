@@ -595,6 +595,11 @@ class ConversationApplyPayload(BaseModel):
     force: bool = False
 
 
+@app.get("/v1/control-plane/conversations/{conversation_id}/changes")
+async def inspect_conversation_changes_endpoint(conversation_id: str, path: Optional[str] = Query(default=None, max_length=4096)):
+    return await get_conversation_service().inspect_changes(conversation_id, path=path, include_context=True)
+
+
 @app.post("/v1/control-plane/conversations/{conversation_id}/apply")
 async def apply_conversation_changes_endpoint(
     conversation_id: str,

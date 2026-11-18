@@ -1,6 +1,9 @@
 import { RunDetailSnapshot, BackendTask } from '@/feature/chat/chatTypes';
 import {
   CoordinationCheck,
+  CoordinationProgress,
+  ConversationRoute,
+  ReportedModel,
   ConversationSnapshot,
   ConversationTurn,
 } from '@/feature/chat/conversationTypes';
@@ -16,6 +19,10 @@ export interface CanvasNode {
   role: 'coordinator' | 'worker' | 'review' | 'validation';
   executor: string;
   model: string;
+  identity?: ReportedModel | null;
+  route?: ConversationRoute;
+  routeReason?: string;
+  attempts?: CoordinationProgress['attempts'];
   state: string;
   action: string;
   messages: CanvasMessage[];
@@ -57,6 +64,7 @@ export function statusMeta(value: string) {
     return { label: 'Concluído', tone: 'success', symbol: '✓' };
   if (['failed', 'rejected', 'timed_out', 'crashed'].includes(value))
     return { label: 'Falhou', tone: 'error', symbol: '!' };
+  if (value === 'repairing') return { label: 'Corrigindo', tone: 'info', symbol: '▶' };
   if (['running', 'starting'].includes(value))
     return { label: 'Trabalhando', tone: 'info', symbol: '▶' };
   if (['cancelled', 'stopped', 'stopping'].includes(value))
@@ -95,7 +103,7 @@ export function graphFromConversation(
   const turn =
     chat.turns.findLast((t) => ['running', 'stopping'].includes(t.state)) ?? chat.turns.at(-1);
   if (!turn) return { nodes: [], edges: [] };
-  const route = turn.route ?? chat.route;
+  const route = turn.effective_route ?? turn.route ?? chat.route;
   const graph: CanvasGraph = {
     nodes: [
       {
@@ -104,6 +112,9 @@ export function graphFromConversation(
         role: 'coordinator',
         executor: agentLabel(route?.executor ?? chat.executor),
         model: route?.target_ref || 'Padrão do agente',
+        identity: turn.identity,
+        route,
+        routeReason: turn.context_checkpoint?.route_reason,
         state: turn.state,
         action:
           turn.error ||
@@ -145,6 +156,10 @@ export function graphFromConversation(
       model: presentation.validation
         ? 'Verificação local'
         : progress?.route?.target_ref || route?.target_ref || 'Padrão do agente',
+      identity: progress?.identity,
+      route: progress?.route,
+      routeReason: progress?.reason,
+      attempts: progress?.attempts,
       state: presentation.state,
       action:
         progress?.review ||
@@ -185,6 +200,7 @@ export function graphFromConversation(
       role: 'worker',
       executor: agentLabel(agent.executor),
       model: agent.model,
+      identity: agent.identity,
       state: agent.state,
       action: agent.summary,
       messages: [{ author: 'Subagente da CLI', text: agent.summary }],
@@ -252,7 +268,11 @@ function appendRun(
       role: 'worker',
       executor: agentLabel(attempt?.executor_id || task.spec.assigned_executor),
       model: attempt?.model || progress?.route?.target_ref || 'Aguardando destino',
-      state: task.status,
+      identity: progress?.identity,
+      route: progress?.route,
+      routeReason: progress?.reason,
+      attempts: progress?.attempts,
+      state: progress?.state === 'repairing' ? 'repairing' : task.status,
       action:
         result?.failures?.[0]?.message ||
         result?.summary ||
