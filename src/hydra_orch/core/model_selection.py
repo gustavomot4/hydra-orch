@@ -1,7 +1,6 @@
 """Rank available targets and normalize model IDs observed in provider events."""
 from __future__ import annotations
 
-import math
 import re
 from decimal import Decimal, InvalidOperation
 
@@ -51,7 +50,7 @@ def cli_reported_model(executor: str, event: dict):
     return None
 
 
-def model_rank(model: str, metadata: dict, category: str, quota: dict, image: bool, context: int):
+def model_rank(model: str, metadata: dict, category: str, image: bool, context: int):
     """Use catalog capabilities first, then deterministic family/size hints."""
     architecture = metadata.get('architecture') or {}
     if not isinstance(architecture, dict):
@@ -66,17 +65,11 @@ def model_rank(model: str, metadata: dict, category: str, quota: dict, image: bo
     window = metadata.get('context_length', metadata.get('context_window'))
     if isinstance(window, int) and window > 0 and window < context:
         return None
-    _, quota_key = model_family(model)
-    provider_key = model.split('/', 1)[0] if '/' in model else quota_key
-    measured = quota.get(provider_key, quota.get(quota_key, {}))
-    capacity = measured.get('remaining_percent') if isinstance(measured, dict) and measured.get('status') != 'unknown' else None
-    if isinstance(capacity, (int, float)) and math.isfinite(capacity) and capacity <= 0:
-        return None
     name = model.casefold().rsplit('/', 1)[-1]
     small = bool(re.search(r'mini|nano|flash|haiku|lite|small', name))
     reasoning = metadata.get('supports_reasoning') is True or bool(re.search(r'reason|thinking|opus|\bpro\b|^o[1-9]', name))
     coding = bool(re.search(r'codex|codestral|devstral|coder|sonnet', name))
-    profile = {
+    return {
         'planning': (reasoning, not small, coding),
         'review': (reasoning, not small, coding),
         'ui': (vision, coding, not small),
@@ -84,7 +77,17 @@ def model_rank(model: str, metadata: dict, category: str, quota: dict, image: bo
         'tests': (coding, small, reasoning),
         'docs': (small, not reasoning, coding),
     }[category]
-    return (*profile, float(capacity) if isinstance(capacity, (int, float)) and math.isfinite(capacity) else -1)
+
+
+def observed_quota(model: str, quota: dict) -> float | None:
+    _, quota_key = model_family(model)
+    provider = model.casefold().split('/', 1)[0] if '/' in model else quota_key
+    measured = quota.get(provider, quota.get(quota_key, {}))
+    if isinstance(measured, dict) and measured.get('status') == 'observed':
+        capacity = measured.get('remaining_percent')
+        if isinstance(capacity, (int, float)) and not isinstance(capacity, bool) and 0 <= capacity <= 100:
+            return float(capacity)
+    return None
 
 
 def unit_price(metadata: dict) -> tuple[Decimal, Decimal] | None:

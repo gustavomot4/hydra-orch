@@ -307,10 +307,55 @@ async def test_automatic_route_uses_task_capabilities_quota_and_configured_price
     design, _ = await routes.choose(configured, category='ui', image=True)
     assert design['target_ref'] == 'anthropic/claude-sonnet'
     fallback, _ = await routes.choose(configured, category='ui', image=True,
-        quota={'claude_pro': {'status': 'available', 'remaining_percent': 0}})
+        quota={'claude_pro': {'status': 'observed', 'remaining_percent': 0}})
     assert fallback['target_ref'] == 'google/gemini-flash'
     next_target, _ = await routes.choose(configured, category='planning', excluded_target=('model', 'openai/o3'))
     assert next_target['target_ref'] != 'openai/o3'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('fallback_status', 'remaining', 'image', 'block'), [
+    ('unknown', None, False, None),
+    ('observed', 75, False, None),
+    ('stale', 0, False, None),
+    ('observed', 0, False, 'estão com cota esgotada'),
+    ('observed', 75, True, 'não atende às capacidades'),
+])
+async def test_automatic_combo_uses_available_fallbacks_without_weakening_capabilities(
+    fallback_status, remaining, image, block,
+):
+    combo = {**target('free-agent'), 'connection_mode': 'omniroute', 'target_kind': 'combo'}
+    models = [
+        {'id': 'gemini/gemini-pro', 'supports_vision': True},
+        {'id': 'anthropic/claude-sonnet', 'supports_vision': False},
+    ]
+
+    class Catalog(ConversationRoutes):
+        async def raw(self):
+            return {'models': models, 'combos': [{'name': 'free-agent', 'strategy': 'priority',
+                                                  'models': [row['id'] for row in models]}]}
+
+        async def catalog(self, *args, **kwargs):
+            return {'combos': [{'name': 'free-agent', 'compatibility': 'verified'}]}
+
+        async def validate(self, route):
+            if route != combo:
+                raise ContractViolation('route_unverified', 'Only the combo is certified.')
+            return {'compatibility': 'verified'}
+
+    routes = Catalog(None, None)
+    quota = {
+        'gemini_pro': {'status': 'observed', 'remaining_percent': 0},
+        'claude_pro': {'status': fallback_status, 'remaining_percent': remaining},
+    }
+    if block:
+        with pytest.raises(ContractViolation, match=block) as exc:
+            await routes.choose(combo, category='planning', quota=quota, image=image)
+        assert exc.value.code == 'route_unavailable'
+    else:
+        selected, reason = await routes.choose(combo, category='planning', quota=quota, image=image)
+        assert selected == combo
+        assert 'Seleção automática para planejamento' in reason
 
 
 def test_observed_identity_does_not_treat_combo_as_model():

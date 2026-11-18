@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 
 from hydra_orch.core.redaction import redact
-from hydra_orch.core.model_selection import model_rank, unit_price
+from hydra_orch.core.model_selection import model_rank, observed_quota, unit_price
 from hydra_orch.model import ContractViolation
 
 
@@ -262,21 +262,32 @@ class ConversationRoutes:
                     ceiling = max(price[0] for price in prices), max(price[1] for price in prices)
                 break
         ranked = []
-        excluded = False
+        configured_block = None
         for ref, kind, models in candidates:
             if excluded_target and ((kind, ref) == excluded_target or excluded_target[0] == 'model'
                                     and any(model['id'] == excluded_target[1] for model in models)):
                 continue
-            ranks = [model_rank(model['id'], model, category, quota, image, context) for model in models]
-            if not ranks or any(rank is None for rank in ranks):
-                if ref == route['target_ref'] and kind == route['target_kind']:
-                    excluded = True
+            is_configured = (ref, kind) == (route['target_ref'], route['target_kind'])
+            profiles = [model_rank(model['id'], model, category, image, context) for model in models]
+            if not profiles or any(profile is None for profile in profiles):
+                if is_configured:
+                    configured_block = 'A rota selecionada não atende às capacidades desta tarefa. Escolha outra rota certificada.'
+                continue
+            capacities = [observed_quota(model['id'], quota) for model in models]
+            # A combo can fall back when a destination hits its quota. Keep all
+            # leaves in the capability and price checks because the gateway
+            # still controls which leaf it invokes.
+            ranks = [(*profile, capacity if capacity is not None else -1)
+                     for profile, capacity in zip(profiles, capacities) if capacity != 0]
+            if not ranks:
+                if is_configured:
+                    configured_block = 'Todos os destinos da rota selecionada estão com cota esgotada. Escolha outra rota certificada ou aguarde a renovação.'
                 continue
             if ceiling is not None:
                 prices = [unit_price(item) for item in models]
                 if any(price is None or price[0] > ceiling[0] or price[1] > ceiling[1] for price in prices):
                     continue
-            # Any configured fallback can be picked by the combo, so rank by weakest leaf.
+            # Use the weakest destination whose quota is positive or unknown.
             preferred = -priority.index(ref) if ref in priority else -len(priority)
             ranked.append((min(ranks), preferred, ref == route['target_ref'], kind, ref))
         for _, _, _, kind, ref in sorted(ranked, reverse=True)[:32]:
@@ -288,8 +299,10 @@ class ConversationRoutes:
             role = {'planning': 'planejamento', 'review': 'revisão', 'ui': 'interface',
                     'code': 'código', 'tests': 'testes', 'docs': 'documentação'}[category]
             return candidate, f'Seleção automática para {role}, conforme capacidades e cota conhecida.'
-        if excluded or (route['target_kind'], route['target_ref']) == excluded_target:
-            raise ContractViolation('route_unavailable', 'As rotas certificadas estão sem cota ou não atendem às capacidades desta tarefa. Escolha outra rota.')
+        if configured_block:
+            raise ContractViolation('route_unavailable', configured_block)
+        if (route['target_kind'], route['target_ref']) == excluded_target:
+            raise ContractViolation('route_unavailable', 'Nenhuma rota alternativa certificada está disponível para esta tarefa.')
         return route, 'Rota selecionada na conversa. O catálogo não apresentou uma alternativa verificada para esta tarefa.'
 
     async def catalog(self, executor='codex', refresh=False, include_gateway=True, include_models=True):
