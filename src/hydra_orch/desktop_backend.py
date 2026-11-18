@@ -21,6 +21,7 @@ def main() -> None:
     # Scrub raw master credential immediately so child workers/hooks/PTY never inherit it.
     os.environ.pop("HYDRA_API_TOKEN", None)
     api.app.state.local_desktop_enabled = True
+    api.app.state.automation_runner_enabled = True
     sessions = getattr(api.app.state, "desktop_sessions", None)
     if not isinstance(sessions, DesktopSessionManager):
         sessions = DesktopSessionManager()

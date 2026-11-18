@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -705,8 +705,24 @@ class RunService:
         run acceptance checks on the resulting commit SHA, and persist TaskResult atomically.
         """
         await HITLService(self.store).assert_dispatchable(run_id)
-        if await self.store.get_run(run_id) is not None:
-            await self.budget_governor.assert_dispatchable(run_id, correlation_id=correlation_id)
+        run_pre = await self.store.get_run(run_id)
+        if run_pre is None:
+            raise StorageIntegrityError(f"Run '{run_id}' does not exist")
+        await self.budget_governor.assert_dispatchable(run_id, correlation_id=correlation_id)
+
+        task_pre = await self.store.get_task(task_id)
+        if task_pre is None or task_pre["run_id"] != run_id:
+            raise StorageIntegrityError(f"Task '{task_id}' not found in run '{run_id}'")
+
+        prior_attempts = await self.store.list_attempts(task_id)
+        pre_spec: RunSpec = run_pre["spec"]
+        if RunStatus(run_pre["status"]) not in {RunStatus.SUCCEEDED, RunStatus.CANCELLED}:
+            if len(prior_attempts) >= pre_spec.budget_policy.max_attempts:
+                raise ContractViolation(
+                    "max_attempts_exceeded",
+                    f"Task '{task_id}' has reached max_attempts ({pre_spec.budget_policy.max_attempts})",
+                )
+
         run_rec = await self._ensure_run_running(run_id, correlation_id=correlation_id)
         run_spec: RunSpec = run_rec["spec"]
         effective_base = execution_base_sha or run_spec.base_sha
@@ -723,6 +739,14 @@ class RunService:
                     or resume_attempt.base_sha != effective_base or not resume_attempt.workspace_path):
                 raise ContractViolation("handoff_invalid", "Handoff requires a terminal attempt of the same task and base")
 
+        # Re-check max_attempts right before mutating task status to RUNNING
+        prior_attempts = await self.store.list_attempts(task_id)
+        if len(prior_attempts) >= run_spec.budget_policy.max_attempts:
+            raise ContractViolation(
+                "max_attempts_exceeded",
+                f"Task '{task_id}' has reached max_attempts ({run_spec.budget_policy.max_attempts})",
+            )
+
         task_rec = await self._prepare_task_running(
             run_id=run_id,
             task_id=task_id,
@@ -730,23 +754,126 @@ class RunService:
             correlation_id=correlation_id,
         )
         task_spec: TaskSpec = task_rec["spec"]
-
-        human_context = await HITLService(self.store).context_for_task(run_id, task_id)
-        if human_context:
-            prompt = (prompt or task_spec.objective) + "\n\nOperator responses (JSON):\n" + json.dumps(human_context, sort_keys=True)
-
-        prior_attempts = await self.store.list_attempts(task_id)
-        if len(prior_attempts) >= run_spec.budget_policy.max_attempts:
-            raise ContractViolation(
-                "max_attempts_exceeded",
-                f"Task '{task_id}' has reached max_attempts ({run_spec.budget_policy.max_attempts})",
-            )
         ordinal = (prior_attempts[-1].ordinal + 1) if prior_attempts else 1
         attempt_id = f"att_{_sanitize_token(task_id)}_{ordinal}"
         result_id = f"res_{_sanitize_token(task_id)}_{ordinal}"
 
         git_ws = self._get_git_workspace(run_spec.repo_root)
         chk_runner = self._get_check_runner(run_spec.repo_root)
+        cancel_ctx: Dict[str, Any] = {
+            "ws_record": None,
+            "started_dt": None,
+            "attempt_saved": False,
+        }
+
+        async def _reconcile_cancelled_attempt() -> None:
+            with suppress(Exception):
+                await self.worker_runner.cancel(attempt_id, reason="asyncio_cancelled")
+            ws_cancel: Optional[WorkspaceRecord] = cancel_ctx.get("ws_record")
+            if cancel_ctx.get("attempt_saved"):
+                cur_att = await self.store.get_attempt(attempt_id)
+                if cur_att is not None and cur_att.process_status in {ProcessStatus.QUEUED, ProcessStatus.RUNNING}:
+                    cancelled_att = TaskAttempt(
+                        attempt_id=cur_att.attempt_id,
+                        task_id=cur_att.task_id,
+                        run_id=cur_att.run_id,
+                        ordinal=cur_att.ordinal,
+                        executor_id=cur_att.executor_id,
+                        provider=cur_att.provider,
+                        model=cur_att.model,
+                        base_sha=cur_att.base_sha,
+                        workspace_path=cur_att.workspace_path,
+                        provider_session=cur_att.provider_session,
+                        process_status=ProcessStatus.CANCELLED,
+                        exit_code=None,
+                        started_at=cur_att.started_at or cancel_ctx.get("started_dt") or datetime.now(timezone.utc),
+                        finished_at=datetime.now(timezone.utc),
+                        exit_reason="asyncio_cancelled",
+                    )
+                    await self.store.save_attempt_atomic(
+                        cancelled_att,
+                        event_type="attempt.finished",
+                        event_payload={"cancelled": True, "reason": "asyncio_cancelled"},
+                        correlation_id=correlation_id,
+                    )
+                if ws_cancel is not None:
+                    ws_cancel.status = "preserved"
+                    with suppress(Exception):
+                        await git_ws.save_workspace_record(ws_cancel)
+            cur_task = await self.store.get_task(task_id)
+            if cur_task is not None and TaskStatus(cur_task["status"]) in {
+                TaskStatus.PENDING,
+                TaskStatus.RUNNING,
+                TaskStatus.NEEDS_CONTEXT,
+                TaskStatus.BLOCKED,
+            }:
+                with suppress(OptimisticLockError):
+                    await self.store.update_task_status_atomic(
+                        task_id=task_id,
+                        new_status=TaskStatus.CANCELLED,
+                        expected_revision=int(cur_task["revision"]),
+                        event_type="task.cancelled",
+                        event_payload={"reason": "asyncio_cancelled", "attempt_id": attempt_id},
+                        correlation_id=correlation_id,
+                    )
+
+        try:
+            return await self._run_prepared_task_attempt(
+                run_id=run_id,
+                task_id=task_id,
+                task_spec=task_spec,
+                ordinal=ordinal,
+                attempt_id=attempt_id,
+                result_id=result_id,
+                effective_base=effective_base,
+                resume_attempt=resume_attempt,
+                git_ws=git_ws,
+                chk_runner=chk_runner,
+                cancel_ctx=cancel_ctx,
+                prompt=prompt,
+                provider=provider,
+                model=model,
+                dry_run=dry_run,
+                custom_command=custom_command,
+                extra_args=extra_args,
+                forbidden_paths=forbidden_paths,
+                allowed_env=allowed_env,
+                secret_bundle=secret_bundle,
+                correlation_id=correlation_id,
+            )
+        except asyncio.CancelledError:
+            cleanup_task = asyncio.create_task(_reconcile_cancelled_attempt())
+            await asyncio.shield(cleanup_task)
+            raise
+
+    async def _run_prepared_task_attempt(
+        self,
+        *,
+        run_id: str,
+        task_id: str,
+        task_spec: TaskSpec,
+        ordinal: int,
+        attempt_id: str,
+        result_id: str,
+        effective_base: str,
+        resume_attempt: Optional[TaskAttempt],
+        git_ws: GitWorkspaceService,
+        chk_runner: CheckRunner,
+        cancel_ctx: Dict[str, Any],
+        prompt: Optional[str],
+        provider: str,
+        model: str,
+        dry_run: bool,
+        custom_command: Optional[Sequence[str]],
+        extra_args: Sequence[str],
+        forbidden_paths: Sequence[str],
+        allowed_env: Optional[Mapping[str, str]],
+        secret_bundle: Optional[SecretBundle],
+        correlation_id: Optional[str],
+    ) -> TaskExecutionOutcome:
+        human_context = await HITLService(self.store).context_for_task(run_id, task_id)
+        if human_context:
+            prompt = (prompt or task_spec.objective) + "\n\nOperator responses (JSON):\n" + json.dumps(human_context, sort_keys=True)
 
         # 1. Create isolated Git worktree at pinned base_sha
         ws_record = git_ws.create_worktree(
@@ -755,11 +882,13 @@ class RunService:
             attempt_id=attempt_id,
             base_sha=effective_base,
         )
+        cancel_ctx["ws_record"] = ws_record
 
         if resume_attempt is not None:
             git_ws.restore_attempt_state(Path(resume_attempt.workspace_path), ws_record,
                 allowed_paths=task_spec.allowed_paths, forbidden_paths=forbidden_paths)
         started_dt = datetime.now(timezone.utc)
+        cancel_ctx["started_dt"] = started_dt
         running_attempt = TaskAttempt(
             attempt_id=attempt_id,
             task_id=task_id,
@@ -778,6 +907,7 @@ class RunService:
             event_type="attempt.started",
             correlation_id=correlation_id,
         )
+        cancel_ctx["attempt_saved"] = True
         await git_ws.save_workspace_record(ws_record)
 
         safe_run = _sanitize_token(run_id)
@@ -1063,6 +1193,27 @@ class RunService:
             worker_raw=worker_raw,
         )
 
+    @staticmethod
+    def _compute_transitively_blocked_tasks(
+        tasks: Sequence[Mapping[str, Any]],
+        unrecoverable_ids: set[str],
+    ) -> set[str]:
+        blocked: set[str] = set()
+        if not unrecoverable_ids:
+            return blocked
+        changed = True
+        while changed:
+            changed = False
+            for t in tasks:
+                tid = str(t["id"])
+                if tid in blocked or tid in unrecoverable_ids:
+                    continue
+                t_spec: TaskSpec = t["spec"]
+                if any(dep in unrecoverable_ids or dep in blocked for dep in t_spec.dependencies):
+                    blocked.add(tid)
+                    changed = True
+        return blocked
+
     async def _reconcile_run_status_after_task(
         self,
         run_id: str,
@@ -1075,6 +1226,8 @@ class RunService:
         if current_run_status in {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED}:
             return run_rec
 
+        run_spec: RunSpec = run_rec["spec"]
+        max_attempts = int(run_spec.budget_policy.max_attempts)
         tasks = await self.store.list_tasks(run_id)
         statuses = {TaskStatus(t["status"]) for t in tasks}
 
@@ -1097,7 +1250,218 @@ class RunService:
                     }:
                         return refreshed
                     raise
+
+        exhausted_failed_ids: set[str] = set()
+        unrecoverable_ids: set[str] = set()
+        for t in tasks:
+            tid = str(t["id"])
+            st = TaskStatus(t["status"])
+            if st in {TaskStatus.REJECTED, TaskStatus.CANCELLED}:
+                unrecoverable_ids.add(tid)
+            elif st == TaskStatus.FAILED:
+                atts = await self.store.list_attempts(tid)
+                if len(atts) >= max_attempts:
+                    exhausted_failed_ids.add(tid)
+                    unrecoverable_ids.add(tid)
+
+        if exhausted_failed_ids:
+            blocked_by_unrecoverable = self._compute_transitively_blocked_tasks(tasks, unrecoverable_ids)
+            all_finished_or_blocked = all(
+                TaskStatus(t["status"]) in {
+                    TaskStatus.READY_FOR_REVIEW,
+                    TaskStatus.ACCEPTED,
+                    TaskStatus.REJECTED,
+                    TaskStatus.CANCELLED,
+                }
+                or str(t["id"]) in exhausted_failed_ids
+                or (
+                    TaskStatus(t["status"]) in {TaskStatus.PENDING, TaskStatus.BLOCKED}
+                    and str(t["id"]) in blocked_by_unrecoverable
+                )
+                for t in tasks
+            )
+            if all_finished_or_blocked:
+                try:
+                    return await self.store.update_run_status_atomic(
+                        run_id=run_id,
+                        new_status=RunStatus.FAILED,
+                        expected_revision=int(run_rec["revision"]),
+                        event_type="run.finished",
+                        event_payload={
+                            "reason": "task_failed_max_attempts_exhausted",
+                            "failed_tasks": sorted(exhausted_failed_ids),
+                        },
+                        correlation_id=correlation_id,
+                    )
+                except OptimisticLockError:
+                    refreshed = await self.store.get_run(run_id)
+                    if refreshed is not None and refreshed["status"] in {
+                        RunStatus.FAILED.value, RunStatus.CANCELLED.value, RunStatus.SUCCEEDED.value
+                    }:
+                        return refreshed
+                    raise
+
         return run_rec
+
+    async def finalize_run_if_terminal(
+        self,
+        run_id: str,
+        *,
+        correlation_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Finalize run status to FAILED when all non-blocked tasks finished and at least one task failed."""
+        run_rec = await self.store.get_run(run_id)
+        if run_rec is None:
+            raise StorageIntegrityError(f"Run '{run_id}' does not exist")
+        current_run_status = RunStatus(run_rec["status"])
+        if current_run_status in {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED}:
+            return run_rec
+
+        tasks = await self.store.list_tasks(run_id)
+        if not tasks:
+            return run_rec
+
+        failed_ids = {
+            str(t["id"])
+            for t in tasks
+            if TaskStatus(t["status"]) in {TaskStatus.FAILED, TaskStatus.REJECTED}
+        }
+        unrecoverable_ids = failed_ids | {
+            str(t["id"]) for t in tasks if TaskStatus(t["status"]) == TaskStatus.CANCELLED
+        }
+        blocked_ids = self._compute_transitively_blocked_tasks(tasks, unrecoverable_ids)
+
+        if failed_ids:
+            all_settled = all(
+                TaskStatus(t["status"]) in {
+                    TaskStatus.READY_FOR_REVIEW,
+                    TaskStatus.ACCEPTED,
+                    TaskStatus.FAILED,
+                    TaskStatus.REJECTED,
+                    TaskStatus.CANCELLED,
+                }
+                or (
+                    TaskStatus(t["status"]) in {TaskStatus.PENDING, TaskStatus.BLOCKED}
+                    and str(t["id"]) in blocked_ids
+                )
+                for t in tasks
+            )
+            if all_settled:
+                for t in tasks:
+                    tid = str(t["id"])
+                    if TaskStatus(t["status"]) == TaskStatus.PENDING and tid in blocked_ids:
+                        with suppress(OptimisticLockError):
+                            await self.store.update_task_status_atomic(
+                                task_id=tid,
+                                new_status=TaskStatus.BLOCKED,
+                                expected_revision=int(t["revision"]),
+                                event_type="task.failed",
+                                event_payload={"reason": "dependency_failed"},
+                                correlation_id=correlation_id,
+                            )
+                refreshed = await self.store.get_run(run_id)
+                assert refreshed is not None
+                if RunStatus(refreshed["status"]) not in {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED}:
+                    return await self.store.update_run_status_atomic(
+                        run_id=run_id,
+                        new_status=RunStatus.FAILED,
+                        expected_revision=int(refreshed["revision"]),
+                        event_type="run.finished",
+                        event_payload={"reason": "tasks_failed", "failed_tasks": sorted(failed_ids)},
+                        correlation_id=correlation_id,
+                    )
+                return refreshed
+
+        return await self._reconcile_run_status_after_task(run_id, correlation_id=correlation_id)
+
+    async def execute_run(
+        self,
+        run_id: str,
+        *,
+        dry_run: bool = False,
+        custom_command: Optional[Sequence[str]] = None,
+        provider: str = "local_cli",
+        model: str = "default",
+        extra_args: Sequence[str] = (),
+        forbidden_paths: Sequence[str] = (),
+        allowed_env: Optional[Mapping[str, str]] = None,
+        auto_retry: bool = False,
+        correlation_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Execute runnable tasks in topological order and finalize run status (DAY-10)."""
+        run_rec = await self.store.get_run(run_id)
+        if run_rec is None:
+            raise StorageIntegrityError(f"Run '{run_id}' does not exist")
+        run_spec: RunSpec = run_rec["spec"]
+        max_attempts = int(run_spec.budget_policy.max_attempts)
+
+        remaining_specs: List[TaskSpec] = list(run_spec.tasks)
+        progressed = True
+        while remaining_specs and progressed:
+            progressed = False
+            task_rows = {str(t["id"]): t for t in await self.store.list_tasks(run_id)}
+            for t_spec in list(remaining_specs):
+                t_row = task_rows.get(t_spec.task_id)
+                if t_row is None:
+                    remaining_specs.remove(t_spec)
+                    continue
+                cur_st = TaskStatus(t_row["status"])
+                if cur_st in {
+                    TaskStatus.READY_FOR_REVIEW,
+                    TaskStatus.ACCEPTED,
+                    TaskStatus.REJECTED,
+                    TaskStatus.CANCELLED,
+                }:
+                    remaining_specs.remove(t_spec)
+                    progressed = True
+                    continue
+
+                dep_statuses = [
+                    TaskStatus(task_rows[dep]["status"])
+                    for dep in t_spec.dependencies
+                    if dep in task_rows
+                ]
+                if any(ds in {TaskStatus.FAILED, TaskStatus.REJECTED, TaskStatus.CANCELLED, TaskStatus.BLOCKED} for ds in dep_statuses):
+                    if cur_st == TaskStatus.PENDING:
+                        await self.store.update_task_status_atomic(
+                            task_id=t_spec.task_id,
+                            new_status=TaskStatus.BLOCKED,
+                            expected_revision=int(t_row["revision"]),
+                            event_type="task.failed",
+                            event_payload={"reason": "dependency_failed"},
+                            correlation_id=correlation_id,
+                        )
+                    remaining_specs.remove(t_spec)
+                    progressed = True
+                    continue
+
+                if any(ds != TaskStatus.ACCEPTED for ds in dep_statuses):
+                    continue
+
+                attempts_so_far = await self.store.list_attempts(t_spec.task_id)
+                while len(attempts_so_far) < max_attempts:
+                    outcome = await self.execute_task_attempt(
+                        run_id=run_id,
+                        task_id=t_spec.task_id,
+                        provider=provider,
+                        model=model,
+                        dry_run=dry_run,
+                        custom_command=custom_command,
+                        extra_args=extra_args,
+                        forbidden_paths=forbidden_paths,
+                        allowed_env=allowed_env,
+                        allow_retry_from_terminal=len(attempts_so_far) > 0,
+                        correlation_id=correlation_id,
+                    )
+                    attempts_so_far = await self.store.list_attempts(t_spec.task_id)
+                    if outcome.result.task_status != TaskStatus.FAILED:
+                        break
+                    if not auto_retry or not any(f.retryable for f in outcome.result.failures):
+                        break
+                remaining_specs.remove(t_spec)
+                progressed = True
+
+        return await self.finalize_run_if_terminal(run_id, correlation_id=correlation_id)
 
     async def review_task_result(
         self,
@@ -1156,23 +1520,194 @@ class RunService:
         if not any(os.path.normcase(str(Path(r[0]).resolve())) == os.path.normcase(str(root)) for r in rows):
             raise ContractViolation('review_policy_invalid', 'A execução não pertence a uma cópia de conversa registrada.')
 
+    def _fast_forward_target_branch(
+        self,
+        git_ws: GitWorkspaceService,
+        ref_branch: str,
+        target_sha: str,
+    ) -> str:
+        """Safely fast-forward or create ref_branch at target_sha without corrupting dirty checkouts."""
+        branch = git_ws._validate_branch_name(ref_branch)
+        resolved_target = git_ws.resolve_commit_sha(target_sha, cwd=git_ws.repo_root)
+        ref_full = f"refs/heads/{branch}"
+        existing_ref = git_ws._run_git(["show-ref", "--verify", ref_full], cwd=git_ws.repo_root)
+        old_tip: Optional[str] = None
+        if existing_ref.returncode == 0:
+            old_tip = git_ws.resolve_commit_sha(ref_full, cwd=git_ws.repo_root)
+            if old_tip == resolved_target:
+                return branch
+            anc = git_ws._run_git(
+                ["merge-base", "--is-ancestor", old_tip, resolved_target],
+                cwd=git_ws.repo_root,
+            )
+            if anc.returncode != 0:
+                raise ContractViolation(
+                    "non_fast_forward",
+                    f"Target branch '{branch}' at '{old_tip}' cannot be fast-forwarded to '{resolved_target}'",
+                )
+
+        active_branch = git_ws._run_git(["branch", "--show-current"], cwd=git_ws.repo_root).stdout.strip()
+        if active_branch == branch:
+            snap = git_ws.snapshot_operator_checkout()
+            if snap.staged_files or snap.unstaged_files or snap.untracked_files:
+                raise ContractViolation(
+                    "dirty_checkout",
+                    f"Cannot fast-forward active branch '{branch}' while operator checkout has local changes",
+                )
+            ff = git_ws._run_git(["merge", "--ff-only", resolved_target], cwd=git_ws.repo_root)
+            if ff.returncode != 0:
+                raise ContractViolation(
+                    "non_fast_forward",
+                    f"Fast-forward merge onto '{branch}' failed: {ff.stderr.strip()}",
+                )
+        else:
+            upd_args = ["update-ref", ref_full, resolved_target]
+            if old_tip is not None:
+                upd_args.append(old_tip)
+            upd = git_ws._run_git(upd_args, cwd=git_ws.repo_root)
+            if upd.returncode != 0:
+                raise ContractViolation(
+                    "git_operation_failed",
+                    f"Failed updating branch ref '{ref_full}': {upd.stderr.strip()}",
+                )
+        return branch
+
+    async def _load_existing_integration_outcome(
+        self,
+        run_id: str,
+        run_spec: RunSpec,
+        target_branch: Optional[str] = None,
+    ) -> Optional[IntegrationOutcome]:
+        safe_run = _sanitize_token(run_id)
+        preferred_id = f"int_{safe_run}"
+        async with self.store._connect() as db:
+            int_row = await (
+                await db.execute(
+                    """
+                    SELECT id, run_id, workspace_path, expected_base_sha, result_sha, status
+                    FROM integrations
+                    WHERE run_id = ? AND status = 'integrated'
+                    ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END ASC, created_at DESC, rowid DESC
+                    LIMIT 1
+                    """,
+                    (run_id, preferred_id),
+                )
+            ).fetchone()
+            if int_row is None:
+                return None
+
+            int_id = str(int_row["id"])
+            item_rows = await (
+                await db.execute(
+                    "SELECT result_id FROM integration_items WHERE integration_id = ? ORDER BY position ASC",
+                    (int_id,),
+                )
+            ).fetchall()
+            merged_ids = tuple(str(r["result_id"]) for r in item_rows)
+            if not merged_ids:
+                fallback_ids: List[str] = []
+                for t_spec in run_spec.tasks:
+                    atts = await self.store.list_attempts(t_spec.task_id)
+                    if atts:
+                        res = await self.store.get_result_by_attempt(atts[-1].attempt_id)
+                        if res is not None:
+                            fallback_ids.append(res.result_id)
+                merged_ids = tuple(fallback_ids)
+
+            chk_rows = await (
+                await db.execute(
+                    """
+                    SELECT check_id, command_json, cwd, tested_sha, exit_code, duration_seconds,
+                           stdout_artifact_id, stderr_artifact_id
+                    FROM check_results
+                    WHERE integration_id = ?
+                    ORDER BY rowid ASC
+                    """,
+                    (int_id,),
+                )
+            ).fetchall()
+
+        checks_list: List[CheckResult] = []
+        art_ids: set[str] = set()
+        for cr in chk_rows:
+            if cr["stdout_artifact_id"] and cr["stderr_artifact_id"]:
+                art_ids.update((str(cr["stdout_artifact_id"]), str(cr["stderr_artifact_id"])))
+                checks_list.append(
+                    CheckResult(
+                        check_id=str(cr["check_id"]),
+                        command=tuple(json.loads(cr["command_json"])),
+                        cwd=cr["cwd"],
+                        tested_sha=str(cr["tested_sha"]),
+                        exit_code=int(cr["exit_code"]),
+                        duration_seconds=float(cr["duration_seconds"] or 0.0),
+                        stdout_artifact_id=str(cr["stdout_artifact_id"]),
+                        stderr_artifact_id=str(cr["stderr_artifact_id"]),
+                    )
+                )
+        all_arts = await self.store.get_artifacts(run_id)
+        chk_arts = tuple(a for a in all_arts if a.artifact_id in art_ids)
+        branch_name = target_branch or f"integrate/{safe_run}"
+        return IntegrationOutcome(
+            integration_id=int_id,
+            run_id=run_id,
+            target_branch=branch_name,
+            integration_worktree_path=Path(int_row["workspace_path"]),
+            expected_base_sha=str(int_row["expected_base_sha"]),
+            result_sha=str(int_row["result_sha"]) if int_row["result_sha"] else None,
+            status=IntegrationStatus.INTEGRATED,
+            merged_result_ids=merged_ids,
+            checks_executed=tuple(checks_list),
+            check_artifacts=chk_arts,
+            failure=None,
+        )
+
     async def integrate_run(
         self,
         run_id: str,
         *,
         target_branch: Optional[str] = None,
         cleanup_on_success: bool = True,
+        update_target_branch: bool = False,
         correlation_id: Optional[str] = None,
     ) -> IntegrationOutcome:
         """
         Integrate all accepted task results for a run in topological/task order into `integrate/<run_id>`,
         re-running all combined acceptance checks on the merged tree before marking the run SUCCEEDED.
+        Idempotent when run is already SUCCEEDED (DAY-16).
         """
         await HITLService(self.store).assert_dispatchable(run_id)
         run_rec = await self.store.get_run(run_id)
         if run_rec is None:
             raise StorageIntegrityError(f"Run '{run_id}' does not exist")
         run_spec: RunSpec = run_rec["spec"]
+        git_ws = self._get_git_workspace(run_spec.repo_root)
+
+        if RunStatus(run_rec["status"]) == RunStatus.SUCCEEDED:
+            existing_outcome = await self._load_existing_integration_outcome(
+                run_id, run_spec, target_branch=target_branch
+            )
+            if existing_outcome is not None:
+                if update_target_branch and existing_outcome.result_sha:
+                    ff_branch = self._fast_forward_target_branch(
+                        git_ws,
+                        target_branch or run_spec.base_branch,
+                        existing_outcome.result_sha,
+                    )
+                    return IntegrationOutcome(
+                        integration_id=existing_outcome.integration_id,
+                        run_id=existing_outcome.run_id,
+                        target_branch=ff_branch,
+                        integration_worktree_path=existing_outcome.integration_worktree_path,
+                        expected_base_sha=existing_outcome.expected_base_sha,
+                        result_sha=existing_outcome.result_sha,
+                        status=existing_outcome.status,
+                        merged_result_ids=existing_outcome.merged_result_ids,
+                        conflicted_files=existing_outcome.conflicted_files,
+                        checks_executed=existing_outcome.checks_executed,
+                        check_artifacts=existing_outcome.check_artifacts,
+                        failure=None,
+                    )
+                return existing_outcome
 
         accepted_results: List[TaskResult] = []
         if run_spec.integration_policy == 'agent_review_in_isolation':
@@ -1213,7 +1748,6 @@ class RunService:
             correlation_id=correlation_id,
         )
 
-        git_ws = self._get_git_workspace(run_spec.repo_root)
         chk_runner = self._get_check_runner(run_spec.repo_root)
 
         async def _combined_check_runner(
@@ -1235,11 +1769,18 @@ class RunService:
                 "SELECT DISTINCT result_sha FROM integrations WHERE run_id=? AND status='integrated' AND result_sha IS NOT NULL",
                 (run_id,),
             )).fetchall())
+
+        worktree_target_branch = target_branch
+        if update_target_branch and target_branch is not None:
+            clean_tb = git_ws._validate_branch_name(target_branch)
+            if git_ws._run_git(["show-ref", "--verify", f"refs/heads/{clean_tb}"], cwd=git_ws.repo_root).returncode == 0:
+                worktree_target_branch = None
+
         outcome = await git_ws.integrate_results(
             run_id=run_id,
             expected_base_sha=run_spec.base_sha,
             results=accepted_results,
-            target_branch=target_branch,
+            target_branch=worktree_target_branch,
             post_merge_checks=tuple(combined_checks),
             check_runner=_combined_check_runner,
             verified_base_shas=stage_bases,
@@ -1251,6 +1792,30 @@ class RunService:
         run_rev = int(refreshed_run["revision"])
 
         if outcome.status == IntegrationStatus.INTEGRATED:
+            if update_target_branch and outcome.result_sha:
+                ff_branch = self._fast_forward_target_branch(
+                    git_ws,
+                    target_branch or run_spec.base_branch,
+                    outcome.result_sha,
+                )
+                if target_branch is not None:
+                    outcome = IntegrationOutcome(
+                        integration_id=outcome.integration_id,
+                        run_id=outcome.run_id,
+                        target_branch=ff_branch,
+                        integration_worktree_path=outcome.integration_worktree_path,
+                        expected_base_sha=outcome.expected_base_sha,
+                        result_sha=outcome.result_sha,
+                        status=outcome.status,
+                        merged_result_ids=outcome.merged_result_ids,
+                        conflicted_files=outcome.conflicted_files,
+                        checks_executed=outcome.checks_executed,
+                        check_artifacts=outcome.check_artifacts,
+                        failure=outcome.failure,
+                        ours_sha=outcome.ours_sha,
+                        theirs_sha=outcome.theirs_sha,
+                    )
+
             if run_status == RunStatus.RUNNING:
                 refreshed_run = await self.store.update_run_status_atomic(
                     run_id=run_id,
@@ -1575,7 +2140,7 @@ class RunService:
                         "executor_id": att.executor_id,
                         "provider": att.provider,
                         "model": att.model,
-                        "provider_model_json": f'{{"model":"{att.model}","provider":"{att.provider}"}}',
+                        "provider_model_json": json.dumps({"model": att.model, "provider": att.provider}, sort_keys=True),
                         "provider_session": att.provider_session,
                         "process_status": att.process_status.value,
                         "exit_code": att.exit_code,
@@ -1678,18 +2243,66 @@ class RunService:
 
         cleaned_worktrees: List[str] = []
         preserved_worktrees: List[str] = []
+        candidate_records: Dict[str, WorkspaceRecord] = {}
+        persisted_attempt_ids: set[str] = set()
+
+        async with self.store._connect() as db:
+            ws_rows = await (
+                await db.execute(
+                    """
+                    SELECT w.id, w.attempt_id, w.canonical_path, w.base_sha, w.branch, w.status,
+                           a.task_id
+                    FROM workspaces w
+                    JOIN attempts a ON a.id = w.attempt_id
+                    LEFT JOIN tasks t ON t.id = a.task_id
+                    WHERE COALESCE(a.run_id, t.run_id) = ?
+                    ORDER BY a.ordinal ASC, w.id ASC
+                    """,
+                    (run_id,),
+                )
+            ).fetchall()
+            for row in ws_rows:
+                att_id = str(row["attempt_id"])
+                persisted_attempt_ids.add(att_id)
+                candidate_records[att_id] = WorkspaceRecord(
+                    workspace_id=str(row["id"]),
+                    attempt_id=att_id,
+                    run_id=run_id,
+                    task_id=str(row["task_id"]),
+                    canonical_path=Path(row["canonical_path"]),
+                    base_sha=str(row["base_sha"]),
+                    branch=str(row["branch"]),
+                    status=row["status"],
+                )
+
         tasks = await self.store.list_tasks(run_id)
         for t in tasks:
             attempts = await self.store.list_attempts(t["id"])
             for att in attempts:
-                ws_rec = git_ws._workspaces.get(att.attempt_id)
-                if ws_rec is not None and ws_rec.canonical_path.exists():
-                    try:
-                        git_ws.cleanup_worktree(ws_rec, force_discard=force, delete_branch=False)
+                persisted_attempt_ids.add(att.attempt_id)
+                mem_rec = git_ws._workspaces.get(att.attempt_id)
+                if mem_rec is not None and att.attempt_id not in candidate_records:
+                    candidate_records[att.attempt_id] = mem_rec
+
+        for att_id, mem_rec in list(git_ws._workspaces.items()):
+            if mem_rec.run_id == run_id and att_id not in candidate_records:
+                candidate_records[att_id] = mem_rec
+
+        for att_id, ws_rec in candidate_records.items():
+            git_ws._workspaces[att_id] = ws_rec
+            if ws_rec.canonical_path.exists():
+                try:
+                    git_ws.cleanup_worktree(ws_rec, force_discard=force, delete_branch=False)
+                    if att_id in persisted_attempt_ids:
                         await git_ws.save_workspace_record(ws_rec)
-                        cleaned_worktrees.append(att.attempt_id)
-                    except GitWorkspaceError:
-                        preserved_worktrees.append(att.attempt_id)
+                    cleaned_worktrees.append(att_id)
+                except GitWorkspaceError:
+                    if att_id in persisted_attempt_ids:
+                        await git_ws.save_workspace_record(ws_rec)
+                    preserved_worktrees.append(att_id)
+            elif ws_rec.status != "cleaned" and att_id in persisted_attempt_ids:
+                ws_rec.status = "cleaned"
+                await git_ws.save_workspace_record(ws_rec)
 
         return {
             "run_id": run_id,

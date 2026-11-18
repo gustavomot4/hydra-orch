@@ -24,6 +24,7 @@ from pydantic import Field, ValidationError
 from rich.console import Console, Group
 from rich.layout import Layout
 from rich.live import Live
+from rich.markup import escape as rich_escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -93,11 +94,28 @@ class CockpitState:
     step_count: int = 0
 
 
+def _ensure_utf8_streams() -> None:
+    """Configure UTF-8 console streams safely without breaking test capture buffers."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
+                pass
+
+
 def _safe_str(value: Any) -> str:
     """Convert any value to a redacted string."""
     if value is None:
         return "—"
     return redact_text(str(value))
+
+
+def _safe_markup(value: Any) -> str:
+    """Convert any value to a redacted, Rich-markup-escaped string."""
+    return rich_escape(_safe_str(value))
 
 
 def _safe_text(value: Any, *, style: Optional[str] = None) -> Text:
@@ -287,7 +305,19 @@ def _safe_split_command(raw_line: str) -> List[str]:
     if not stripped:
         return []
     try:
-        return shlex.split(stripped)
+        tokens = shlex.split(stripped, posix=(os.name != "nt"))
+        if os.name == "nt":
+            unwrapped: List[str] = []
+            for tok in tokens:
+                if len(tok) >= 2 and tok[0] == tok[-1] and tok[0] in {'"', "'"}:
+                    inner = tok[1:-1]
+                    if tok[0] == '"':
+                        inner = inner.replace('\\"', '"')
+                    unwrapped.append(inner)
+                else:
+                    unwrapped.append(tok)
+            return unwrapped
+        return tokens
     except ValueError:
         return stripped.split()
 
@@ -1329,6 +1359,8 @@ class HydraTuiCockpit:
         once: bool = False,
         prompt_fn: Optional[Callable[[str], str]] = None,
     ):
+        if console is None:
+            _ensure_utf8_streams()
         self.console = console or Console()
         self.principal_id = principal_id.strip() or "operator"
         self.refresh_seconds = max(float(refresh_seconds), 0.1)
@@ -1362,9 +1394,9 @@ class HydraTuiCockpit:
             conn_mode = "http"
         else:
             if run_service is None:
-                from hydra_orch.server import get_run_service
+                from hydra_orch.cli import get_cli_run_service
 
-                run_service = get_run_service()
+                run_service = get_cli_run_service()
             self.backend = LocalRunBackend(
                 run_service,
                 route_selector=route_selector,
@@ -1789,18 +1821,32 @@ class HydraTuiCockpit:
                     run_id = self._require_active_run()
                     conflict_id = args[0]
                     max_att: Optional[int] = None
+                    repair_cmd_str: Optional[str] = None
+                    repair_args: List[str] = []
                     idx = 1
                     while idx < len(args):
                         if args[idx] == "--max-repair-attempts" and idx + 1 < len(args):
                             max_att = int(args[idx + 1])
                             idx += 2
+                        elif args[idx] == "--repair-command" and idx + 1 < len(args):
+                            repair_cmd_str = args[idx + 1]
+                            idx += 2
+                        elif args[idx] == "--repair-arg" and idx + 1 < len(args):
+                            repair_args.append(args[idx + 1])
+                            idx += 2
                         else:
                             raise ContractViolation("invalid_command", f"Unknown flag '{args[idx]}' for conflict-auto")
+                    parsed_repair_cmd: Optional[List[str]] = None
+                    if repair_cmd_str is not None or repair_args:
+                        from hydra_orch.cli import _parse_repair_command
+
+                        parsed_repair_cmd = _parse_repair_command(repair_cmd_str, repair_args)
                     res = await self.backend.auto_repair_conflict(
                         run_id,
                         conflict_id,
                         actor=self.principal_id,
                         max_repair_attempts=max_att,
+                        repair_command=parsed_repair_cmd,
                     )
                     await self.refresh()
                     self._set_message(
@@ -2160,12 +2206,16 @@ class HydraTuiCockpit:
                 _safe_text(ev.get("task_id") or "—"),
                 _safe_text(payload_str),
             )
-        return Panel(table, title=f"Event Feed (Last-Event-ID={self.state.last_seq})", border_style="dim")
+        return Panel(
+            table,
+            title=_safe_text(f"Event Feed (Last-Event-ID={self.state.last_seq})"),
+            border_style="dim",
+        )
 
     def _build_detail_panel(self) -> Panel:
         return Panel(
             _safe_text(self.state.detail_body),
-            title=_safe_str(self.state.detail_title),
+            title=_safe_text(self.state.detail_title),
             border_style="white",
         )
 

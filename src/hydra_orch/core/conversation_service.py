@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+import filecmp
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,8 @@ import uuid
 from hydra_orch.bridge.conversation_runner import ConversationRunner
 from hydra_orch.bridge.worker_runner import is_process_alive
 from hydra_orch.core.checkpointer import IdempotencyConflictError, OptimisticLockError
+from hydra_orch.core import folder_workspace
+from hydra_orch.core.git_workspace import GitWorkspaceError, is_link_or_junction, win_long_path
 from hydra_orch.core.redaction import redact, redact_text
 from hydra_orch.core.conversation_route import ConversationRoute, route_from
 from hydra_orch.core.conversation_context import prepare_context
@@ -22,7 +25,43 @@ def new_id(prefix):
     return f"{prefix}-{uuid.uuid4().hex}"
 
 
+def _split_nul_paths(raw: bytes) -> list[str]:
+    items: list[str] = []
+    for chunk in raw.split(b"\0"):
+        if not chunk:
+            continue
+        norm = chunk.decode("utf-8", errors="surrogateescape").replace("\\", "/").strip("/")
+        if norm:
+            items.append(norm)
+    return items
+
+
+def _batch_git_blob_shas(ws, root: Path, rel_paths: list[str]) -> dict[str, str]:
+    if not rel_paths:
+        return {}
+    if all('"' not in p and "\n" not in p and "\r" not in p for p in rel_paths):
+        stdin_data = ("\n".join(rel_paths) + "\n").encode("utf-8")
+        res = ws._run_git_bytes(["hash-object", "--stdin-paths"], cwd=root, input_bytes=stdin_data)
+        if res.returncode == 0:
+            lines = [
+                ln.strip().lower()
+                for ln in res.stdout.decode("ascii", errors="replace").splitlines()
+                if ln.strip()
+            ]
+            if len(lines) == len(rel_paths):
+                return dict(zip(rel_paths, lines))
+    out: dict[str, str] = {}
+    for rel_posix in rel_paths:
+        res = ws._run_git(["hash-object", "--path", rel_posix, "--", rel_posix], cwd=root)
+        if res.returncode != 0:
+            raise ContractViolation("git_command_failed", f"Não foi possível inspecionar '{rel_posix}'.")
+        out[rel_posix] = res.stdout.strip().lower()
+    return out
+
+
 class ConversationService:
+    _sync_locks: dict[str, asyncio.Lock] = {}
+
     def __init__(self, run_service, *, runner=None, attachments=None, routes=None, worker_timeout_seconds=300):
         self.runs = run_service
         self.store = run_service.store
@@ -280,6 +319,418 @@ class ConversationService:
             await self.runner.cancel(tid)
         return {"state": "stopping" if state == "running" else "cancelled" if state == "queued" else state}
 
+    @classmethod
+    def _get_sync_lock(cls, source_root: Path) -> asyncio.Lock:
+        key = os.path.normcase(os.path.abspath(str(source_root)))
+        lock = cls._sync_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            cls._sync_locks[key] = lock
+        return lock
+
+    async def _load_conversation_for_sync(self, db, conversation_id: str) -> dict:
+        row = await (await db.execute("SELECT * FROM conversations WHERE id=?", (conversation_id,))).fetchone()
+        if not row:
+            raise ContractViolation("resource_not_found", "Conversa não encontrada.")
+        conv = dict(row)
+        if conv["access_mode"] != "workspace-write":
+            raise ContractViolation(
+                "workspace_readonly",
+                "Esta conversa está em modo somente leitura e não possui alterações para aplicar.",
+            )
+        busy = await (
+            await db.execute(
+                "SELECT 1 FROM conversation_turns WHERE conversation_id=? AND state IN ('running','stopping') LIMIT 1",
+                (conversation_id,),
+            )
+        ).fetchone()
+        if busy:
+            raise ContractViolation(
+                "conversation_busy",
+                "Aguarde o término do turno atual antes de aplicar alterações ao projeto.",
+            )
+        if not conv.get("workspace_path"):
+            raise ContractViolation(
+                "workspace_readonly",
+                "Esta conversa está em modo somente leitura e não possui alterações para aplicar.",
+            )
+        return conv
+
+    def _resolve_sync_target(self, conv: dict, project: dict) -> tuple[str, Path, Path]:
+        source_root = Path(project["canonical_root"])
+        raw_ws_path = Path(conv["workspace_path"])
+        folder_dir = self.runs.runtime_dir / "folder_workspace" / conv["id"]
+        folder_work = folder_dir / "work"
+        is_folder_mode = project.get("workspace_kind") == "folder" or (
+            not is_link_or_junction(raw_ws_path)
+            and not is_link_or_junction(folder_work)
+            and raw_ws_path.resolve(strict=False) == folder_work.resolve(strict=False)
+        )
+        if is_folder_mode:
+            if is_link_or_junction(raw_ws_path) or raw_ws_path.resolve(strict=False) != folder_work.resolve(strict=False):
+                raise ContractViolation("workspace_invalid", "A pasta desta conversa mudou. Abra um novo chat.")
+            return "folder", source_root, folder_dir
+        return "git", source_root, raw_ws_path
+
+    def _inspect_git_worktree_sync(self, source_root: Path, raw_ws_path: Path, base_sha_hint: str | None):
+        if is_link_or_junction(source_root):
+            raise ContractViolation("scope_violation", "O repositório original contém um link que exige revisão.")
+        try:
+            ws = self.runs._get_git_workspace(source_root)
+        except GitWorkspaceError as exc:
+            raise ContractViolation(exc.failure.code, exc.failure.message) from exc
+
+        if is_link_or_junction(raw_ws_path):
+            raise ContractViolation("scope_violation", "A cópia isolada contém um link que exige revisão.")
+        cwd_candidate = raw_ws_path.resolve(strict=False)
+        if (
+            not cwd_candidate.is_relative_to(ws.worktree_base_dir.resolve())
+            or not win_long_path(cwd_candidate).is_dir()
+            or not win_long_path(cwd_candidate / ".git").exists()
+        ):
+            raise ContractViolation(
+                "workspace_missing",
+                "A pasta desta conversa não está disponível. Restaure-a antes de continuar.",
+            )
+        try:
+            cwd_real = ws._verify_worktree_git_file(cwd_candidate)
+            base_sha = ws.resolve_commit_sha(base_sha_hint if base_sha_hint else "HEAD", cwd=cwd_real)
+        except GitWorkspaceError as exc:
+            raise ContractViolation(exc.failure.code, exc.failure.message) from exc
+
+        folder_workspace.assert_no_links_in_tree(cwd_real)
+
+        runtime_rel_prefix: str | None = None
+        try:
+            rel_rt = self.runs.runtime_dir.resolve().relative_to(ws.repo_root.resolve())
+            runtime_rel_prefix = rel_rt.as_posix().strip("/")
+        except ValueError:
+            runtime_rel_prefix = None
+
+        def skip_rel(rel_posix: str) -> bool:
+            if folder_workspace.is_ignored_rel_path(rel_posix):
+                return True
+            if runtime_rel_prefix and (
+                rel_posix == runtime_rel_prefix or rel_posix.startswith(f"{runtime_rel_prefix}/")
+            ):
+                return True
+            return False
+
+        ls_res = ws._run_git_bytes(["ls-tree", "-r", "-z", base_sha], cwd=cwd_real)
+        if ls_res.returncode != 0:
+            raise ContractViolation("workspace_invalid", "Não foi possível ler a revisão base da conversa.")
+        base_blobs: dict[str, str] = {}
+        for entry in ls_res.stdout.split(b"\0"):
+            if not entry or b"\t" not in entry:
+                continue
+            meta_raw, path_raw = entry.split(b"\t", 1)
+            rel_posix = path_raw.decode("utf-8", errors="surrogateescape").replace("\\", "/").strip("/")
+            if not rel_posix or skip_rel(rel_posix):
+                continue
+            parts = meta_raw.decode("ascii", errors="replace").split()
+            if len(parts) >= 3:
+                base_blobs[rel_posix] = parts[2].lower()
+
+        cwd_diff = ws._run_git_bytes(["diff", "--name-only", "--no-renames", "-z", base_sha], cwd=cwd_real)
+        cwd_untracked = ws._run_git_bytes(["ls-files", "--others", "--exclude-standard", "-z"], cwd=cwd_real)
+        if cwd_diff.returncode != 0 or cwd_untracked.returncode != 0:
+            raise ContractViolation("git_command_failed", "Não foi possível inspecionar as alterações da conversa.")
+
+        cwd_candidates = sorted(
+            {
+                p
+                for p in (_split_nul_paths(cwd_diff.stdout) + _split_nul_paths(cwd_untracked.stdout))
+                if not skip_rel(p)
+            }
+        )
+        cwd_hash_targets: list[str] = []
+        for rel_posix in cwd_candidates:
+            rel_path = folder_workspace.validate_sync_rel_path(rel_posix)
+            if folder_workspace.has_link_on_rel_path(cwd_real, rel_path):
+                raise ContractViolation(
+                    "scope_violation",
+                    "A cópia contém um link que exige revisão. Os arquivos foram preservados.",
+                )
+            if rel_posix in base_blobs and win_long_path(cwd_real / rel_posix).is_file():
+                cwd_hash_targets.append(rel_posix)
+
+        cwd_shas = _batch_git_blob_shas(ws, cwd_real, cwd_hash_targets)
+        agent_added: list[str] = []
+        agent_modified: list[str] = []
+        agent_deleted: list[str] = []
+        for rel_posix in cwd_candidates:
+            in_base = rel_posix in base_blobs
+            in_work = win_long_path(cwd_real / rel_posix).is_file()
+            if not in_base and in_work:
+                agent_added.append(rel_posix)
+            elif in_base and not in_work:
+                agent_deleted.append(rel_posix)
+            elif in_base and in_work and cwd_shas[rel_posix] != base_blobs[rel_posix]:
+                agent_modified.append(rel_posix)
+
+        agent_changed_set = set(agent_added) | set(agent_modified) | set(agent_deleted)
+        agent_present_set = set(agent_added) | set(agent_modified)
+
+        src_diff = ws._run_git_bytes(["diff", "--name-only", "--no-renames", "-z", base_sha], cwd=ws.repo_root)
+        src_untracked = ws._run_git_bytes(["ls-files", "--others", "--exclude-standard", "-z"], cwd=ws.repo_root)
+        if src_diff.returncode != 0 or src_untracked.returncode != 0:
+            raise ContractViolation("git_command_failed", "Não foi possível inspecionar o estado do repositório.")
+
+        src_candidates = sorted(
+            {
+                p
+                for p in (_split_nul_paths(src_diff.stdout) + _split_nul_paths(src_untracked.stdout))
+                if not skip_rel(p)
+            }
+            | agent_changed_set
+        )
+
+        src_hash_targets: list[str] = []
+        for rel_posix in src_candidates:
+            if folder_workspace.has_link_on_rel_path(ws.repo_root, Path(rel_posix)):
+                continue
+            if (rel_posix in base_blobs or rel_posix in agent_present_set) and win_long_path(
+                ws.repo_root / rel_posix
+            ).is_file():
+                src_hash_targets.append(rel_posix)
+
+        src_shas = _batch_git_blob_shas(ws, ws.repo_root, src_hash_targets)
+        added_work_shas = _batch_git_blob_shas(
+            ws,
+            cwd_real,
+            [p for p in agent_added if p in src_shas],
+        )
+
+        external_changed: list[str] = []
+        conflicts_set: set[str] = set()
+        link_hazards: list[str] = []
+
+        for rel_posix in src_candidates:
+            rel_path = Path(rel_posix)
+            if folder_workspace.has_link_on_rel_path(ws.repo_root, rel_path):
+                external_changed.append(rel_posix)
+                if rel_posix in agent_changed_set:
+                    link_hazards.append(rel_posix)
+                    conflicts_set.add(rel_posix)
+                continue
+
+            in_base = rel_posix in base_blobs
+            src_target = ws.repo_root / rel_path
+            in_src = win_long_path(src_target).is_file()
+            ext_diff = False
+            if not in_base and in_src:
+                ext_diff = True
+            elif in_base and not in_src:
+                ext_diff = True
+            elif in_base and in_src and src_shas[rel_posix] != base_blobs[rel_posix]:
+                ext_diff = True
+
+            if ext_diff:
+                external_changed.append(rel_posix)
+
+            if rel_posix in agent_changed_set:
+                if rel_posix in agent_present_set:
+                    if win_long_path(src_target).is_dir():
+                        conflicts_set.add(rel_posix)
+                        continue
+                    parent_rel = rel_path.parent
+                    collision = False
+                    while parent_rel != Path("."):
+                        if win_long_path(ws.repo_root / parent_rel).is_file():
+                            collision = True
+                            break
+                        parent_rel = parent_rel.parent
+                    if collision:
+                        conflicts_set.add(rel_posix)
+                        continue
+
+                if ext_diff:
+                    in_work = rel_posix in agent_present_set
+                    if not in_work and not in_src:
+                        pass
+                    elif in_work and in_src:
+                        work_sha = cwd_shas.get(rel_posix) or added_work_shas.get(rel_posix)
+                        same_bytes = filecmp.cmp(
+                            win_long_path(cwd_real / rel_posix),
+                            win_long_path(src_target),
+                            shallow=False,
+                        ) or (work_sha is not None and work_sha == src_shas.get(rel_posix))
+                        if not same_bytes:
+                            conflicts_set.add(rel_posix)
+                    else:
+                        conflicts_set.add(rel_posix)
+
+        conflicts = sorted(conflicts_set)
+        has_agent_changes = bool(agent_added or agent_modified or agent_deleted)
+        status = {
+            "has_agent_changes": has_agent_changes,
+            "clean_to_apply": len(conflicts) == 0,
+            "agent_added": agent_added,
+            "agent_modified": agent_modified,
+            "agent_deleted": agent_deleted,
+            "external_changed": sorted(set(external_changed)),
+            "conflicts": conflicts,
+        }
+        return ws, cwd_real, base_sha, link_hazards, status
+
+    def _apply_git_worktree_sync(
+        self,
+        source_root: Path,
+        raw_ws_path: Path,
+        base_sha_hint: str | None,
+        *,
+        force: bool = False,
+    ) -> tuple[dict, str]:
+        ws, cwd_real, base_sha, link_hazards, status = self._inspect_git_worktree_sync(
+            source_root, raw_ws_path, base_sha_hint
+        )
+        if link_hazards:
+            raise ContractViolation(
+                "scope_violation",
+                "O caminho de destino no repositório contém um link que exige revisão.",
+            )
+
+        repo_resolved = ws.repo_root.resolve()
+        all_targets = [*status["agent_added"], *status["agent_modified"], *status["agent_deleted"]]
+        for rel_posix in all_targets:
+            rel_path = folder_workspace.validate_sync_rel_path(rel_posix)
+            if folder_workspace.has_link_on_rel_path(ws.repo_root, rel_path) or folder_workspace.has_link_on_rel_path(
+                cwd_real, rel_path
+            ):
+                raise ContractViolation(
+                    "scope_violation",
+                    "O caminho de destino no repositório contém um link que exige revisão.",
+                )
+            if not (ws.repo_root / rel_path).resolve(strict=False).is_relative_to(repo_resolved):
+                raise ContractViolation(
+                    "scope_violation",
+                    "O caminho de destino sai do repositório original do projeto.",
+                )
+
+        if status["conflicts"] and not force:
+            exc = ContractViolation(
+                "workspace_sync_conflict",
+                f"Conflito ao aplicar alterações: o repositório original foi modificado externamente em {', '.join(status['conflicts'][:5])}.",
+            )
+            exc.conflicts = list(status["conflicts"])
+            raise exc
+
+        applied_files = sorted(status["agent_added"] + status["agent_modified"])
+        deleted_files = list(status["agent_deleted"])
+
+        for rel_posix in deleted_files:
+            src_target = ws.repo_root / rel_posix
+            if win_long_path(src_target).is_dir():
+                raise ContractViolation(
+                    "workspace_sync_conflict",
+                    f"Conflito ao aplicar alterações: '{rel_posix}' tornou-se uma pasta no repositório.",
+                )
+            win_long_path(src_target).unlink(missing_ok=True)
+            folder_workspace.prune_empty_parents(src_target, ws.repo_root)
+
+        for rel_posix in applied_files:
+            src_target = ws.repo_root / rel_posix
+            if win_long_path(src_target).is_dir():
+                raise ContractViolation(
+                    "workspace_sync_conflict",
+                    f"Conflito ao aplicar alterações: '{rel_posix}' é uma pasta no repositório.",
+                )
+            folder_workspace.atomic_copy_file(cwd_real / rel_posix, src_target)
+
+        new_base_sha = base_sha
+        all_synced = sorted(set(applied_files) | set(deleted_files))
+        if all_synced:
+            add_res = ws._run_git(["add", "-A", "--", *all_synced], cwd=cwd_real)
+            if add_res.returncode != 0:
+                raise ContractViolation("git_command_failed", "Não foi possível atualizar o índice da cópia isolada.")
+            cached_diff = ws._run_git(["diff", "--cached", "--quiet"], cwd=cwd_real)
+            if cached_diff.returncode != 0:
+                git_env = {
+                    "GIT_AUTHOR_NAME": ws.git_author_name,
+                    "GIT_AUTHOR_EMAIL": ws.git_author_email,
+                    "GIT_COMMITTER_NAME": ws.git_author_name,
+                    "GIT_COMMITTER_EMAIL": ws.git_author_email,
+                }
+                commit_res = ws._run_git(
+                    ["commit", "--no-verify", "-m", "chore: checkpoint applied conversation changes"],
+                    cwd=cwd_real,
+                    extra_env=git_env,
+                )
+                if commit_res.returncode != 0:
+                    raise ContractViolation(
+                        "git_command_failed",
+                        "Não foi possível registrar a revisão aplicada na cópia isolada.",
+                    )
+            new_base_sha = ws.resolve_commit_sha("HEAD", cwd=cwd_real)
+
+        has_changes = bool(applied_files or deleted_files)
+        result = {
+            "status": "applied" if has_changes else "noop",
+            "applied_files": applied_files,
+            "deleted_files": deleted_files,
+            "conflicts": list(status["conflicts"]),
+        }
+        return result, new_base_sha
+
+    async def inspect_changes(self, conversation_id: str) -> dict:
+        await self.store.initialize()
+        async with self.store._connect() as db:
+            conv = await self._load_conversation_for_sync(db, conversation_id)
+        project = await self.runs.get_project(conv["project_id"])
+        if not project:
+            raise ContractViolation("resource_not_found", "Projeto da conversa não encontrado.")
+        mode, source_root, ws_target = self._resolve_sync_target(conv, project)
+        if mode == "folder":
+            status = await asyncio.to_thread(folder_workspace.inspect_sync_status, source_root, ws_target)
+            return {"mode": "folder", **status}
+        _, _, _, _, status = await asyncio.to_thread(
+            self._inspect_git_worktree_sync, source_root, ws_target, conv.get("base_sha")
+        )
+        return {"mode": "git", **status}
+
+    async def apply_changes(self, conversation_id: str, *, force: bool = False) -> dict:
+        await self.store.initialize()
+        async with self.store._connect() as db:
+            conv = await self._load_conversation_for_sync(db, conversation_id)
+        project = await self.runs.get_project(conv["project_id"])
+        if not project:
+            raise ContractViolation("resource_not_found", "Projeto da conversa não encontrado.")
+        mode, source_root, ws_target = self._resolve_sync_target(conv, project)
+        sync_lock = self._get_sync_lock(source_root)
+        async with sync_lock:
+            async with self.store._connect() as db:
+                conv = await self._load_conversation_for_sync(db, conversation_id)
+            mode, source_root, ws_target = self._resolve_sync_target(conv, project)
+            new_base_sha: str | None = None
+            if mode == "folder":
+                result = await asyncio.to_thread(
+                    folder_workspace.apply_to_source, source_root, ws_target, force=force
+                )
+            else:
+                result, new_base_sha = await asyncio.to_thread(
+                    self._apply_git_worktree_sync,
+                    source_root,
+                    ws_target,
+                    conv.get("base_sha"),
+                    force=force,
+                )
+
+            event_payload = {
+                "mode": mode,
+                "status": result["status"],
+                "applied_files": result["applied_files"],
+                "deleted_files": result["deleted_files"],
+            }
+            async with self.store._connect() as db:
+                async with self.store._transaction(db):
+                    if new_base_sha is not None and new_base_sha != conv.get("base_sha"):
+                        await db.execute(
+                            "UPDATE conversations SET base_sha=? WHERE id=?",
+                            (new_base_sha, conversation_id),
+                        )
+                    seq = await self._event(db, conversation_id, None, "conversation.applied", event_payload)
+            return {"mode": mode, **result, "seq": seq}
+
     async def claim(self):
         async with self.store._connect() as db:
             async with self.store._transaction(db):
@@ -413,7 +864,7 @@ class ConversationService:
             for ref in refs:
                 data = self.attachments.read_attachment_bytes(ref["attachment_id"], session_id=conv["id"])
                 target = directory / (ref["attachment_id"] + Path(ref["filename"]).suffix)
-                if target.is_symlink():
+                if is_link_or_junction(target):
                     raise ContractViolation("attachment_path_escape", "O destino do anexo não é seguro.")
                 target.write_bytes(data)
                 attachment_lines.append(f"{ref['filename']}: {target}")

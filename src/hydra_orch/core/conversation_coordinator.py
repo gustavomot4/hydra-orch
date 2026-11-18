@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from hydra_orch.core.conversation_route import ConversationRoute
 from hydra_orch.core.folder_workspace import files
+from hydra_orch.core.git_workspace import is_link_or_junction
 from hydra_orch.core.redaction import redact_text
 from hydra_orch.core.run_service import CheckRunner, RunService
 from hydra_orch.engine.orchestration import consolidate_stage, _state_hash
@@ -36,7 +37,7 @@ def source_path(value):
             or any(p.startswith('-') for p in path.parts)
             or path.is_absolute() or any(p in {'..', '.git', '.orchestrator', 'node_modules'} or p.lower().startswith('.env') for p in path.parts)
             or any(c in value for c in '*?[') or str(path) != value):
-        raise ValueError('Use a literal relative source-file path, outside runtime and credentials')
+        raise ValueError('Use um caminho relativo literal de arquivo do projeto, fora do diretório interno e de credenciais.')
     return value
 
 
@@ -57,7 +58,7 @@ class PlannedTask(BaseModel):
     @classmethod
     def safe_paths(cls, values):
         if len(set(values)) != len(values):
-            raise ValueError('Duplicate paths')
+            raise ValueError('Caminhos duplicados não são permitidos.')
         return [source_path(v) for v in values]
 
     @field_validator('check_cwd')
@@ -78,22 +79,22 @@ class CoordinatorPlan(BaseModel):
     def two_waves(self):
         if self.intent == 'analysis':
             if self.tasks or self.foundation_id is not None or not self.report:
-                raise ValueError('Analysis requires a report and cannot contain executable tasks')
+                raise ValueError('O modo de análise exige um relatório e não pode conter tarefas executáveis.')
             return self
         if not self.tasks or self.report is not None:
-            raise ValueError('Implementation requires tasks and cannot contain an analysis report')
+            raise ValueError('O modo de implementação exige tarefas e não pode conter um relatório de análise.')
         ids = {t.id for t in self.tasks}
         if len(ids) != len(self.tasks) or self.foundation_id is not None and self.foundation_id not in ids:
-            raise ValueError('Tasks require unique IDs and a valid foundation')
+            raise ValueError('As tarefas exigem identificadores únicos e uma fundação válida.')
         workers = [t for t in self.tasks if t.id != self.foundation_id]
         for task in self.tasks:
             if task.operation == 'validate':
                 if task.dependencies or task.id == self.foundation_id:
-                    raise ValueError('Validation tasks must be independent and cannot be a foundation')
+                    raise ValueError('Tarefas de validação devem ser independentes e não podem ser a fundação.')
                 continue
             expected = [self.foundation_id] if self.foundation_id and task.id != self.foundation_id else []
             if task.dependencies != expected:
-                raise ValueError('Use only independent tasks or one foundation followed by independent workers')
+                raise ValueError('Use apenas tarefas independentes ou uma fundação seguida por tarefas independentes.')
         owners = {}
         for task in workers:
             if task.operation == 'validate':
@@ -101,15 +102,15 @@ class CoordinatorPlan(BaseModel):
             for path in task.paths:
                 key = path.casefold() if os.name == 'nt' else path
                 if key in owners:
-                    raise ValueError(f'Parallel file ownership overlaps: {path}')
+                    raise ValueError(f'Sobreposição de propriedade de arquivo em paralelo: {path}')
                 owners[key] = task.id
         if self.foundation_id and len(self.tasks) < 2:
-            raise ValueError('A single task does not need a foundation wave')
+            raise ValueError('Uma tarefa única não precisa de etapa de fundação.')
         if self.foundation_id:
             foundation = next(t for t in self.tasks if t.id == self.foundation_id)
             reserved = {p.casefold() if os.name == 'nt' else p for p in foundation.paths}
             if reserved.intersection(owners):
-                raise ValueError('Foundation contracts cannot be changed by Wave 1 workers')
+                raise ValueError('Os contratos da fundação não podem ser alterados pelas tarefas seguintes.')
         return self
 
 
@@ -142,7 +143,7 @@ def planning_sources(cwd, inventory, *, budget_chars=16000):
         if name not in inventory or remaining < 200:
             continue
         path = cwd / name
-        if path.is_symlink() or not path.resolve().is_relative_to(cwd.resolve()):
+        if is_link_or_junction(path) or not path.resolve().is_relative_to(cwd.resolve()):
             continue
         try:
             with path.open('rb') as stream:
@@ -201,7 +202,7 @@ class ConversationCoordinator:
                     return parse_structured(text, schema)
                 except ValueError:
                     pass
-            raise ContractViolation('coordinator_plan_invalid', 'O agente não retornou um plano ou revisão estruturados válidos. Nenhuma ferramenta de worker foi iniciada a partir desse texto.')
+            raise ContractViolation('coordinator_plan_invalid', 'O agente não retornou um plano ou revisão estruturados válidos. Nenhuma execução de agente foi iniciada a partir desse texto.')
         finally:
             await self.runner.cancel(job_id)
 
@@ -269,17 +270,17 @@ class ConversationCoordinator:
         elif task.check_kind == 'node_test':
             node = shutil.which('node')
             if not node:
-                raise ContractViolation('agent_unavailable', 'Node não está instalado para verificar esta tarefa.')
+                raise ContractViolation('agent_unavailable', 'O Node.js não está instalado para verificar esta tarefa.')
             command = (node, '--test', *task.check_paths)
         elif task.check_kind == 'docs':
             command = (sys.executable, '-m', 'hydra_orch.core.document_check', *task.check_paths)
         else:
             node = shutil.which('node')
             if not node:
-                raise ContractViolation('agent_unavailable', 'Node não está instalado para verificar esta tarefa.')
+                raise ContractViolation('agent_unavailable', 'O Node.js não está instalado para verificar esta tarefa.')
             if task.check_kind == 'typescript':
                 if len(task.check_paths) != 1 or not task.check_paths[0].endswith('.json'):
-                    raise ContractViolation('coordinator_plan_invalid', 'TypeScript exige um tsconfig explícito relativo ao diretório do check.')
+                    raise ContractViolation('coordinator_plan_invalid', 'TypeScript exige um arquivo tsconfig explícito relativo ao diretório da verificação.')
                 command = (node, 'node_modules/typescript/bin/tsc', '--noEmit', '-p', task.check_paths[0])
             elif task.check_kind == 'vitest':
                 command = (node, 'node_modules/vitest/vitest.mjs', 'run', *task.check_paths)
@@ -373,7 +374,7 @@ class ConversationCoordinator:
         if conv.get('workspace_kind') == 'folder':
             from hydra_orch.core.folder_workspace import prepare_git
             directory = self.runs.runtime_dir / 'folder_workspace' / conv['id']
-            if (directory.is_symlink() or not directory.resolve().is_relative_to(self.runs.runtime_dir.resolve())
+            if (is_link_or_junction(directory) or not directory.resolve().is_relative_to(self.runs.runtime_dir.resolve())
                     or cwd.resolve() != (directory/'work').resolve()):
                 raise ContractViolation('workspace_invalid', 'A execução exige a cópia isolada registrada nesta conversa.')
             await emit('coordinator.phase', {'phase':'preparing_workspace','message':'Preparando automaticamente a cópia isolada para os agentes.'})
@@ -494,7 +495,7 @@ class ConversationCoordinator:
                 raise ContractViolation('coordinator_integration_failed','Não foi possível aplicar a consolidação à cópia da conversa. O projeto original permanece preservado.')
             await emit('coordinator.run', {'run_id':run_id,'phase':'completed','result_sha':integrated.result_sha})
             await emit('text.delta', {'text': 'Trabalho coordenado concluído na cópia isolada.\n'+ '\n'.join('- '+t.title for t in plan.tasks)
-                       +'\n'+'\n'.join(reports)+'\nAs verificações e a revisão de agente passaram. Revise o diff antes de integrar ao projeto original.'})
+                       +'\n'+'\n'.join(reports)+'\nAs verificações e a revisão de agente passaram. Revise as alterações antes de aplicá-las ao projeto original.'})
         self.active[turn['id']] = asyncio.current_task()
         try:
             await asyncio.wait_for(run_workers(), self.execution_timeout_seconds)

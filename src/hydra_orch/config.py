@@ -6,6 +6,7 @@ Enforces Design by Contract (DBC-9) with extra="forbid" to reject unknown fields
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -117,6 +118,41 @@ def _resolve_secrets_recursive(data: Any) -> Any:
 # MODELOS DE DOMÍNIO DE CONFIGURAÇÃO (DBC-9 / extra="forbid")
 # ============================================================================
 
+def _parse_allowed_workspace_roots(raw: str) -> List[str]:
+    """Parse HYDRA_ALLOWED_WORKSPACE_ROOTS from JSON array or comma/semicolon-separated string."""
+    cleaned = raw.strip()
+    if not cleaned:
+        return []
+    if cleaned.startswith("["):
+        try:
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, list):
+                return [str(p).strip() for p in parsed if str(p).strip()]
+        except json.JSONDecodeError:
+            pass
+    sep = "," if "," in cleaned else (";" if ";" in cleaned else None)
+    if sep is None:
+        return [cleaned]
+    return [part.strip() for part in cleaned.split(sep) if part.strip()]
+
+
+class ServerConfig(StrictConfig):
+    """Configuração do servidor HTTP/control-plane e raízes permitidas de workspace."""
+    host: str = "127.0.0.1"
+    port: int = Field(default=8000, ge=1, le=65535, strict=True)
+    title: str = "Hydra Orchestrator API"
+    description: str = "Universal Autonomous LLM Orchestrator"
+    allowed_workspace_roots: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def sync_env_allowed_roots(self) -> ServerConfig:
+        if "allowed_workspace_roots" not in self.model_fields_set and not self.allowed_workspace_roots:
+            env_raw = os.environ.get("HYDRA_ALLOWED_WORKSPACE_ROOTS", "").strip()
+            if env_raw:
+                object.__setattr__(self, "allowed_workspace_roots", _parse_allowed_workspace_roots(env_raw))
+        return self
+
+
 class HydraSettings(StrictConfig):
     """Configurações centrais do orquestrador Hydra."""
     proxy_host: str = "127.0.0.1"
@@ -128,6 +164,7 @@ class HydraSettings(StrictConfig):
     state_db: str = ".orchestrator/checkpoints.sqlite"
     auto_heal_build_errors: bool = True
     max_heal_attempts: int = Field(default=2, ge=0, strict=True)
+    allowed_workspace_roots: List[str] = Field(default_factory=list)
 
     @field_validator("default_mode", mode="before")
     @classmethod
@@ -367,6 +404,8 @@ class HydraConfig(StrictConfig):
     """Configuração canônica e tipada do Hydra Orchestrator (RT01)."""
     version: str = "5.0"
     hydra: HydraSettings = Field(default_factory=HydraSettings)
+    server: ServerConfig = Field(default_factory=ServerConfig)
+    allowed_workspace_roots: List[str] = Field(default_factory=list)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     omniroute: OmniRouteConfig = Field(default_factory=OmniRouteConfig)
@@ -423,6 +462,29 @@ class HydraConfig(StrictConfig):
 
     @model_validator(mode="after")
     def validate_references(self) -> HydraConfig:
+        if "server" not in self.model_fields_set or "host" not in self.server.model_fields_set:
+            object.__setattr__(self.server, "host", self.hydra.proxy_host)
+        elif "hydra" not in self.model_fields_set or "proxy_host" not in self.hydra.model_fields_set:
+            object.__setattr__(self.hydra, "proxy_host", self.server.host)
+
+        if "server" not in self.model_fields_set or "port" not in self.server.model_fields_set:
+            object.__setattr__(self.server, "port", self.hydra.proxy_port)
+        elif "hydra" not in self.model_fields_set or "proxy_port" not in self.hydra.model_fields_set:
+            object.__setattr__(self.hydra, "proxy_port", self.server.port)
+
+        if "allowed_workspace_roots" in self.model_fields_set:
+            effective_roots = list(self.allowed_workspace_roots)
+        elif "server" in self.model_fields_set and "allowed_workspace_roots" in self.server.model_fields_set:
+            effective_roots = list(self.server.allowed_workspace_roots)
+        elif "hydra" in self.model_fields_set and "allowed_workspace_roots" in self.hydra.model_fields_set:
+            effective_roots = list(self.hydra.allowed_workspace_roots)
+        else:
+            env_roots_raw = os.environ.get("HYDRA_ALLOWED_WORKSPACE_ROOTS", "").strip()
+            effective_roots = _parse_allowed_workspace_roots(env_roots_raw) if env_roots_raw else []
+        object.__setattr__(self, "allowed_workspace_roots", list(effective_roots))
+        object.__setattr__(self.server, "allowed_workspace_roots", list(effective_roots))
+        object.__setattr__(self.hydra, "allowed_workspace_roots", list(effective_roots))
+
         known = self.providers.names() | {"ssh_remote"}
         for provider in self.providers.api_gateway.values():
             if provider.enabled and not os.environ.get(provider.api_key_env):
@@ -480,15 +542,6 @@ class HydraConfig(StrictConfig):
     # ------------------------------------------------------------------------
 
     @property
-    def server(self):
-        class ServerCompat:
-            host = self.hydra.proxy_host
-            port = self.hydra.proxy_port
-            title = "Hydra Orchestrator API"
-            description = "Universal Autonomous LLM Orchestrator"
-        return ServerCompat()
-
-    @property
     def orchestrator(self):
         class OrchCompat:
             default_mode = {1: "swarm", 2: "relay", 3: "persistent"}[self.hydra.default_mode]
@@ -532,34 +585,70 @@ def _unique_mapping(loader: _UniqueLoader, node: Any, deep: bool = False) -> dic
 _UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _unique_mapping)
 _CONFIG_CACHE: Optional[HydraConfig] = None
 _CONFIG_CACHE_PATH: Optional[Path] = None
+_CONFIG_CACHE_ENV_KEY: Optional[tuple[str, str]] = None
 
 
 def load_config(config_path: Optional[str | Path] = None, reload: bool = False) -> HydraConfig:
     """Explicit paths never fall back to another file or pollute the default cache."""
-    global _CONFIG_CACHE, _CONFIG_CACHE_PATH
+    global _CONFIG_CACHE, _CONFIG_CACHE_PATH, _CONFIG_CACHE_ENV_KEY
+    env_cfg_raw = os.environ.get("HYDRA_CONFIG", "").strip()
+    env_roots_raw = os.environ.get("HYDRA_ALLOWED_WORKSPACE_ROOTS", "").strip()
+    env_key = (env_cfg_raw, env_roots_raw)
+
     if config_path is not None:
         selected = Path(config_path).expanduser().resolve()
         if not selected.is_file():
             raise ConfigError(f"Configuration file not found: {selected}")
+    elif env_cfg_raw:
+        selected = Path(env_cfg_raw).expanduser().resolve()
+        if not selected.is_file():
+            raise ConfigError(f"Configuration file not found: {selected}")
+        if not reload and _CONFIG_CACHE is not None and selected == _CONFIG_CACHE_PATH and env_key == _CONFIG_CACHE_ENV_KEY:
+            return _CONFIG_CACHE
     else:
         candidates = [Path("config.yaml"), Path("config.yml"),
                       Path.home() / ".config" / "hydra-orch" / "config.yaml"]
         selected = next((p.resolve() for p in candidates if p.is_file()), None)
-        if not reload and _CONFIG_CACHE is not None and selected == _CONFIG_CACHE_PATH:
+        if not reload and _CONFIG_CACHE is not None and selected == _CONFIG_CACHE_PATH and env_key == _CONFIG_CACHE_ENV_KEY:
             return _CONFIG_CACHE
 
-    raw_data = {}
+    raw_data: Dict[str, Any] = {}
     if selected is not None:
         try:
             with selected.open(encoding="utf-8") as stream:
-                raw_data = yaml.load(stream, Loader=_UniqueLoader)
+                loaded = yaml.load(stream, Loader=_UniqueLoader)
         except (OSError, yaml.YAMLError) as exc:
             raise ConfigError("Cannot read configuration YAML") from exc
-        if raw_data is None:
-            raw_data = {}
-        if not isinstance(raw_data, dict):
+        if loaded is None:
+            loaded = {}
+        if not isinstance(loaded, dict):
             raise ConfigError("Configuration YAML must contain an object")
-    cfg = HydraConfig.model_validate(_resolve_secrets_recursive(raw_data))
+        raw_data = loaded
+
+    resolved_data = _resolve_secrets_recursive(raw_data)
+    if env_roots_raw:
+        parsed_env_roots = _parse_allowed_workspace_roots(env_roots_raw)
+        resolved_data["allowed_workspace_roots"] = parsed_env_roots
+        if isinstance(resolved_data.get("server"), dict):
+            resolved_data["server"] = {**resolved_data["server"], "allowed_workspace_roots": list(parsed_env_roots)}
+        if isinstance(resolved_data.get("hydra"), dict):
+            resolved_data["hydra"] = {**resolved_data["hydra"], "allowed_workspace_roots": list(parsed_env_roots)}
+
+    cfg = HydraConfig.model_validate(resolved_data)
     if config_path is None:
-        _CONFIG_CACHE, _CONFIG_CACHE_PATH = cfg, selected
+        _CONFIG_CACHE, _CONFIG_CACHE_PATH, _CONFIG_CACHE_ENV_KEY = cfg, selected, env_key
+    return cfg
+
+
+def reload_config(config_path: Optional[str | Path] = None) -> HydraConfig:
+    """Force reload configuration from disk (or HYDRA_CONFIG) and refresh the active cache."""
+    global _CONFIG_CACHE, _CONFIG_CACHE_PATH, _CONFIG_CACHE_ENV_KEY
+    cfg = load_config(config_path=config_path, reload=True)
+    if config_path is not None:
+        _CONFIG_CACHE = cfg
+        _CONFIG_CACHE_PATH = Path(config_path).expanduser().resolve()
+        _CONFIG_CACHE_ENV_KEY = (
+            os.environ.get("HYDRA_CONFIG", "").strip(),
+            os.environ.get("HYDRA_ALLOWED_WORKSPACE_ROOTS", "").strip(),
+        )
     return cfg

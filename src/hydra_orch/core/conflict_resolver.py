@@ -28,6 +28,7 @@ from hydra_orch.core.git_workspace import (
     GitWorkspaceService,
     ThreeWayInspection,
     WorkspaceRecord,
+    is_link_or_junction,
 )
 from hydra_orch.core.identifier import new_id
 from hydra_orch.core.redaction import redact, redact_text
@@ -45,6 +46,7 @@ from hydra_orch.model import (
     NonEmpty,
     RelativePath,
     RunSpec,
+    RunStatus,
     TaskSpec,
     TaskStatus,
     transition_status,
@@ -216,6 +218,156 @@ class ConflictResolver:
         if self._check_runner is not None:
             return self._check_runner
         return CheckRunner(repo_root=git_ws.repo_root, runtime_dir=git_ws.runtime_dir)
+
+    @staticmethod
+    def _serialize_json_column(value: Any) -> str:
+        """Deterministically serialize dicts/lists for SQLite JSON columns using json.dumps (never str(dict))."""
+        if isinstance(value, str):
+            parsed = json.loads(value)
+            return json.dumps(parsed, sort_keys=True)
+        return json.dumps(value, sort_keys=True)
+
+    @staticmethod
+    def _validate_repair_worktree_path(
+        candidate_path: Union[str, Path],
+        git_ws: GitWorkspaceService,
+    ) -> Path:
+        """Enforce SEC-05: repair/manual worktrees must not be symlinks/junctions and must stay inside worktree_base_dir."""
+        raw_path = Path(candidate_path)
+        if is_link_or_junction(raw_path):
+            raise ContractViolation(
+                "workspace_invalid",
+                f"Conflict resolution worktree cannot be a symlink or junction: '{raw_path}'",
+            )
+        wt_base = git_ws.worktree_base_dir
+        if is_link_or_junction(wt_base):
+            raise ContractViolation(
+                "workspace_invalid",
+                f"Worktree base directory cannot be a symlink or junction: '{wt_base}'",
+            )
+        resolved_wt = raw_path.resolve(strict=False)
+        repo_resolved = git_ws.repo_root.resolve(strict=False)
+        if os.path.normcase(str(resolved_wt)) == os.path.normcase(str(repo_resolved)):
+            raise ContractViolation(
+                "operator_checkout_protected",
+                "Manual conflict resolution must use an isolated worktree, never the operator root checkout",
+            )
+        wt_base_resolved = wt_base.resolve(strict=False)
+        if os.name == "nt":
+            base_cf = str(wt_base_resolved).casefold().rstrip("\\/")
+            wt_cf = str(resolved_wt).casefold()
+            inside_base = wt_cf != base_cf and wt_cf.startswith(base_cf + os.sep)
+        else:
+            inside_base = resolved_wt != wt_base_resolved and resolved_wt.is_relative_to(wt_base_resolved)
+        if not inside_base or not resolved_wt.is_relative_to(wt_base_resolved):
+            raise ContractViolation(
+                "workspace_invalid",
+                f"Conflict resolution worktree '{resolved_wt}' must reside inside '{wt_base_resolved}'",
+            )
+        try:
+            rel_parts = raw_path.relative_to(wt_base).parts
+        except ValueError:
+            rel_parts = resolved_wt.relative_to(wt_base_resolved).parts
+        cursor = wt_base_resolved
+        for part in rel_parts:
+            cursor = cursor / part
+            if is_link_or_junction(cursor):
+                raise ContractViolation(
+                    "workspace_invalid",
+                    f"Conflict resolution worktree traverses a symlink or junction: '{cursor}'",
+                )
+        return resolved_wt
+
+    async def _finalize_run_after_conflict_resolution_in_tx(
+        self,
+        db: Any,
+        *,
+        run_id: str,
+        conflict_id: str,
+        integration_id: str,
+        resolved_sha: str,
+        resolution_option: str,
+        correlation_id: Optional[str] = None,
+    ) -> None:
+        """Transition run to SUCCEEDED once all conflicts are resolved and all tasks are integrated (DAY-11)."""
+        run_row = await (
+            await db.execute("SELECT id, status, revision FROM runs WHERE id = ?", (run_id,))
+        ).fetchone()
+        if run_row is None:
+            return
+        cur_status = str(run_row["status"])
+        if cur_status in {RunStatus.SUCCEEDED.value, RunStatus.CANCELLED.value}:
+            return
+
+        open_conflicts_row = await (
+            await db.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM conflict_reports c
+                JOIN integrations i ON i.id = c.integration_id
+                WHERE i.run_id = ?
+                  AND (c.status = 'open' OR (c.status IN ('auto_repair', 'manual') AND c.resolved_at IS NULL))
+                """,
+                (run_id,),
+            )
+        ).fetchone()
+        if open_conflicts_row is not None and int(open_conflicts_row["cnt"]) > 0:
+            return
+
+        bad_int_row = await (
+            await db.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM integrations
+                WHERE run_id = ? AND status IN ('conflicted', 'integrating', 'failed')
+                """,
+                (run_id,),
+            )
+        ).fetchone()
+        if bad_int_row is not None and int(bad_int_row["cnt"]) > 0:
+            return
+
+        ok_int_row = await (
+            await db.execute(
+                "SELECT COUNT(*) AS cnt FROM integrations WHERE run_id = ? AND status = 'integrated'",
+                (run_id,),
+            )
+        ).fetchone()
+        if ok_int_row is None or int(ok_int_row["cnt"]) < 1:
+            return
+
+        task_rows = await (
+            await db.execute("SELECT status FROM tasks WHERE run_id = ?", (run_id,))
+        ).fetchall()
+        if not task_rows or any(str(t["status"]) != TaskStatus.ACCEPTED.value for t in task_rows):
+            return
+
+        old_rev = int(run_row["revision"])
+        new_rev = old_rev + 1
+        upd = await db.execute(
+            """
+            UPDATE runs
+            SET status = ?, revision = ?, updated_at = datetime('now')
+            WHERE id = ? AND revision = ?
+            """,
+            (RunStatus.SUCCEEDED.value, new_rev, run_id, old_rev),
+        )
+        if upd.rowcount == 1:
+            await self.store._insert_event_in_tx(
+                db,
+                run_id=run_id,
+                event_type="run.finished",
+                payload={
+                    "previous_status": cur_status,
+                    "status": RunStatus.SUCCEEDED.value,
+                    "revision": new_rev,
+                    "integration_id": integration_id,
+                    "conflict_id": conflict_id,
+                    "resolution_option": resolution_option,
+                    "result_sha": resolved_sha,
+                },
+                correlation_id=correlation_id,
+            )
 
     @staticmethod
     def _validate_conflict_transition(current: ConflictStatus, target: ConflictStatus, resolved_at: Optional[str]) -> None:
@@ -568,8 +720,8 @@ class ConflictResolver:
                         report.base_sha,
                         report.ours_sha,
                         report.theirs_sha,
-                        json.dumps(list(report.conflicted_files)),
-                        json.dumps(list(report.resolution_options)),
+                        self._serialize_json_column(list(report.conflicted_files)),
+                        self._serialize_json_column(list(report.resolution_options)),
                         created_at,
                     ),
                 )
@@ -970,6 +1122,7 @@ class ConflictResolver:
             populate_conflict=True,
             prefix="repair",
         )
+        self._validate_repair_worktree_path(ws_record.canonical_path, git_ws)
 
         # Transition open -> auto_repair
         async with self.store._connect() as db:
@@ -1283,6 +1436,15 @@ class ConflictResolver:
                     },
                     correlation_id=correlation_id,
                 )
+                await self._finalize_run_after_conflict_resolution_in_tx(
+                    db,
+                    run_id=report.run_id,
+                    conflict_id=conflict_id,
+                    integration_id=report.integration_id,
+                    resolved_sha=resolved_sha,
+                    resolution_option="auto_repair",
+                    correlation_id=correlation_id,
+                )
 
         git_ws.assert_operator_checkout_intact(snap_before)
         return final_result
@@ -1331,9 +1493,9 @@ class ConflictResolver:
         manual_wt: Optional[Path] = None
         manual_branch: Optional[str] = report.repair_branch
         if worktree_path is not None:
-            manual_wt = Path(os.path.realpath(worktree_path))
+            manual_wt = self._validate_repair_worktree_path(worktree_path, git_ws)
         elif report.repair_worktree_path and Path(report.repair_worktree_path).exists():
-            manual_wt = Path(os.path.realpath(report.repair_worktree_path))
+            manual_wt = self._validate_repair_worktree_path(report.repair_worktree_path, git_ws)
 
         if manual_wt is None:
             ws_record = git_ws.create_merge_repair_worktree(
@@ -1345,15 +1507,8 @@ class ConflictResolver:
                 populate_conflict=True,
                 prefix="manual",
             )
-            manual_wt = ws_record.canonical_path
+            manual_wt = self._validate_repair_worktree_path(ws_record.canonical_path, git_ws)
             manual_branch = ws_record.branch
-
-        # Ensure manual worktree is never the operator's root checkout
-        if os.path.normcase(str(manual_wt)) == os.path.normcase(str(git_ws.repo_root)):
-            raise ContractViolation(
-                "operator_checkout_protected",
-                "Manual conflict resolution must use an isolated worktree, never the operator root checkout",
-            )
 
         if not finalize:
             prompt_ctx = self.build_repair_prompt(report)
@@ -1559,6 +1714,15 @@ class ConflictResolver:
                         "resolution_option": "manual",
                         "result_sha": resolved_sha,
                     },
+                    correlation_id=correlation_id,
+                )
+                await self._finalize_run_after_conflict_resolution_in_tx(
+                    db,
+                    run_id=report.run_id,
+                    conflict_id=conflict_id,
+                    integration_id=report.integration_id,
+                    resolved_sha=resolved_sha,
+                    resolution_option="manual",
                     correlation_id=correlation_id,
                 )
 
@@ -2075,6 +2239,7 @@ class ConflictResolver:
             branch_name=f"amend/{_sanitize_token(proposal.run_id)[:16]}/{_sanitize_token(amendment_id)[:16]}",
             prefix="amend",
         )
+        self._validate_repair_worktree_path(ws_record.canonical_path, git_ws)
 
         try:
             if patch_files:

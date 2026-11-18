@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 import uuid
 
 from pydantic import TypeAdapter, ValidationError
@@ -206,6 +206,70 @@ class WorkspaceRegistry:
                 await db.execute("UPDATE area_workspaces SET status='archived',revision=revision+1,updated_at=datetime('now') WHERE id=?", (workspace_id,))
                 await self._audit(db, "workspace.archived", principal_id, workspace_id)
 
+    async def update_workspace(
+        self,
+        workspace_id: str,
+        name: str,
+        *,
+        principal_id: str,
+        expected_revision: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        clean_name = _text(name)
+        await self.store.initialize()
+        async with self.store._connect() as db:
+            async with self.store._transaction(db):
+                row = await self._workspace(db, workspace_id, principal_id)
+                if expected_revision is not None and row["revision"] != expected_revision:
+                    raise OptimisticLockError("Workspace revision changed")
+                await db.execute(
+                    "UPDATE area_workspaces SET name=?, revision=revision+1, updated_at=datetime('now') WHERE id=?",
+                    (clean_name, workspace_id),
+                )
+                await self._audit(db, "workspace.updated", principal_id, workspace_id)
+                updated = await (
+                    await db.execute("SELECT * FROM area_workspaces WHERE id=?", (workspace_id,))
+                ).fetchone()
+                return dict(updated)
+
+    async def delete_workspace(
+        self,
+        workspace_id: str,
+        *,
+        principal_id: str,
+        expected_revision: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        await self.store.initialize()
+        async with self.store._connect() as db:
+            async with self.store._transaction(db):
+                await self._area_check_for_delete(db, workspace_id, principal_id, expected_revision)
+                linked = await (
+                    await db.execute("SELECT 1 FROM projects WHERE workspace_id=? LIMIT 1", (workspace_id,))
+                ).fetchone()
+                if linked is not None:
+                    raise ContractViolation(
+                        "registry_conflict",
+                        f"Workspace '{workspace_id}' still has linked projects",
+                    )
+                await db.execute("DELETE FROM area_workspaces WHERE id=?", (workspace_id,))
+                await self._audit(db, "workspace.deleted", principal_id, workspace_id)
+                return {"deleted": True, "workspace_id": workspace_id}
+
+    async def _area_check_for_delete(
+        self,
+        db: Any,
+        workspace_id: str,
+        principal_id: str,
+        expected_revision: Optional[int],
+    ) -> None:
+        row = await (
+            await db.execute("SELECT * FROM area_workspaces WHERE id=?", (_text(workspace_id),))
+        ).fetchone()
+        if row is None:
+            raise ContractViolation("resource_not_found", "Workspace does not exist")
+        await self._area(db, row["area_id"], principal_id)
+        if expected_revision is not None and row["revision"] != expected_revision:
+            raise OptimisticLockError("Workspace revision changed")
+
     async def create_project(self, workspace_id: str, name: str, canonical_root: Union[str, Path], *,
                              principal_id: str, base_branch: str = "main", base_sha: Optional[str] = None,
                              metadata: Optional[Dict[str, Any]] = None):
@@ -278,9 +342,215 @@ class WorkspaceRegistry:
     async def list_repositories(self, project_id: str, *, principal_id: str):
         await self.store.initialize()
         async with self.store._connect() as db:
-            await self._project(db, project_id, principal_id)
-            return [dict(r) for r in await (await db.execute(
-                "SELECT * FROM repositories WHERE project_id=? ORDER BY id", (project_id,))).fetchall()]
+            proj, _ = await self._project(db, project_id, principal_id)
+            meta = json.loads(proj["metadata_json"]) if proj["metadata_json"] else {}
+            repo_meta_map = meta.get("repository_meta", {}) if isinstance(meta, dict) else {}
+            rows = await (await db.execute(
+                "SELECT * FROM repositories WHERE project_id=? ORDER BY id", (project_id,))).fetchall()
+            out: List[Dict[str, Any]] = []
+            for r in rows:
+                d = dict(r)
+                rm = repo_meta_map.get(d["id"], {}) if isinstance(repo_meta_map, dict) else {}
+                if isinstance(rm, dict):
+                    if "name" in rm:
+                        d["name"] = rm["name"]
+                    if "forbidden_paths" in rm:
+                        d["forbidden_paths"] = list(rm["forbidden_paths"])
+                out.append(d)
+            return out
+
+    async def update_repository(
+        self,
+        workspace_id: str = "",
+        *,
+        repository_id: Optional[str] = None,
+        name: Optional[str] = None,
+        allowed_paths: Optional[List[str]] = None,
+        forbidden_paths: Optional[List[str]] = None,
+        principal_id: str = "operator",
+    ) -> Dict[str, Any]:
+        target_id = _text(workspace_id or repository_id or "")
+        clean_name = _text(name) if name is not None else None
+        validated_allowed: Optional[tuple[str, ...]] = None
+        if allowed_paths is not None:
+            if isinstance(allowed_paths, str) or not allowed_paths:
+                raise ContractViolation("scope_violation", "Explicit repository file scope is required")
+            try:
+                validated_allowed = tuple(TypeAdapter(RelativePath).validate_python(p) for p in allowed_paths)
+            except ValidationError:
+                raise ContractViolation("scope_violation", "File scopes must be relative without traversal") from None
+
+        validated_forbidden: Optional[tuple[str, ...]] = None
+        if forbidden_paths is not None:
+            if isinstance(forbidden_paths, str):
+                raise ContractViolation("scope_violation", "Forbidden file scopes must be a sequence of relative paths")
+            try:
+                validated_forbidden = tuple(TypeAdapter(RelativePath).validate_python(p) for p in forbidden_paths)
+            except ValidationError:
+                raise ContractViolation("scope_violation", "Forbidden scopes must be relative without traversal") from None
+
+        await self.store.initialize()
+        async with self.store._connect() as db:
+            async with self.store._transaction(db):
+                repo = await (await db.execute("SELECT * FROM repositories WHERE id=?", (target_id,))).fetchone()
+                if repo is None:
+                    repo = await (
+                        await db.execute("SELECT * FROM repositories WHERE project_id=? ORDER BY id LIMIT 1", (target_id,))
+                    ).fetchone()
+                if repo is not None:
+                    repo_id = repo["id"]
+                    proj, _ = await self._project(db, repo["project_id"], principal_id)
+                    canonical_checked = await asyncio.to_thread(self._canonical_root, repo["root_canonical"])
+                    if os.path.normcase(str(canonical_checked)) != os.path.normcase(repo["root_canonical"]):
+                        raise ContractViolation("workspace_invalid", "Registered repository root was redirected")
+
+                    meta = json.loads(proj["metadata_json"]) if proj["metadata_json"] else {}
+                    if not isinstance(meta, dict):
+                        meta = {}
+                    repo_meta_map = dict(meta.get("repository_meta") or {})
+                    cur_rm = dict(repo_meta_map.get(repo_id) or {})
+                    if clean_name is not None:
+                        cur_rm["name"] = clean_name
+                    if validated_forbidden is not None:
+                        cur_rm["forbidden_paths"] = list(validated_forbidden)
+                    repo_meta_map[repo_id] = cur_rm
+                    meta["repository_meta"] = repo_meta_map
+
+                    is_primary = os.path.normcase(repo["root_canonical"]) == os.path.normcase(proj["canonical_root"])
+                    if is_primary and validated_forbidden is not None:
+                        meta["forbidden_paths"] = list(validated_forbidden)
+
+                    new_proj_name = clean_name if (clean_name is not None and is_primary) else proj["name"]
+                    await db.execute(
+                        """UPDATE projects
+                           SET name=?, metadata_json=?, revision=revision+1, updated_at=datetime('now')
+                           WHERE id=?""",
+                        (new_proj_name, json.dumps(redact(meta), sort_keys=True), proj["id"]),
+                    )
+
+                    new_allowed_json = (
+                        json.dumps(validated_allowed) if validated_allowed is not None else repo["allowed_paths_json"]
+                    )
+                    await db.execute(
+                        """UPDATE repositories
+                           SET allowed_paths_json=?, revision=revision+1, updated_at=datetime('now')
+                           WHERE id=?""",
+                        (new_allowed_json, repo_id),
+                    )
+                    await self._audit(db, "repository.updated", principal_id, repo_id)
+                    updated = dict(await (await db.execute("SELECT * FROM repositories WHERE id=?", (repo_id,))).fetchone())
+                    updated["name"] = cur_rm.get("name", new_proj_name)
+                    updated["allowed_paths"] = json.loads(updated["allowed_paths_json"])
+                    updated["forbidden_paths"] = list(cur_rm.get("forbidden_paths", ()))
+                    return updated
+
+                proj_only = await (await db.execute("SELECT * FROM projects WHERE id=?", (target_id,))).fetchone()
+                if proj_only is not None:
+                    if proj_only["workspace_id"] is not None:
+                        await self._project(db, target_id, principal_id)
+                    else:
+                        _text(principal_id)
+                    await asyncio.to_thread(self._canonical_root, proj_only["canonical_root"])
+                    meta = json.loads(proj_only["metadata_json"]) if proj_only["metadata_json"] else {}
+                    if not isinstance(meta, dict):
+                        meta = {}
+                    if validated_allowed is not None:
+                        meta["allowed_paths"] = list(validated_allowed)
+                    if validated_forbidden is not None:
+                        meta["forbidden_paths"] = list(validated_forbidden)
+                    new_name = clean_name if clean_name is not None else proj_only["name"]
+                    await db.execute(
+                        """UPDATE projects
+                           SET name=?, metadata_json=?, revision=revision+1, updated_at=datetime('now')
+                           WHERE id=?""",
+                        (new_name, json.dumps(redact(meta), sort_keys=True), target_id),
+                    )
+                    await self._audit(db, "repository.updated", principal_id, target_id)
+                    updated_proj = dict(await (await db.execute("SELECT * FROM projects WHERE id=?", (target_id,))).fetchone())
+                    updated_proj["allowed_paths"] = list(meta.get("allowed_paths", ()))
+                    updated_proj["forbidden_paths"] = list(meta.get("forbidden_paths", ()))
+                    return updated_proj
+
+                ws_only = await (await db.execute("SELECT * FROM area_workspaces WHERE id=?", (target_id,))).fetchone()
+                if ws_only is not None:
+                    await self._workspace(db, target_id, principal_id)
+                    new_ws_name = clean_name if clean_name is not None else ws_only["name"]
+                    await db.execute(
+                        "UPDATE area_workspaces SET name=?, revision=revision+1, updated_at=datetime('now') WHERE id=?",
+                        (new_ws_name, target_id),
+                    )
+                    await self._audit(db, "workspace.updated", principal_id, target_id)
+                    return dict(await self._workspace(db, target_id, principal_id))
+
+                raise ContractViolation("resource_not_found", "Repository does not exist")
+
+    async def delete_repository(
+        self,
+        workspace_id: str = "",
+        *,
+        repository_id: Optional[str] = None,
+        principal_id: str = "operator",
+    ) -> Dict[str, Any]:
+        target_id = _text(workspace_id or repository_id or "")
+        await self.store.initialize()
+        async with self.store._connect() as db:
+            async with self.store._transaction(db):
+                repo = await (await db.execute("SELECT * FROM repositories WHERE id=?", (target_id,))).fetchone()
+                if repo is None:
+                    repo = await (
+                        await db.execute("SELECT * FROM repositories WHERE project_id=? ORDER BY id LIMIT 1", (target_id,))
+                    ).fetchone()
+                if repo is not None:
+                    repo_id = repo["id"]
+                    proj, _ = await self._project(db, repo["project_id"], principal_id)
+                    meta = json.loads(proj["metadata_json"]) if proj["metadata_json"] else {}
+                    if isinstance(meta, dict) and isinstance(meta.get("repository_meta"), dict):
+                        rm_map = dict(meta["repository_meta"])
+                        if repo_id in rm_map:
+                            rm_map.pop(repo_id, None)
+                            meta["repository_meta"] = rm_map
+                            await db.execute(
+                                "UPDATE projects SET metadata_json=?, updated_at=datetime('now') WHERE id=?",
+                                (json.dumps(redact(meta), sort_keys=True), proj["id"]),
+                            )
+                    await db.execute("DELETE FROM repositories WHERE id=?", (repo_id,))
+                    await db.execute(
+                        "UPDATE authorizations SET revoked_at=COALESCE(revoked_at,datetime('now')) WHERE resource_ref=?",
+                        (f"repository:{repo_id}",),
+                    )
+                    await self._audit(db, "repository.deleted", principal_id, repo_id)
+                    return {
+                        "id": repo_id,
+                        "repository_id": repo_id,
+                        "project_id": repo["project_id"],
+                        "deleted": True,
+                    }
+
+                proj_only = await (await db.execute("SELECT * FROM projects WHERE id=?", (target_id,))).fetchone()
+                if proj_only is not None:
+                    if proj_only["workspace_id"] is not None:
+                        await self._project(db, target_id, principal_id)
+                    else:
+                        _text(principal_id)
+                    has_runs = await (await db.execute("SELECT 1 FROM runs WHERE project_id=? LIMIT 1", (target_id,))).fetchone()
+                    has_convs = None
+                    has_conv_tbl = await (
+                        await db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='conversations'")
+                    ).fetchone()
+                    if has_conv_tbl is not None:
+                        has_convs = await (
+                            await db.execute("SELECT 1 FROM conversations WHERE project_id=? LIMIT 1", (target_id,))
+                        ).fetchone()
+                    if has_runs is not None or has_convs is not None:
+                        raise ContractViolation(
+                            "resource_in_use",
+                            "Cannot delete project while runs or conversations reference it",
+                        )
+                    await db.execute("DELETE FROM projects WHERE id=?", (target_id,))
+                    await self._audit(db, "repository.deleted", principal_id, target_id)
+                    return {"id": target_id, "project_id": target_id, "deleted": True}
+
+                raise ContractViolation("resource_not_found", "Repository does not exist")
 
     async def grant_repository(self, repository_id: str, *, principal_id: str,
                                authorized_principal_id: str, scopes: Sequence[str]):
@@ -378,4 +648,18 @@ class WorkspaceRegistry:
         ):
             logger.warning("Registry refused file scope or symlink escape")
             raise ContractViolation("scope_violation", "Path escapes the repository or its declared file scope")
+
+        async with self.store._connect() as db:
+            proj_row = await (await db.execute("SELECT metadata_json FROM projects WHERE id=?", (repo["project_id"],))).fetchone()
+        if proj_row is not None and proj_row["metadata_json"]:
+            meta = json.loads(proj_row["metadata_json"])
+            if isinstance(meta, dict):
+                rm = (meta.get("repository_meta") or {}).get(repository_id) or {}
+                forbidden_patterns = rm.get("forbidden_paths") or ()
+                if forbidden_patterns and (
+                    _matches_allowed_scope(relative, forbidden_patterns)
+                    or _matches_allowed_scope(resolved_rel, forbidden_patterns)
+                ):
+                    logger.warning("Registry refused forbidden path in repository scope")
+                    raise ContractViolation("scope_violation", "Path escapes the repository or its declared file scope")
         return candidate

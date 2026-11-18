@@ -23,6 +23,10 @@ _SCOPE_ALIASES: Dict[str, str] = {
     "projects": "projects",
     "run": "runs",
     "runs": "runs",
+    "conversation": "conversations",
+    "conversations": "conversations",
+    "chat": "conversations",
+    "chats": "conversations",
     "session": "sessions",
     "sessions": "sessions",
     "artifact": "artifacts",
@@ -34,9 +38,26 @@ _ALL_TABLES: tuple[str, ...] = (
     "area_workspaces",
     "projects",
     "runs",
+    "conversations",
     "sessions",
     "artifacts",
 )
+
+
+def _extract_redacted_snippet(raw_text: str, query_lower: str, max_chars: int = 120) -> str:
+    """Build a bounded, redacted single-line snippet centered around query_lower."""
+    redacted = " ".join(redact_text(raw_text).split())
+    if not redacted:
+        return ""
+    idx = redacted.lower().find(query_lower)
+    if idx == -1 or len(redacted) <= max_chars:
+        return redacted[:max_chars]
+    half = max((max_chars - len(query_lower)) // 2, 16)
+    start = max(0, idx - half)
+    end = min(len(redacted), start + max_chars)
+    prefix = "..." if start > 0 else ""
+    suffix = "..." if end < len(redacted) else ""
+    return f"{prefix}{redacted[start:end].strip()}{suffix}"
 
 
 def _escape_like(term: str) -> str:
@@ -63,7 +84,7 @@ def _sanitize_result_item(item: Dict[str, Any], query_lower: str) -> Optional[Di
         return None
     haystack = " ".join(
         str(clean.get(field) or "")
-        for field in ("id", "title", "subtitle", "workspace_id", "project_id", "run_id", "session_id")
+        for field in ("id", "title", "subtitle", "workspace_id", "project_id", "run_id", "session_id", "conversation_id")
     ).lower()
     if query_lower not in haystack:
         return None
@@ -274,6 +295,96 @@ class SearchService:
                         results.append(item)
                         if len(results) >= limit:
                             return results
+
+            if "conversations" in tables and len(results) < limit:
+                has_conv = await (
+                    await db.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'conversations'"
+                    )
+                ).fetchone()
+                if has_conv is not None:
+                    rows = await (
+                        await db.execute(
+                            """
+                            SELECT c.id, c.project_id, c.title, c.executor,
+                                   c.legacy_run_id, c.legacy_session_id,
+                                   p.name AS project_name, p.workspace_id, p.metadata_json,
+                                   (
+                                       SELECT ct.content || char(10) || ct.response
+                                       FROM conversation_turns ct
+                                       WHERE ct.conversation_id = c.id
+                                         AND ct.ordinal >= COALESCE(
+                                             (SELECT MAX(ct2.ordinal) - 20 FROM conversation_turns ct2 WHERE ct2.conversation_id = c.id),
+                                             0
+                                         )
+                                         AND (
+                                             ct.content LIKE ? ESCAPE '\\'
+                                             OR ct.response LIKE ? ESCAPE '\\'
+                                         )
+                                       ORDER BY ct.ordinal DESC
+                                       LIMIT 1
+                                   ) AS matched_turn_text
+                            FROM conversations c
+                            LEFT JOIN projects p ON c.project_id = p.id
+                            WHERE c.id LIKE ? ESCAPE '\\'
+                               OR c.title LIKE ? ESCAPE '\\'
+                               OR EXISTS (
+                                   SELECT 1
+                                   FROM conversation_turns ct
+                                   WHERE ct.conversation_id = c.id
+                                     AND ct.ordinal >= COALESCE(
+                                         (SELECT MAX(ct2.ordinal) - 20 FROM conversation_turns ct2 WHERE ct2.conversation_id = c.id),
+                                         0
+                                     )
+                                     AND (
+                                         ct.content LIKE ? ESCAPE '\\'
+                                         OR ct.response LIKE ? ESCAPE '\\'
+                                     )
+                               )
+                            ORDER BY c.updated_at DESC, c.id ASC
+                            LIMIT ?
+                            """,
+                            (
+                                like_pattern,
+                                like_pattern,
+                                like_pattern,
+                                like_pattern,
+                                like_pattern,
+                                like_pattern,
+                                limit,
+                            ),
+                        )
+                    ).fetchall()
+                    for row in rows:
+                        meta = _parse_json_obj(row["metadata_json"])
+                        row_host = str(meta.get("host_id") or self.default_host_id)
+                        if row_host != host_id:
+                            continue
+                        title = str(row["title"] or "").strip() or f"Conversation {row['id']}"
+                        proj_label = row["project_name"] or row["project_id"]
+                        matched_text = str(row["matched_turn_text"] or "").strip()
+                        snippet = _extract_redacted_snippet(matched_text, query_lower) if matched_text else ""
+                        subtitle = f"{proj_label} · {snippet}" if snippet else f"{proj_label} · {row['executor']}"
+                        item = _sanitize_result_item(
+                            {
+                                "kind": "conversation",
+                                "id": row["id"],
+                                "title": title,
+                                "subtitle": subtitle,
+                                "host_id": row_host,
+                                "workspace_id": row["workspace_id"],
+                                "project_id": row["project_id"],
+                                "run_id": row["legacy_run_id"],
+                                "session_id": row["legacy_session_id"],
+                                "conversation_id": row["id"],
+                                "tab_hint": "chat",
+                            },
+                            query_lower,
+                        )
+                        if item is not None:
+                            results.append(item)
+                            if len(results) >= limit:
+                                return results
 
             if "sessions" in tables and len(results) < limit:
                 rows = await (

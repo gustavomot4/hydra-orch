@@ -70,6 +70,7 @@ class RouteDecision(ExecutionModel):
     reason: NonEmpty
     fallback_chain: tuple[Identifier, ...]
     candidates_json: NonEmpty
+    quota_key: Optional[Identifier] = None
     decision_source: Literal["hydra"] = "hydra"
     timestamp: UtcTimestamp
 
@@ -331,7 +332,9 @@ class RouteSelector:
         if await self.store.get_run(run_id) is None:
             raise ContractViolation("resource_not_found", "Run does not exist")
         account_overrides = await self.get_next_account_overrides(run_id)
-        need_gateway = self.connection_mode == "required" or any(c.enabled and c.mode == "gateway" for c in candidates)
+        need_gateway = self.connection_mode == "required" or any(
+            c.enabled and (c.mode == "gateway" or bool(c.quota_key)) for c in candidates
+        )
         available = False
         quota = {"status": "unknown"}
         if self.connection_mode != "disabled" and need_gateway and self.gateway is not None:
@@ -348,8 +351,10 @@ class RouteSelector:
                 "priority": candidate.priority,
                 "eligible": False,
                 "reason": "disabled",
+                "quota_key": candidate.quota_key,
                 "quota_status": "unknown",
                 "remaining_percent": None,
+                "resets_in_seconds": None,
                 "cost_status": "unknown",
                 "duration_status": "unknown",
                 "observed_cost": None,
@@ -374,17 +379,19 @@ class RouteSelector:
                 entry["reason"] = exc.code
                 audit.append(entry)
                 continue
-            if candidate.mode == "gateway":
-                observation = self._lookup_quota_observation(quota, candidate.quota_key)
+            if candidate.mode == "gateway" or bool(candidate.quota_key):
+                observation = self._lookup_quota_observation(quota, candidate.quota_key) if available else {}
                 status = observation.get("status", "unknown")
                 percent = observation.get("remaining_percent")
+                resets_in = observation.get("resets_in_seconds")
                 entry.update(
                     quota_status=status,
                     remaining_percent=percent,
+                    resets_in_seconds=resets_in,
                     quota_source=observation.get("source", "not_reported"),
                     quota_observed_at=observation.get("observed_at"),
                 )
-                if status == "observed" and percent == 0:
+                if status == "observed" and percent is not None and percent <= 0:
                     entry["reason"] = "quota_exhausted"
                     audit.append(entry)
                     continue
@@ -449,6 +456,7 @@ class RouteSelector:
                         reason="Eligible routes ordered by explicit priority, observed cost/duration and stable route ID",
                         fallback_chain=tuple(item[1].route_id for item in eligible[1:]),
                         candidates_json=json.dumps(redact(audit), sort_keys=True),
+                        quota_key=selected.quota_key,
                         timestamp=datetime.now(timezone.utc),
                     )
                     await db.execute(

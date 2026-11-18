@@ -31,8 +31,16 @@ from hydra_orch.model import (
 
 
 def _covers(owner: str, path: str) -> bool:
-    """Conservative literal-prefix containment; arbitrary glob implication is unsafe."""
-    return path == owner or (owner.endswith('/**') and path.startswith(owner[:-2]))
+    """Conservative literal-prefix containment; '*' / '**' / '**/*' cover all relative paths."""
+    norm_owner = owner.replace('\\', '/').strip('/')
+    norm_path = path.replace('\\', '/').strip('/')
+    if not norm_owner or not norm_path:
+        return False
+    if norm_owner in {'*', '**', '**/*'}:
+        return True
+    return norm_path == norm_owner or (
+        norm_owner.endswith('/**') and (norm_path == norm_owner[:-3] or norm_path.startswith(norm_owner[:-2]))
+    )
 
 
 def _state_hash(path: Path, base_sha: str) -> str:
@@ -58,7 +66,11 @@ class TaskOwnership(ExecutionModel):
 
     @model_validator(mode='after')
     def literal_roots(self):
-        if any(any(char in (p[:-3] if p.endswith('/**') else p) for char in '*?[') for p in self.paths):
+        if any(
+            p not in {'*', '**', '**/*'}
+            and any(char in (p[:-3] if p.endswith('/**') else p) for char in '*?[')
+            for p in self.paths
+        ):
             raise ValueError('Ownership must use literal file paths or literal directory/** roots')
         return self
 
@@ -156,10 +168,44 @@ async def consolidate_stage(runs: RunService, run: RunSpec, results, extra_check
 
 
 class Orchestrator:
+    _covers = staticmethod(_covers)
+
     def __init__(self, runs: RunService, profiles: ProfileService, routes: RouteSelector):
         if runs.store is not profiles.store or routes.store is not runs.store or routes.agents is not profiles.agents:
             raise ValueError('Orchestration requires shared canonical services')
         self.runs, self.profiles, self.routes, self.store = runs, profiles, routes, runs.store
+
+    async def _enrich_persistent_quota_candidates(
+        self,
+        candidates: tuple[RouteCandidate, ...],
+    ) -> tuple[RouteCandidate, ...]:
+        """Attach OmniRoute quota_key telemetry to direct CLI routes in persistent mode when gateway is active."""
+        if self.routes.gateway is None or self.routes.connection_mode == 'disabled':
+            return candidates
+        enriched: list[RouteCandidate] = []
+        aliases = RouteSelector._QUOTA_KEY_ALIASES
+        for cand in candidates:
+            if cand.quota_key:
+                enriched.append(cand)
+                continue
+            inferred: Optional[str] = None
+            if '/' in cand.model_ref:
+                prefix = cand.model_ref.split('/', 1)[0].strip().lower()
+                if prefix in aliases:
+                    inferred = prefix
+            if inferred is None:
+                try:
+                    agent_def = await self.profiles.agents.get_agent(cand.agent_id)
+                    drv = (agent_def.driver_type or '').strip().lower()
+                    if drv in aliases:
+                        inferred = drv
+                except Exception:
+                    inferred = None
+            if inferred is not None:
+                enriched.append(cand.model_copy(update={'quota_key': inferred}))
+            else:
+                enriched.append(cand)
+        return tuple(enriched)
 
     async def _claim(self, plan: OrchestrationPlan) -> str:
         """Durable single-coordinator lease. Crash recovery requires reconciliation."""
@@ -260,7 +306,7 @@ class Orchestrator:
                 raise ContractViolation('attempt_active', 'An existing worker needs reconciliation')
             result = await self.store.get_result_by_attempt(previous.attempt_id)
             if result is None:
-                raise ContractViolation('result_missing', 'Terminal worker has no canonical result')
+                raise ContractViolation('result_missing', 'Terminal worker has no canonical result and requires reconciliation')
             result = await self._review(result, reviewer)
             if result.task_status in {TaskStatus.ACCEPTED, TaskStatus.READY_FOR_REVIEW, TaskStatus.REJECTED, TaskStatus.CANCELLED}:
                 return result
@@ -276,6 +322,8 @@ class Orchestrator:
             if previous is not None:
                 excluded = {r.route_id for r in plan.routes if r.model_ref == previous.model}
             candidates = tuple(r for r in plan.routes if r.route_id not in excluded) or plan.routes
+            if plan.run.orchestration_mode == 'persistent':
+                candidates = await self._enrich_persistent_quota_candidates(candidates)
             while True:
                 try:
                     decision = await self.routes.select(plan.run.run_id, candidates,

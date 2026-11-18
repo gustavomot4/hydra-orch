@@ -5,13 +5,52 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Mapping, Optional
 import httpx
 
 from hydra_orch.adapter.base import BaseAdapter, LimitHitException
 from hydra_orch.model import ChatMessage
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_retry_after(headers: Optional[Mapping[str, str]]) -> Optional[int]:
+    """Parse integer seconds from an HTTP Retry-After header when present."""
+    if not headers:
+        return None
+    raw = headers.get("Retry-After")
+    if raw is None:
+        raw = headers.get("retry-after")
+    if raw is None:
+        return None
+    cleaned = str(raw).strip()
+    if not cleaned:
+        return None
+    try:
+        parsed = int(cleaned)
+    except ValueError:
+        try:
+            parsed = int(float(cleaned))
+        except (ValueError, OverflowError):
+            return None
+    return parsed if parsed >= 0 else None
+
+
+def _build_limit_hit_exception(
+    provider: str,
+    message: str,
+    headers: Optional[Mapping[str, str]] = None,
+    default_reset_seconds: int = 60,
+) -> LimitHitException:
+    retry_after = _parse_retry_after(headers)
+    reset_secs = retry_after if retry_after is not None else default_reset_seconds
+    exc = LimitHitException(
+        provider=provider,
+        message=message,
+        reset_in_seconds=reset_secs,
+    )
+    exc.retry_after = retry_after  # type: ignore[attr-defined]
+    return exc
 
 
 class ApiGatewayAdapter(BaseAdapter):
@@ -86,10 +125,11 @@ class ApiGatewayAdapter(BaseAdapter):
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as response:
                     if response.status_code == 429:
-                        raise LimitHitException(
+                        raise _build_limit_hit_exception(
                             provider=self.name,
                             message=f"Rate limit / credit exhausted on {self.name}",
-                            reset_in_seconds=60,
+                            headers=response.headers,
+                            default_reset_seconds=60,
                         )
 
                     response.raise_for_status()
@@ -113,11 +153,12 @@ class ApiGatewayAdapter(BaseAdapter):
                                 continue
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
-                raise LimitHitException(
+                raise _build_limit_hit_exception(
                     provider=self.name,
                     message="API quota or rate limit exceeded",
-                    reset_in_seconds=60,
-                )
+                    headers=e.response.headers,
+                    default_reset_seconds=60,
+                ) from e
             self.last_error = str(e)
             raise
         except Exception as e:

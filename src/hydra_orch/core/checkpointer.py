@@ -2459,6 +2459,17 @@ class ExecutionStore:
                 for r in rows
             ]
 
+    async def get_artifact_timestamps(self, run_id: str) -> Dict[str, str]:
+        """Return persisted `created_at` timestamps keyed by artifact_id."""
+        await self.initialize()
+        async with self._connect() as db:
+            cur = await db.execute(
+                "SELECT id, created_at FROM artifacts WHERE run_id = ?",
+                (run_id,),
+            )
+            rows = await cur.fetchall()
+            return {str(r["id"]): str(r["created_at"]) for r in rows if r["created_at"] is not None}
+
     async def get_handoff_checkpoint(self, attempt_id: str) -> Optional[HandoffCheckpoint]:
         """Retrieve the persisted HandoffCheckpoint for an attempt."""
         await self.initialize()

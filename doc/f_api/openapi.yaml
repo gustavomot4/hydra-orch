@@ -2,111 +2,96 @@ openapi: 3.0.3
 info:
   title: hydra-orch Control Plane API
   version: v1.0.0
-  description: |
-    API do Control Plane do hydra-orch para orquestração de tarefas de engenharia com execução verificável.
-
-    **Autenticação:** Token local via header `Authorization: Bearer <token>`
-
-    **CORS:** Allowlist estrita configurada em `HYDRA_CORS_ALLOW_ORIGINS`. Wildcard `["*"]` com credenciais é rejeitado.
-
-    **Idempotência:** Operações de criação (`POST /runs`, `POST /projects`, etc.) aceitam header `Idempotency-Key` + hash do payload (SHA-256). Mesma chave + mesmo payload = mesmo resultado. Chave reutilizada com payload diferente = 409 Conflict.
-
-    **Erros:** Envelope padronizado:
-    ```json
-    {
-      "code": "ERROR_CODE",
-      "message": "Descrição legível",
-      "run_id": "uuid-opcional",
-      "retryable": false
-    }
-    ```
-    Códigos: 400 (validação), 401 (auth), 403 (escopo), 404 (recurso), 409 (conflito/idempotência), 410 (cursor expirado), 422 (schema/compatibilidade), 503 (dependência indisponível).
-
-    **SSE:** `GET /runs/{id}/events` aceita filtros `session_id`/`thread_id` e `follow=true` para acompanhamento contínuo:
-    - `event:` tipo do evento
-    - `id:` sequência monotônica por run, inclusive nos filtros de sessão/thread
-    - `retry:` 15000 (heartbeat 15s)
-    - `data:` JSON payload redigido
-    - Replay via header `Last-Event-ID`. Cursor expirado → 410 Gone.
-
-    **Versões de Schema:** Todos specs incluem `schema_version` para evolução compatível.
-
+  description: "API do Control Plane do hydra-orch para orquestração de tarefas de engenharia com execução verificável.\n\n\
+    **Autenticação:** Token local via header `Authorization: Bearer <token>`\n\n**CORS:** Allowlist estrita configurada em\
+    \ `HYDRA_CORS_ALLOW_ORIGINS`. Wildcard `[\"*\"]` com credenciais é rejeitado.\n\n**Idempotência:** Operações de criação\
+    \ (`POST /runs`, `POST /projects`, etc.) aceitam header `Idempotency-Key` + hash do payload (SHA-256). Mesma chave + mesmo\
+    \ payload = mesmo resultado. Chave reutilizada com payload diferente = 409 Conflict.\n\n**Erros:** Envelope padronizado:\n\
+    ```json\n{\n  \"code\": \"ERROR_CODE\",\n  \"message\": \"Descrição legível\",\n  \"run_id\": \"uuid-opcional\",\n  \"\
+    retryable\": false\n}\n```\nCódigos: 400 (validação), 401 (auth), 403 (escopo), 404 (recurso), 409 (conflito/idempotência),\
+    \ 410 (cursor expirado), 422 (schema/compatibilidade), 503 (dependência indisponível).\n\n**SSE:** `GET /runs/{id}/events`\
+    \ aceita filtros `session_id`/`thread_id` e `follow=true` para acompanhamento contínuo:\n- `event:` tipo do evento\n-\
+    \ `id:` sequência monotônica por run, inclusive nos filtros de sessão/thread\n- `retry:` 15000 (heartbeat 15s)\n- `data:`\
+    \ JSON payload redigido\n- Replay via header `Last-Event-ID`. Cursor expirado → 410 Gone.\n\n**Versões de Schema:** Todos\
+    \ specs incluem `schema_version` para evolução compatível.\n"
 servers:
-  - url: http://localhost:8000/v1/control-plane
-    description: Servidor de desenvolvimento local
-  - url: http://localhost:8000/v1
-    description: Raiz da API (inclui /chat/completions)
-
+- url: http://localhost:8000
+  description: Servidor local do hydra-orch (raiz HTTP /v1 e /health)
+- url: http://localhost:8000/v1/control-plane
+  description: Prefixo direto do Control Plane
 security:
-  - BearerAuth: []
-
+- BearerAuth: []
 tags:
-  - name: Projects
-    description: Gerenciamento de projetos Git
-  - name: Runs
-    description: Execuções de tarefas (núcleo V0)
-  - name: Tasks
-    description: Tarefas individuais dentro de uma run
-  - name: Artifacts
-    description: Evidências e artefatos de execução
-  - name: Events
-    description: Server-Sent Events para tempo real
-  - name: Integration
-    description: Integração e merge de resultados
-  - name: Areas
-    description: Áreas de trabalho (expansão V2)
-  - name: Workspaces
-    description: Workspaces operacionais (expansão V2)
-  - name: Repositories
-    description: Repositórios múltiplos por projeto (expansão V2)
-  - name: Agents
-    description: Catálogo de agentes e executores (expansão V2)
-  - name: Profiles
-    description: Perfis de execução combináveis (expansão V2)
-  - name: Sessions
-    description: Sessões e threads multiagente (expansão V3)
-  - name: Metrics
-    description: Observabilidade e métricas operacionais (expansão V3)
-  - name: Routing
-    description: Seleção adaptativa de rotas (expansão V3)
-  - name: Memory
-    description: Memória adaptativa consentida (expansão V4)
-  - name: Consents
-    description: Gestão de consentimentos (expansão V4)
-  - name: Discovery
-    description: Descoberta local controlada (expansão V4)
-  - name: Skills
-    description: Skills de agentes (expansão V4)
-  - name: MCPs
-    description: Servidores MCP (expansão V4)
-  - name: Extensions
-    description: Extensões e plugins (expansão V4)
-  - name: Preferences
-    description: Preferências escopadas e acessibilidade (expansão V4)
-  - name: Transports
-    description: Transportes certificados (expansão V4)
-  - name: Tokens
-    description: Tokens de acesso locais (expansão V4)
-  - name: OmniRoute
-    description: Inventário de modelos, quotas 5h e seleção de conta OmniRoute (V5 / Onda 12)
-  - name: PTY
-    description: Sessões interativas de terminal PTY autenticadas (V5 / Onda 12)
-  - name: Attachments
-    description: Anexos AttachmentRef escopados por sessão/workspace (V5 / Onda 12)
-  - name: Search
-    description: Busca global QuickOpen indexada no SQLite WAL (V5 / Onda 12)
-  - name: Automations
-    description: Agendador durável AutomationSchedule e histórico de disparos (V5 / Onda 12)
-  - name: Inference
-    description: Proxy de inferência compatível OpenAI
-
+- name: Projects
+  description: Gerenciamento de projetos Git
+- name: Runs
+  description: Execuções de tarefas (núcleo V0)
+- name: Tasks
+  description: Tarefas individuais dentro de uma run
+- name: Artifacts
+  description: Evidências e artefatos de execução
+- name: Events
+  description: Server-Sent Events para tempo real
+- name: Integration
+  description: Integração e merge de resultados
+- name: Areas
+  description: Áreas de trabalho (expansão V2)
+- name: Workspaces
+  description: Workspaces operacionais (expansão V2)
+- name: Repositories
+  description: Repositórios múltiplos por projeto (expansão V2)
+- name: Agents
+  description: Catálogo de agentes e executores (expansão V2)
+- name: Profiles
+  description: Perfis de execução combináveis (expansão V2)
+- name: Sessions
+  description: Sessões e threads multiagente (expansão V3)
+- name: Metrics
+  description: Observabilidade e métricas operacionais (expansão V3)
+- name: Routing
+  description: Seleção adaptativa de rotas (expansão V3)
+- name: Memory
+  description: Memória adaptativa consentida (expansão V4)
+- name: Consents
+  description: Gestão de consentimentos (expansão V4)
+- name: Discovery
+  description: Descoberta local controlada (expansão V4)
+- name: Skills
+  description: Skills de agentes (expansão V4)
+- name: MCPs
+  description: Servidores MCP (expansão V4)
+- name: Extensions
+  description: Extensões e plugins (expansão V4)
+- name: Preferences
+  description: Preferências escopadas e acessibilidade (expansão V4)
+- name: Transports
+  description: Transportes certificados (expansão V4)
+- name: Tokens
+  description: Tokens de acesso locais (expansão V4)
+- name: OmniRoute
+  description: Inventário de modelos, quotas 5h e seleção de conta OmniRoute (V5 / Onda 12)
+- name: PTY
+  description: Sessões interativas de terminal PTY autenticadas (V5 / Onda 12)
+- name: Attachments
+  description: Anexos AttachmentRef escopados por sessão/workspace (V5 / Onda 12)
+- name: Search
+  description: Busca global QuickOpen indexada no SQLite WAL (V5 / Onda 12)
+- name: Automations
+  description: Agendador durável AutomationSchedule e histórico de disparos (V5 / Onda 12)
+- name: Inference
+  description: Proxy de inferência compatível OpenAI
+- name: Conversations
+  description: Conversas duráveis, rotas por turno, eventos SSE e aplicação 3-way ao projeto
+- name: Launcher
+  description: Endpoints locais de bootstrap por nonce, sessão efêmera e seletor de pastas do Hydra Desktop
+- name: System
+  description: Health check, catálogo de modelos, status do orquestrador e quotas
 components:
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: opaque local token (PBKDF2-SHA256 verifier)
-
   schemas:
     HitlCreatePayload:
       properties:
@@ -351,17 +336,19 @@ components:
       - msg
       - type
       title: ValidationError
-    # ============ COMUNS ============
     ErrorResponse:
       type: object
-      required: [code, message, retryable]
+      required:
+      - code
+      - message
+      - retryable
       properties:
         code:
           type: string
-          example: "VALIDATION_ERROR"
+          example: VALIDATION_ERROR
         message:
           type: string
-          example: "Campo 'objective' é obrigatório"
+          example: Campo 'objective' é obrigatório
         run_id:
           type: string
           format: uuid
@@ -369,7 +356,6 @@ components:
         retryable:
           type: boolean
           example: false
-
     PaginationParams:
       type: object
       properties:
@@ -386,12 +372,18 @@ components:
           type: string
         sort_order:
           type: string
-          enum: [asc, desc]
+          enum:
+          - asc
+          - desc
           default: desc
-
     PaginatedResponse:
       type: object
-      required: [items, total, page, size, pages]
+      required:
+      - items
+      - total
+      - page
+      - size
+      - pages
       properties:
         items:
           type: array
@@ -404,35 +396,52 @@ components:
           type: integer
         pages:
           type: integer
-
-    # ============ PROJECTS ============
     ProjectCreateRequest:
       type: object
-      required: [canonical_root, name]
+      required:
+      - canonical_root
+      - name
       properties:
         canonical_root:
           type: string
           format: path
           description: Caminho absoluto do repositório Git
-          example: "/home/user/meu-projeto"
+          example: /home/user/meu-projeto
         name:
           type: string
           minLength: 1
           maxLength: 100
-          example: "meu-projeto"
+          example: meu-projeto
         base_branch:
           type: string
-          default: "main"
-          example: "main"
+          default: main
+          example: main
         base_sha:
           type: string
-          pattern: '^[a-f0-9]{40}$'
+          pattern: ^[a-f0-9]{40}$
           description: SHA base opcional (auto-resolve se omitido)
-          example: "a1b2c3d4e5f6..."
-
+          example: a1b2c3d4e5f6...
+        project_id:
+          type: string
+          nullable: true
+          description: Identificador explícito opcional do projeto
+        workspace_id:
+          type: string
+          nullable: true
+          description: Workspace organizacional opcional
+        allow_plain_folder:
+          type: boolean
+          default: false
+          description: Permite cadastrar pasta comum sem repositório Git inicializado
     ProjectResponse:
       type: object
-      required: [id, canonical_root, name, base_branch, base_sha, created_at]
+      required:
+      - id
+      - canonical_root
+      - name
+      - base_branch
+      - base_sha
+      - created_at
       properties:
         id:
           type: string
@@ -451,23 +460,22 @@ components:
         updated_at:
           type: string
           format: date-time
-
     ProjectSummary:
       allOf:
-        - $ref: '#/components/schemas/ProjectResponse'
-        - type: object
-          properties:
-            runs_count:
-              type: integer
-            last_run_at:
-              type: string
-              format: date-time
-              nullable: true
-
-    # ============ RUNS ============
+      - $ref: '#/components/schemas/ProjectResponse'
+      - type: object
+        properties:
+          runs_count:
+            type: integer
+          last_run_at:
+            type: string
+            format: date-time
+            nullable: true
     CheckSpec:
       type: object
-      required: [check_id, command]
+      required:
+      - check_id
+      - command
       properties:
         check_id:
           type: string
@@ -479,16 +487,20 @@ components:
           items:
             type: string
           description: Argumentos preservados para execução sem shell (contrato S02)
-          example: ["python", "-m", "pytest", "tests/", "-q"]
+          example:
+          - python
+          - -m
+          - pytest
+          - tests/
+          - -q
         cwd:
           type: string
           description: Diretório de trabalho relativo à worktree
-          example: "."
+          example: .
         description:
           type: string
-          default: ""
-          example: "Executa suite de testes unitários"
-
+          default: ''
+          example: Executa suite de testes unitários
     BudgetPolicyRequest:
       type: object
       properties:
@@ -513,10 +525,11 @@ components:
           minimum: 50
           maximum: 99
           default: 80.0
-
     TaskSpecRequest:
       type: object
-      required: [objective, acceptance_criteria]
+      required:
+      - objective
+      - acceptance_criteria
       properties:
         objective:
           type: string
@@ -531,7 +544,8 @@ components:
           type: array
           items:
             type: string
-          default: ["**/*"]
+          default:
+          - '**/*'
         dependencies:
           type: array
           items:
@@ -548,10 +562,13 @@ components:
           minimum: 0
           maximum: 5
           default: 2
-
     RunCreateRequest:
       type: object
-      required: [project_id, objective, task_spec, idempotency_key]
+      required:
+      - project_id
+      - objective
+      - task_spec
+      - idempotency_key
       properties:
         project_id:
           type: string
@@ -562,7 +579,10 @@ components:
           maxLength: 5000
         mode:
           type: string
-          enum: [swarm, relay, persistent]
+          enum:
+          - swarm
+          - relay
+          - persistent
           default: relay
         task_spec:
           $ref: '#/components/schemas/TaskSpecRequest'
@@ -577,24 +597,36 @@ components:
           minLength: 16
           maxLength: 64
           description: Chave única para idempotência (SHA-256 recomendado)
-
     RunResponse:
       type: object
-      required: [run_id, status, created_at]
+      required:
+      - run_id
+      - status
+      - created_at
       properties:
         run_id:
           type: string
           format: uuid
         status:
           type: string
-          enum: [queued, running, waiting, reviewing, succeeded, failed, cancelled]
+          enum:
+          - queued
+          - running
+          - waiting
+          - reviewing
+          - succeeded
+          - failed
+          - cancelled
         created_at:
           type: string
           format: date-time
-
     RunSummary:
       type: object
-      required: [id, project_id, status, created_at]
+      required:
+      - id
+      - project_id
+      - status
+      - created_at
       properties:
         id:
           type: string
@@ -608,7 +640,14 @@ components:
           type: string
         status:
           type: string
-          enum: [queued, running, waiting, reviewing, succeeded, failed, cancelled]
+          enum:
+          - queued
+          - running
+          - waiting
+          - reviewing
+          - succeeded
+          - failed
+          - cancelled
         base_sha:
           type: string
         created_at:
@@ -617,26 +656,28 @@ components:
         updated_at:
           type: string
           format: date-time
-
     RunDetailResponse:
       allOf:
-        - $ref: '#/components/schemas/RunSummary'
-        - type: object
-          required: [spec, revision, tasks, budget]
-          properties:
-            spec:
-              type: object
-              description: RunSpec completo com schema_version
-            revision:
-              type: integer
-              description: Controle de concorrência otimista
-            tasks:
-              type: array
-              items:
-                $ref: '#/components/schemas/TaskResponse'
-            budget:
-              $ref: '#/components/schemas/BudgetStatus'
-
+      - $ref: '#/components/schemas/RunSummary'
+      - type: object
+        required:
+        - spec
+        - revision
+        - tasks
+        - budget
+        properties:
+          spec:
+            type: object
+            description: RunSpec completo com schema_version
+          revision:
+            type: integer
+            description: Controle de concorrência otimista
+          tasks:
+            type: array
+            items:
+              $ref: '#/components/schemas/TaskResponse'
+          budget:
+            $ref: '#/components/schemas/BudgetStatus'
     BudgetStatus:
       type: object
       properties:
@@ -665,12 +706,21 @@ components:
           nullable: true
         status:
           type: string
-          enum: [active, alerted, frozen, exhausted]
-
-    # ============ TASKS ============
+          enum:
+          - active
+          - alerted
+          - frozen
+          - exhausted
     TaskResponse:
       type: object
-      required: [id, run_id, spec, status, revision, created_at, updated_at]
+      required:
+      - id
+      - run_id
+      - spec
+      - status
+      - revision
+      - created_at
+      - updated_at
       properties:
         id:
           type: string
@@ -682,7 +732,16 @@ components:
           $ref: '#/components/schemas/TaskSpecRequest'
         status:
           type: string
-          enum: [pending, running, needs_context, blocked, failed, ready_for_review, accepted, rejected, cancelled]
+          enum:
+          - pending
+          - running
+          - needs_context
+          - blocked
+          - failed
+          - ready_for_review
+          - accepted
+          - rejected
+          - cancelled
         revision:
           type: integer
         current_attempt:
@@ -698,10 +757,15 @@ components:
         updated_at:
           type: string
           format: date-time
-
     AttemptResponse:
       type: object
-      required: [id, task_id, ordinal, executor_id, provider_model_json, created_at]
+      required:
+      - id
+      - task_id
+      - ordinal
+      - executor_id
+      - provider_model_json
+      - created_at
       properties:
         id:
           type: string
@@ -720,7 +784,13 @@ components:
           nullable: true
         process_status:
           type: string
-          enum: [queued, running, exited, timed_out, cancelled, crashed]
+          enum:
+          - queued
+          - running
+          - exited
+          - timed_out
+          - cancelled
+          - crashed
           nullable: true
         started_at:
           type: string
@@ -733,10 +803,15 @@ components:
         result:
           $ref: '#/components/schemas/ResultResponse'
           nullable: true
-
     ResultResponse:
       type: object
-      required: [id, attempt_id, simulated, outcome, summary, created_at]
+      required:
+      - id
+      - attempt_id
+      - simulated
+      - outcome
+      - summary
+      - created_at
       properties:
         id:
           type: string
@@ -751,7 +826,10 @@ components:
           type: boolean
         outcome:
           type: string
-          enum: [success, failure, partial]
+          enum:
+          - success
+          - failure
+          - partial
         summary:
           type: string
         patch_artifact_id:
@@ -765,10 +843,16 @@ components:
         created_at:
           type: string
           format: date-time
-
     CheckResultResponse:
       type: object
-      required: [id, command_json, cwd, tested_sha, exit_code, started_at, finished_at]
+      required:
+      - id
+      - command_json
+      - cwd
+      - tested_sha
+      - exit_code
+      - started_at
+      - finished_at
       properties:
         id:
           type: string
@@ -799,7 +883,6 @@ components:
         finished_at:
           type: string
           format: date-time
-
     RetryRequest:
       type: object
       properties:
@@ -807,25 +890,33 @@ components:
           type: boolean
           default: false
           description: Forçar reconciliação de efeitos ambíguos antes de nova tentativa
-
     RetryResponse:
       type: object
-      required: [attempt_id, status]
+      required:
+      - attempt_id
+      - status
       properties:
         attempt_id:
           type: string
           format: uuid
         status:
           type: string
-          enum: [queued, running, blocked]
-
+          enum:
+          - queued
+          - running
+          - blocked
     ReviewRequest:
       type: object
-      required: [decision, reason, expected_revision]
+      required:
+      - decision
+      - reason
+      - expected_revision
       properties:
         decision:
           type: string
-          enum: [accepted, rejected]
+          enum:
+          - accepted
+          - rejected
         reason:
           type: string
           minLength: 1
@@ -833,27 +924,33 @@ components:
         expected_revision:
           type: integer
           minimum: 1
-
     ReviewResponse:
       type: object
-      required: [review_id, decision, created_at]
+      required:
+      - review_id
+      - decision
+      - created_at
       properties:
         review_id:
           type: string
           format: uuid
         decision:
           type: string
-          enum: [accepted, rejected]
+          enum:
+          - accepted
+          - rejected
         created_at:
           type: string
           format: date-time
-
     CancelRequest:
       type: object
       properties:
         scope:
           type: string
-          enum: [run, task, attempt]
+          enum:
+          - run
+          - task
+          - attempt
           default: run
         task_id:
           type: string
@@ -861,25 +958,34 @@ components:
         attempt_id:
           type: string
           format: uuid
-
     CancelResponse:
       type: object
-      required: [status, message]
+      required:
+      - status
+      - message
       properties:
         status:
           type: string
-          enum: [cancelled, cancel_failed, already_terminal]
+          enum:
+          - cancelled
+          - cancel_failed
+          - already_terminal
         message:
           type: string
         killed_pids:
           type: array
           items:
             type: integer
-
-    # ============ ARTIFACTS ============
     ArtifactResponse:
       type: object
-      required: [id, run_id, relative_path, kind, sha256, size_bytes, created_at]
+      required:
+      - id
+      - run_id
+      - relative_path
+      - kind
+      - sha256
+      - size_bytes
+      - created_at
       properties:
         id:
           type: string
@@ -895,20 +1001,29 @@ components:
           type: string
         kind:
           type: string
-          enum: [patch, check_output, log, handoff, export, pr_package]
+          enum:
+          - patch
+          - check_output
+          - log
+          - handoff
+          - export
+          - pr_package
         sha256:
           type: string
-          pattern: '^[a-f0-9]{64}$'
+          pattern: ^[a-f0-9]{64}$
         size_bytes:
           type: integer
         created_at:
           type: string
           format: date-time
-
-    # ============ EVENTS (SSE) ============
     RunEventPayload:
       type: object
-      required: [run_id, seq, type, payload, timestamp]
+      required:
+      - run_id
+      - seq
+      - type
+      - payload
+      - timestamp
       properties:
         session_id:
           type: string
@@ -923,14 +1038,39 @@ components:
           type: integer
         type:
           type: string
-          enum: [
-            run.created, run.started, run.finished, run.cancelled,
-            task.queued, task.started, task.needs_context, task.completed, task.failed, task.cancelled,
-            attempt.provider_selected, attempt.rate_limited, attempt.handoff_created,
-            artifact.created, check.finished, merge.completed, merge.conflicted,
-            budget.alerted, budget.frozen, budget.exhausted,
-            heartbeat, profile.snapshot_created, session.created, session.state_changed, thread.created, thread.state_changed, thread.message, metric.sampled, hitl.requested, hitl.resolved, route.selected, route.rejected
-          ]
+          enum:
+          - run.created
+          - run.started
+          - run.finished
+          - run.cancelled
+          - task.queued
+          - task.started
+          - task.needs_context
+          - task.completed
+          - task.failed
+          - task.cancelled
+          - attempt.provider_selected
+          - attempt.rate_limited
+          - attempt.handoff_created
+          - artifact.created
+          - check.finished
+          - merge.completed
+          - merge.conflicted
+          - budget.alerted
+          - budget.frozen
+          - budget.exhausted
+          - heartbeat
+          - profile.snapshot_created
+          - session.created
+          - session.state_changed
+          - thread.created
+          - thread.state_changed
+          - thread.message
+          - metric.sampled
+          - hitl.requested
+          - hitl.resolved
+          - route.selected
+          - route.rejected
         task_id:
           type: string
           format: uuid
@@ -945,8 +1085,6 @@ components:
         timestamp:
           type: string
           format: date-time
-
-    # ============ INTEGRATION ============
     IntegrateRequest:
       type: object
       properties:
@@ -954,17 +1092,23 @@ components:
           type: boolean
           default: false
           description: Se true, tenta auto-repair de conflitos (merge_repair)
-
     IntegrateResponse:
       type: object
-      required: [integration_id, status]
+      required:
+      - integration_id
+      - status
       properties:
         integration_id:
           type: string
           format: uuid
         status:
           type: string
-          enum: [pending, running, succeeded, conflicted, failed]
+          enum:
+          - pending
+          - running
+          - succeeded
+          - conflicted
+          - failed
         conflict_report_id:
           type: string
           format: uuid
@@ -972,10 +1116,16 @@ components:
         result_sha:
           type: string
           nullable: true
-
     ConflictReportResponse:
       type: object
-      required: [conflict_id, integration_id, base_sha, ours_sha, theirs_sha, conflicted_files, status]
+      required:
+      - conflict_id
+      - integration_id
+      - base_sha
+      - ours_sha
+      - theirs_sha
+      - conflicted_files
+      - status
       properties:
         conflict_id:
           type: string
@@ -1005,17 +1155,23 @@ components:
             properties:
               type:
                 type: string
-                enum: [auto_repair, manual, discard]
+                enum:
+                - auto_repair
+                - manual
+                - discard
               description:
                 type: string
         status:
           type: string
-          enum: [open, auto_repair, manual, discarded]
-
-    # ============ EXPANSÃO: AREAS ============
+          enum:
+          - open
+          - auto_repair
+          - manual
+          - discarded
     AreaCreateRequest:
       type: object
-      required: [name]
+      required:
+      - name
       properties:
         name:
           type: string
@@ -1023,13 +1179,16 @@ components:
           maxLength: 100
         description:
           type: string
-          default: ""
+          default: ''
         owner_principal_id:
           type: string
-
     AreaResponse:
       type: object
-      required: [id, name, owner_principal_id, created_at]
+      required:
+      - id
+      - name
+      - owner_principal_id
+      - created_at
       properties:
         id:
           type: string
@@ -1043,11 +1202,11 @@ components:
         created_at:
           type: string
           format: date-time
-
-    # ============ EXPANSÃO: WORKSPACES ============
     WorkspaceCreateRequest:
       type: object
-      required: [area_id, name]
+      required:
+      - area_id
+      - name
       properties:
         area_id:
           type: string
@@ -1056,10 +1215,14 @@ components:
           type: string
           minLength: 1
           maxLength: 100
-
     WorkspaceResponse:
       type: object
-      required: [id, area_id, name, status, created_at]
+      required:
+      - id
+      - area_id
+      - name
+      - status
+      - created_at
       properties:
         id:
           type: string
@@ -1071,18 +1234,23 @@ components:
           type: string
         status:
           type: string
-          enum: [active, archived]
+          enum:
+          - active
+          - archived
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
-
-    # ============ EXPANSÃO: REPOSITORIES ============
     RepositoryCreateRequest:
       type: object
-      required: [project_id, root_canonical, base_branch, base_sha, allowed_paths]
+      required:
+      - project_id
+      - root_canonical
+      - base_branch
+      - base_sha
+      - allowed_paths
       properties:
         project_id:
           type: string
@@ -1094,7 +1262,7 @@ components:
           type: string
         base_sha:
           type: string
-          pattern: '^[a-f0-9]{40}$'
+          pattern: ^[a-f0-9]{40}$
         allowed_paths:
           type: array
           items:
@@ -1102,10 +1270,17 @@ components:
         authorization_id:
           type: string
           format: uuid
-
     RepositoryResponse:
       type: object
-      required: [id, project_id, root_canonical, base_branch, base_sha, allowed_paths, authorization_id, created_at]
+      required:
+      - id
+      - project_id
+      - root_canonical
+      - base_branch
+      - base_sha
+      - allowed_paths
+      - authorization_id
+      - created_at
       properties:
         id:
           type: string
@@ -1132,11 +1307,13 @@ components:
         updated_at:
           type: string
           format: date-time
-
-    # ============ EXPANSÃO: AGENTS ============
     AgentDefinitionRequest:
       type: object
-      required: [name, version, driver_type, declared_capabilities]
+      required:
+      - name
+      - version
+      - driver_type
+      - declared_capabilities
       properties:
         name:
           type: string
@@ -1144,10 +1321,20 @@ components:
           type: string
         driver_type:
           type: string
-          enum: [claude_code, codex, gemini_cli, opencode, aider, custom]
+          enum:
+          - claude_code
+          - codex
+          - gemini_cli
+          - opencode
+          - aider
+          - custom
         declared_capabilities:
           type: object
-          required: [supports_tools, supports_workspace, supports_cancellation, supports_streaming]
+          required:
+          - supports_tools
+          - supports_workspace
+          - supports_cancellation
+          - supports_streaming
           properties:
             supports_tools:
               type: boolean
@@ -1163,10 +1350,16 @@ components:
         is_certified:
           type: boolean
           default: false
-
     AgentDefinitionResponse:
       type: object
-      required: [id, name, version, driver_type, declared_capabilities, is_certified, created_at]
+      required:
+      - id
+      - name
+      - version
+      - driver_type
+      - declared_capabilities
+      - is_certified
+      - created_at
       properties:
         id:
           type: string
@@ -1186,11 +1379,14 @@ components:
         created_at:
           type: string
           format: date-time
-
-    # ============ EXPANSÃO: PROFILES ============
     ProfileCreateRequest:
       type: object
-      required: [name, agent_ref, model_ref, executor_ref, orchestration_mode]
+      required:
+      - name
+      - agent_ref
+      - model_ref
+      - executor_ref
+      - orchestration_mode
       properties:
         name:
           type: string
@@ -1224,11 +1420,20 @@ components:
           default: {}
         orchestration_mode:
           type: string
-          enum: [swarm, relay, persistent]
-
+          enum:
+          - swarm
+          - relay
+          - persistent
     ProfileResponse:
       type: object
-      required: [id, name, agent_ref, model_ref, executor_ref, orchestration_mode, created_at]
+      required:
+      - id
+      - name
+      - agent_ref
+      - model_ref
+      - executor_ref
+      - orchestration_mode
+      - created_at
       properties:
         id:
           type: string
@@ -1263,10 +1468,14 @@ components:
         updated_at:
           type: string
           format: date-time
-
     ProfileSnapshotResponse:
       type: object
-      required: [id, profile_id, snapshot_hash, effective_config_json, created_at]
+      required:
+      - id
+      - profile_id
+      - snapshot_hash
+      - effective_config_json
+      - created_at
       properties:
         id:
           type: string
@@ -1276,16 +1485,17 @@ components:
           format: uuid
         snapshot_hash:
           type: string
-          pattern: '^[a-f0-9]{64}$'
+          pattern: ^[a-f0-9]{64}$
         effective_config_json:
           type: string
         created_at:
           type: string
           format: date-time
-
     ProfileResolveResponse:
       type: object
-      required: [valid, snapshot]
+      required:
+      - valid
+      - snapshot
       properties:
         valid:
           type: boolean
@@ -1295,11 +1505,15 @@ components:
           type: array
           items:
             type: string
-
-    # ============ EXPANSÃO: SESSIONS ============
     SessionResponse:
       type: object
-      required: [id, run_id, origin_ref, agent_ref, state, created_at]
+      required:
+      - id
+      - run_id
+      - origin_ref
+      - agent_ref
+      - state
+      - created_at
       properties:
         id:
           type: string
@@ -1315,7 +1529,14 @@ components:
           format: uuid
         state:
           type: string
-          enum: [created, running, waiting, completed, failed, cancelled, lost]
+          enum:
+          - created
+          - running
+          - waiting
+          - completed
+          - failed
+          - cancelled
+          - lost
         created_at:
           type: string
           format: date-time
@@ -1327,10 +1548,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ThreadResponse'
-
     ThreadResponse:
       type: object
-      required: [id, session_id, agent_ref, state, last_seq, created_at]
+      required:
+      - id
+      - session_id
+      - agent_ref
+      - state
+      - last_seq
+      - created_at
       properties:
         id:
           type: string
@@ -1347,17 +1573,31 @@ components:
           format: uuid
         state:
           type: string
-          enum: [created, running, waiting, completed, failed, cancelled, lost]
+          enum:
+          - created
+          - running
+          - waiting
+          - completed
+          - failed
+          - cancelled
+          - lost
         last_seq:
           type: integer
         created_at:
           type: string
           format: date-time
-
-    # ============ EXPANSÃO: METRICS ============
     MetricSampleResponse:
       type: object
-      required: [sample_id, run_id, scope, scope_id, kind, unit, source, observed_at, status]
+      required:
+      - sample_id
+      - run_id
+      - scope
+      - scope_id
+      - kind
+      - unit
+      - source
+      - observed_at
+      - status
       properties:
         sample_id:
           type: string
@@ -1366,12 +1606,21 @@ components:
           format: uuid
         scope:
           type: string
-          enum: [run, attempt, session, thread]
+          enum:
+          - run
+          - attempt
+          - session
+          - thread
         scope_id:
           type: string
         kind:
           type: string
-          enum: [queue, duration, tokens_in, tokens_out, cost]
+          enum:
+          - queue
+          - duration
+          - tokens_in
+          - tokens_out
+          - cost
         value:
           type: number
           nullable: true
@@ -1380,21 +1629,30 @@ components:
           type: string
         source:
           type: string
-          example: "omniroute"
+          example: omniroute
         observed_at:
           type: string
           format: date-time
         status:
           type: string
-          enum: [observed, stale, unknown]
+          enum:
+          - observed
+          - stale
+          - unknown
         created_at:
           type: string
           format: date-time
-
-    # ============ EXPANSÃO: ROUTING ============
     RouteDecisionResponse:
       type: object
-      required: [id, run_id, candidates_json, selected_route, reason, fallback_chain_json, decision_source, timestamp]
+      required:
+      - id
+      - run_id
+      - candidates_json
+      - selected_route
+      - reason
+      - fallback_chain_json
+      - decision_source
+      - timestamp
       properties:
         id:
           type: string
@@ -1412,19 +1670,28 @@ components:
           type: string
         decision_source:
           type: string
-          enum: [hydra, omnirouter, operator]
+          enum:
+          - hydra
+          - omnirouter
+          - operator
         timestamp:
           type: string
           format: date-time
-
-    # ============ EXPANSÃO: MEMORY ============
     MemoryEntryRequest:
       type: object
-      required: [scope_type, scope_id, content, consent_id]
+      required:
+      - scope_type
+      - scope_id
+      - content
+      - consent_id
       properties:
         scope_type:
           type: string
-          enum: [user, area, project, global]
+          enum:
+          - user
+          - area
+          - project
+          - global
         scope_id:
           type: string
         content:
@@ -1435,10 +1702,18 @@ components:
         retention_policy_id:
           type: string
           nullable: true
-
     MemoryEntryResponse:
       type: object
-      required: [id, scope_type, scope_id, content_redacted, author_ref, consent_id, version, status, created_at]
+      required:
+      - id
+      - scope_type
+      - scope_id
+      - content_redacted
+      - author_ref
+      - consent_id
+      - version
+      - status
+      - created_at
       properties:
         id:
           type: string
@@ -1461,7 +1736,11 @@ components:
           nullable: true
         status:
           type: string
-          enum: [pending_consent, active, revoked, expired]
+          enum:
+          - pending_consent
+          - active
+          - revoked
+          - expired
         created_at:
           type: string
           format: date-time
@@ -1469,32 +1748,46 @@ components:
           type: string
           format: date-time
           nullable: true
-
-    # ============ EXPANSÃO: CONSENTS ============
     ConsentRequest:
       type: object
-      required: [purpose, scope]
+      required:
+      - purpose
+      - scope
       properties:
         purpose:
           type: string
-          enum: [memory, extension, skill, mcp]
+          enum:
+          - memory
+          - extension
+          - skill
+          - mcp
         scope:
           type: string
-
     ConsentResponse:
       type: object
-      required: [consent_id, status]
+      required:
+      - consent_id
+      - status
       properties:
         consent_id:
           type: string
           format: uuid
         status:
           type: string
-          enum: [requested, granted, denied, revoked, expired]
-
+          enum:
+          - requested
+          - granted
+          - denied
+          - revoked
+          - expired
     ConsentRecordResponse:
       type: object
-      required: [id, principal_id, purpose, scope, granted_at]
+      required:
+      - id
+      - principal_id
+      - purpose
+      - scope
+      - granted_at
       properties:
         id:
           type: string
@@ -1512,11 +1805,10 @@ components:
           type: string
           format: date-time
           nullable: true
-
-    # ============ EXPANSÃO: DISCOVERY ============
     DiscoveryScanRequest:
       type: object
-      required: [authorized_root]
+      required:
+      - authorized_root
       properties:
         authorized_root:
           type: string
@@ -1525,29 +1817,51 @@ components:
           type: array
           items:
             type: string
-            enum: [skill, mcp, memory, session]
-          default: [skill, mcp, memory, session]
-
+            enum:
+            - skill
+            - mcp
+            - memory
+            - session
+          default:
+          - skill
+          - mcp
+          - memory
+          - session
     DiscoveredResourceResponse:
       type: object
-      required: [id, resource_type, source_canonical_path, content_hash, capabilities_json, trust_status, discovered_at]
+      required:
+      - id
+      - resource_type
+      - source_canonical_path
+      - content_hash
+      - capabilities_json
+      - trust_status
+      - discovered_at
       properties:
         id:
           type: string
           format: uuid
         resource_type:
           type: string
-          enum: [skill, mcp, memory, session]
+          enum:
+          - skill
+          - mcp
+          - memory
+          - session
         source_canonical_path:
           type: string
         content_hash:
           type: string
-          pattern: '^[a-f0-9]{64}$'
+          pattern: ^[a-f0-9]{64}$
         capabilities_json:
           type: string
         trust_status:
           type: string
-          enum: [untrusted, approved, rejected, revoked]
+          enum:
+          - untrusted
+          - approved
+          - rejected
+          - revoked
         discovered_at:
           type: string
           format: date-time
@@ -1558,18 +1872,21 @@ components:
         approved_by:
           type: string
           nullable: true
-
     DiscoveryApproveRequest:
       type: object
-      required: [actor]
+      required:
+      - actor
       properties:
         actor:
           type: string
-
-    # ============ EXPANSÃO: SKILLS ============
     SkillDefinitionRequest:
       type: object
-      required: [name, version, manifest_ref, permissions_declared, checksum]
+      required:
+      - name
+      - version
+      - manifest_ref
+      - permissions_declared
+      - checksum
       properties:
         name:
           type: string
@@ -1581,11 +1898,17 @@ components:
           type: object
         checksum:
           type: string
-          pattern: '^[a-f0-9]{64}$'
-
+          pattern: ^[a-f0-9]{64}$
     SkillDefinitionResponse:
       type: object
-      required: [id, name, version, manifest_ref, permissions_declared, checksum, created_at]
+      required:
+      - id
+      - name
+      - version
+      - manifest_ref
+      - permissions_declared
+      - checksum
+      - created_at
       properties:
         id:
           type: string
@@ -1603,17 +1926,24 @@ components:
         created_at:
           type: string
           format: date-time
-
-    # ============ EXPANSÃO: MCPS ============
     McpDefinitionRequest:
       type: object
-      required: [server_name, transport_type, endpoint, secret_ref, declared_tools, permissions]
+      required:
+      - server_name
+      - transport_type
+      - endpoint
+      - secret_ref
+      - declared_tools
+      - permissions
       properties:
         server_name:
           type: string
         transport_type:
           type: string
-          enum: [stdio, sse, websocket]
+          enum:
+          - stdio
+          - sse
+          - websocket
         endpoint:
           type: string
         secret_ref:
@@ -1625,10 +1955,17 @@ components:
             type: object
         permissions:
           type: object
-
     McpDefinitionResponse:
       type: object
-      required: [id, server_name, transport_type, endpoint, secret_ref, declared_tools, permissions, created_at]
+      required:
+      - id
+      - server_name
+      - transport_type
+      - endpoint
+      - secret_ref
+      - declared_tools
+      - permissions
+      - created_at
       properties:
         id:
           type: string
@@ -1651,11 +1988,15 @@ components:
         created_at:
           type: string
           format: date-time
-
-    # ============ EXPANSÃO: EXTENSIONS ============
     ExtensionManifestRequest:
       type: object
-      required: [name, version, entrypoint, permissions_required, compatible_api_version, checksum]
+      required:
+      - name
+      - version
+      - entrypoint
+      - permissions_required
+      - compatible_api_version
+      - checksum
       properties:
         name:
           type: string
@@ -1669,11 +2010,12 @@ components:
           type: string
         checksum:
           type: string
-          pattern: '^[a-f0-9]{64}$'
-
+          pattern: ^[a-f0-9]{64}$
     ExtensionInstallRequest:
       type: object
-      required: [extension_manifest_id, consent_record_id]
+      required:
+      - extension_manifest_id
+      - consent_record_id
       properties:
         extension_manifest_id:
           type: string
@@ -1681,10 +2023,13 @@ components:
         consent_record_id:
           type: string
           format: uuid
-
     ExtensionInstallResponse:
       type: object
-      required: [install_id, extension_id, status, installed_at]
+      required:
+      - install_id
+      - extension_id
+      - status
+      - installed_at
       properties:
         install_id:
           type: string
@@ -1694,7 +2039,14 @@ components:
           format: uuid
         status:
           type: string
-          enum: [proposed, consented, installed, active, disabled, quarantined, revoked]
+          enum:
+          - proposed
+          - consented
+          - installed
+          - active
+          - disabled
+          - quarantined
+          - revoked
         installed_at:
           type: string
           format: date-time
@@ -1702,15 +2054,20 @@ components:
           type: string
           format: date-time
           nullable: true
-
-    # ============ EXPANSÃO: PREFERENCES ============
     PreferenceRequest:
       type: object
-      required: [scope_type, scope_id, key, value]
+      required:
+      - scope_type
+      - scope_id
+      - key
+      - value
       properties:
         scope_type:
           type: string
-          enum: [user, area, project]
+          enum:
+          - user
+          - area
+          - project
         scope_id:
           type: string
         key:
@@ -1719,12 +2076,21 @@ components:
           type: object
         source:
           type: string
-          enum: [explicit, inferred_opt_in]
+          enum:
+          - explicit
+          - inferred_opt_in
           default: explicit
-
     PreferenceResponse:
       type: object
-      required: [id, scope_type, scope_id, key, value_json, source, version, created_at]
+      required:
+      - id
+      - scope_type
+      - scope_id
+      - key
+      - value_json
+      - source
+      - version
+      - created_at
       properties:
         id:
           type: string
@@ -1747,10 +2113,14 @@ components:
         updated_at:
           type: string
           format: date-time
-
     PreferenceSnapshotResponse:
       type: object
-      required: [id, run_id, preferences_hash, resolved_preferences_json, created_at]
+      required:
+      - id
+      - run_id
+      - preferences_hash
+      - resolved_preferences_json
+      - created_at
       properties:
         id:
           type: string
@@ -1760,21 +2130,27 @@ components:
           format: uuid
         preferences_hash:
           type: string
-          pattern: '^[a-f0-9]{64}$'
+          pattern: ^[a-f0-9]{64}$
         resolved_preferences_json:
           type: string
         created_at:
           type: string
           format: date-time
-
-    # ============ EXPANSÃO: TRANSPORTS ============
     TransportDefinitionRequest:
       type: object
-      required: [type, target_identity, capabilities]
+      required:
+      - type
+      - target_identity
+      - capabilities
       properties:
         type:
           type: string
-          enum: [local, ssh, ide, cdp, remote]
+          enum:
+          - local
+          - ssh
+          - ide
+          - cdp
+          - remote
         target_identity:
           type: string
         capabilities:
@@ -1782,10 +2158,15 @@ components:
         is_certified:
           type: boolean
           default: false
-
     TransportDefinitionResponse:
       type: object
-      required: [id, type, target_identity, capabilities, is_certified, created_at]
+      required:
+      - id
+      - type
+      - target_identity
+      - capabilities
+      - is_certified
+      - created_at
       properties:
         id:
           type: string
@@ -1801,10 +2182,13 @@ components:
         created_at:
           type: string
           format: date-time
-
     TransportHealthResponse:
       type: object
-      required: [id, transport_id, status, last_check_at]
+      required:
+      - id
+      - transport_id
+      - status
+      - last_check_at
       properties:
         id:
           type: string
@@ -1814,18 +2198,23 @@ components:
           format: uuid
         status:
           type: string
-          enum: [unknown, healthy, degraded, unreachable]
+          enum:
+          - unknown
+          - healthy
+          - degraded
+          - unreachable
         last_check_at:
           type: string
           format: date-time
         error_detail:
           type: string
           nullable: true
-
-    # ============ EXPANSÃO: TOKENS ============
     TokenCreateRequest:
       type: object
-      required: [principal_id, scopes, expires_at]
+      required:
+      - principal_id
+      - scopes
+      - expires_at
       properties:
         principal_id:
           type: string
@@ -1836,10 +2225,14 @@ components:
         expires_at:
           type: string
           format: date-time
-
     TokenResponse:
       type: object
-      required: [id, token_hash, principal_id, scopes, expires_at]
+      required:
+      - id
+      - token_hash
+      - principal_id
+      - scopes
+      - expires_at
       properties:
         id:
           type: string
@@ -1859,11 +2252,11 @@ components:
           type: string
           format: date-time
           nullable: true
-
-    # ============ INFERENCE (OpenAI Compatible) ============
     ChatCompletionRequest:
       type: object
-      required: [model, messages]
+      required:
+      - model
+      - messages
       properties:
         model:
           type: string
@@ -1871,11 +2264,17 @@ components:
           type: array
           items:
             type: object
-            required: [role, content]
+            required:
+            - role
+            - content
             properties:
               role:
                 type: string
-                enum: [system, user, assistant, tool]
+                enum:
+                - system
+                - user
+                - assistant
+                - tool
               content:
                 type: string
               tool_calls:
@@ -1900,16 +2299,22 @@ components:
           type: array
           items:
             type: object
-
     ChatCompletionResponse:
       type: object
-      required: [id, object, created, model, choices]
+      required:
+      - id
+      - object
+      - created
+      - model
+      - choices
       properties:
         id:
           type: string
         object:
           type: string
-          enum: [chat.completion, chat.completion.chunk]
+          enum:
+          - chat.completion
+          - chat.completion.chunk
         created:
           type: integer
         model:
@@ -1927,7 +2332,11 @@ components:
                 type: object
               finish_reason:
                 type: string
-                enum: [stop, length, tool_calls, content_filter]
+                enum:
+                - stop
+                - length
+                - tool_calls
+                - content_filter
                 nullable: true
         usage:
           type: object
@@ -1938,11 +2347,18 @@ components:
               type: integer
             total_tokens:
               type: integer
-
-    # ============ PR PACKAGE ============
     PRPackageResponse:
       type: object
-      required: [id, run_id, pr_branch, description_markdown, commits_json, checks_summary_json, diff_summary_json, metrics_json, created_at]
+      required:
+      - id
+      - run_id
+      - pr_branch
+      - description_markdown
+      - commits_json
+      - checks_summary_json
+      - diff_summary_json
+      - metrics_json
+      - created_at
       properties:
         id:
           type: string
@@ -1965,8 +2381,6 @@ components:
         created_at:
           type: string
           format: date-time
-
-    # T17 — schemas operacionais de memória consentida
     MemoryScope:
       properties:
         schema_version:
@@ -2180,7 +2594,6 @@ components:
       required:
       - action
       title: ConsentActionPayload
-
     ConversationConnectionSettings:
       properties:
         base_url:
@@ -2385,16 +2798,235 @@ components:
       - expected_revision
       - idempotency_key
       title: ConversationRouteChange
-
+    ConversationApplyPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        force:
+          type: boolean
+          default: false
+          description: Força sincronização mesmo se arquivos na pasta original mudaram externamente
+      title: ConversationApplyPayload
+    WorkspaceUpdatePayload:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        expected_revision:
+          type: integer
+          minimum: 1
+          nullable: true
+      title: WorkspaceUpdatePayload
+    TokenSummaryResponse:
+      type: object
+      required:
+      - id
+      - principal_id
+      - scopes
+      - expires_at
+      properties:
+        id:
+          type: string
+        principal_id:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+      title: TokenSummaryResponse
+    RunDiscardPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        force:
+          type: boolean
+          default: false
+          description: Remove worktrees mesmo com alterações locais não integradas
+      title: RunDiscardPayload
 paths:
-  # ============ NÚCLEO (MVP) ============
-  /projects:
+  /health:
+    get:
+      tags:
+      - System
+      summary: Verificar saúde do servidor HTTP e adaptadores configurados
+      operationId: healthCheck
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Servidor saudável
+  /v1/health:
+    get:
+      tags:
+      - System
+      summary: Verificar saúde do servidor no prefixo versionado /v1
+      operationId: healthCheckV1
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Servidor saudável
+  /v1/models:
+    get:
+      tags:
+      - Inference
+      summary: Listar modelos lógicos e adaptadores disponíveis (compatível OpenAI)
+      operationId: listModels
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Catálogo de modelos
+  /v1/chat/completions:
     post:
-      tags: [Projects]
+      tags:
+      - Inference
+      summary: Proxy de inferência compatível OpenAI
+      operationId: chatCompletions
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: Resposta do modelo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+        '400':
+          description: Parâmetros inválidos
+        '422':
+          description: Modelo não suporta ferramentas/parâmetros solicitados
+        '503':
+          description: Nenhum provedor disponível
+  /v1/orchestrator/status:
+    get:
+      tags:
+      - System
+      summary: Consultar modo padrão, diretório de worktrees, adaptadores e túnel SSH
+      operationId: getOrchestratorStatus
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Status operacional do orquestrador
+  /v1/quota:
+    get:
+      tags:
+      - OmniRoute
+      summary: Consultar janelas de quota de 5h via OmniRoute ou estado unknown em modo direto
+      operationId: getQuotaStatus
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Mapa de quotas por provedor/assinatura
+  /v1/launcher/pick-folder:
+    post:
+      tags:
+      - Launcher
+      summary: Abrir diálogo nativo de seleção de pasta via HydraLauncher
+      operationId: pickDesktopFolder
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Caminho selecionado ou nulo se cancelado
+        '404':
+          description: Requisição fora de loopback
+        '503':
+          description: Executável do launcher indisponível
+  /v1/launcher/ping:
+    get:
+      tags:
+      - Launcher
+      summary: Sondar prontidão da instância desktop local e estado de inicialização do OmniRoute
+      operationId: pingDesktopServer
+      security: []
+      responses:
+        '200':
+          description: Servidor desktop pronto
+        '404':
+          description: Modo desktop inativo
+  /v1/launcher/session:
+    post:
+      tags:
+      - Launcher
+      summary: Trocar bootstrap nonce de uso único por token efêmero de sessão desktop
+      operationId: exchangeDesktopBootstrapSession
+      security: []
+      responses:
+        '200':
+          description: Token efêmero de sessão emitido
+        '403':
+          description: Nonce inválido, expirado ou cabeçalhos de origem recusados
+  /v1/launcher/stop:
+    post:
+      tags:
+      - Launcher
+      summary: Solicitar encerramento limpo da instância desktop local
+      operationId: stopDesktopServer
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Encerramento iniciado
+        '404':
+          description: Modo desktop inativo
+  /v1/launcher/ticket:
+    post:
+      tags:
+      - Launcher
+      summary: Emitir bootstrap nonce CSPRNG de uso único para o HydraLauncher local
+      operationId: issueDesktopBootstrapTicket
+      security: []
+      responses:
+        '200':
+          description: Nonce de bootstrap emitido
+        '404':
+          description: Modo desktop desabilitado ou origem fora de loopback
+  /v1/control-plane/projects:
+    get:
+      tags:
+      - Projects
+      summary: Listar projetos cadastrados
+      operationId: listProjects
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Lista de projetos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectResponse'
+    post:
+      tags:
+      - Projects
       summary: Cadastrar projeto
       operationId: createProject
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -2420,21 +3052,21 @@ paths:
           description: Raiz fora da allowlist
         '409':
           description: Projeto já existe para esta raiz
-
-  /projects/{id}:
+  /v1/control-plane/projects/{project_id}:
     get:
-      tags: [Projects]
+      tags:
+      - Projects
       summary: Obter projeto
       operationId: getProject
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Projeto encontrado
@@ -2444,22 +3076,22 @@ paths:
                 $ref: '#/components/schemas/ProjectResponse'
         '404':
           description: Projeto não encontrado
-
-  /runs:
+  /v1/control-plane/runs:
     post:
-      tags: [Runs]
+      tags:
+      - Runs
       summary: Submeter nova execução
       operationId: createRun
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: Idempotency-Key
-          in: header
-          required: true
-          schema:
-            type: string
-            minLength: 16
-            maxLength: 64
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 64
       requestBody:
         required: true
         content:
@@ -2483,25 +3115,32 @@ paths:
           description: Idempotency-Key reutilizada com payload diferente
         '422':
           description: Schema inválido ou perfil incompatível
-
     get:
-      tags: [Runs]
+      tags:
+      - Runs
       summary: Listar execuções
       operationId: listRuns
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: project_id
-          in: query
-          schema:
-            type: string
-            format: uuid
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [queued, running, waiting, reviewing, succeeded, failed, cancelled]
-        - $ref: '#/components/schemas/PaginationParams'
+      - name: project_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - queued
+          - running
+          - waiting
+          - reviewing
+          - succeeded
+          - failed
+          - cancelled
+      - $ref: '#/components/schemas/PaginationParams'
       responses:
         '200':
           description: Lista paginada
@@ -2509,28 +3148,28 @@ paths:
             application/json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/PaginatedResponse'
-                  - type: object
-                    properties:
+                - $ref: '#/components/schemas/PaginatedResponse'
+                - type: object
+                  properties:
+                    items:
+                      type: array
                       items:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/RunSummary'
-
-  /runs/{id}:
+                        $ref: '#/components/schemas/RunSummary'
+  /v1/control-plane/runs/{run_id}:
     get:
-      tags: [Runs]
+      tags:
+      - Runs
       summary: Obter detalhes da execução
       operationId: getRun
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Detalhes da run
@@ -2540,21 +3179,21 @@ paths:
                 $ref: '#/components/schemas/RunDetailResponse'
         '404':
           description: Run não encontrada
-
-  /runs/{id}/tasks:
+  /v1/control-plane/runs/{run_id}/tasks:
     get:
-      tags: [Tasks]
+      tags:
+      - Tasks
       summary: Listar tarefas da execução
       operationId: listRunTasks
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Lista de tarefas
@@ -2566,26 +3205,32 @@ paths:
                   $ref: '#/components/schemas/TaskResponse'
         '404':
           description: Run não encontrada
-
-  /runs/{id}/artifacts:
+  /v1/control-plane/runs/{run_id}/artifacts:
     get:
-      tags: [Artifacts]
+      tags:
+      - Artifacts
       summary: Listar artefatos da execução
       operationId: listRunArtifacts
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: kind
-          in: query
-          schema:
-            type: string
-            enum: [patch, check_output, log, handoff, export, pr_package]
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: kind
+        in: query
+        schema:
+          type: string
+          enum:
+          - patch
+          - check_output
+          - log
+          - handoff
+          - export
+          - pr_package
       responses:
         '200':
           description: Lista de artefatos
@@ -2597,38 +3242,46 @@ paths:
                   $ref: '#/components/schemas/ArtifactResponse'
         '404':
           description: Run não encontrada
-
-  /runs/{id}/events:
+  /v1/control-plane/runs/{run_id}/events:
     get:
-      tags: [Events]
+      tags:
+      - Events
       summary: Stream de eventos (SSE)
       operationId: getRunEvents
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: Last-Event-ID
-          in: header
-          schema:
-            type: string
-            description: Cursor para replay (sequência monotônica)
-        - name: session_id
-          in: query
-          schema: {type: string}
-        - name: thread_id
-          in: query
-          schema: {type: string}
-        - name: follow
-          in: query
-          schema: {type: boolean, default: false}
-        - name: limit
-          in: query
-          schema: {type: integer, minimum: 1, maximum: 1000, default: 1000}
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: Last-Event-ID
+        in: header
+        schema:
+          type: string
+          description: Cursor para replay (sequência monotônica)
+      - name: session_id
+        in: query
+        schema:
+          type: string
+      - name: thread_id
+        in: query
+        schema:
+          type: string
+      - name: follow
+        in: query
+        schema:
+          type: boolean
+          default: false
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 1000
       responses:
         '200':
           description: Stream SSE
@@ -2640,21 +3293,21 @@ paths:
           description: Run não encontrada
         '410':
           description: Cursor expirado, solicitar snapshot completo
-
-  /runs/{id}/cancel:
+  /v1/control-plane/runs/{run_id}/cancel:
     post:
-      tags: [Runs]
+      tags:
+      - Runs
       summary: Cancelar execução
       operationId: cancelRun
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -2672,27 +3325,27 @@ paths:
           description: Run não encontrada
         '409':
           description: Run já em estado terminal
-
-  /runs/{id}/tasks/{task_id}/retry:
+  /v1/control-plane/runs/{run_id}/tasks/{task_id}/retry:
     post:
-      tags: [Tasks]
+      tags:
+      - Tasks
       summary: Nova tentativa após reconciliação
       operationId: retryTask
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: task_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -2710,27 +3363,27 @@ paths:
           description: Run ou task não encontrada
         '409':
           description: Tentativa ativa já existe ou reconciliação pendente
-
-  /runs/{id}/tasks/{task_id}/review:
+  /v1/control-plane/runs/{run_id}/tasks/{task_id}/review:
     post:
-      tags: [Tasks]
+      tags:
+      - Tasks
       summary: Revisar resultado da tarefa
       operationId: reviewTask
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: task_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -2750,21 +3403,21 @@ paths:
           description: Run, task ou resultado não encontrado
         '409':
           description: Revisão vencida (expected_revision divergente) ou transição inválida
-
-  /runs/{id}/integrate:
+  /v1/control-plane/runs/{run_id}/integrate:
     post:
-      tags: [Integration]
+      tags:
+      - Integration
       summary: Integrar resultados aceitos
       operationId: integrateRun
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -2784,15 +3437,14 @@ paths:
           description: Resultados não aceitos ou checks obrigatórios falhando
         '422':
           description: Conflito de merge (conflict_report_id retornado)
-
-  # ============ EXPANSÃO: AREAS ============
-  /areas:
+  /v1/control-plane/areas:
     get:
-      tags: [Areas]
+      tags:
+      - Areas
       summary: Listar áreas
       operationId: listAreas
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Lista de áreas
@@ -2802,13 +3454,13 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/AreaResponse'
-
     post:
-      tags: [Areas]
+      tags:
+      - Areas
       summary: Criar área
       operationId: createArea
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -2822,15 +3474,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AreaResponse'
-
-  # ============ EXPANSÃO: WORKSPACES ============
-  /workspaces:
+  /v1/control-plane/workspaces:
     get:
-      tags: [Workspaces]
+      tags:
+      - Workspaces
       summary: Listar workspaces
       operationId: listWorkspaces
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Lista de workspaces
@@ -2840,13 +3491,13 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/WorkspaceResponse'
-
     post:
-      tags: [Workspaces]
+      tags:
+      - Workspaces
       summary: Cadastrar workspace
       operationId: createWorkspace
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -2860,22 +3511,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WorkspaceResponse'
-
-  # ============ EXPANSÃO: REPOSITORIES ============
-  /projects/{id}/repositories:
+  /v1/control-plane/projects/{project_id}/repositories:
     get:
-      tags: [Repositories]
+      tags:
+      - Repositories
       summary: Listar repositórios do projeto
       operationId: listProjectRepositories
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Lista de repositórios
@@ -2885,20 +3535,20 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/RepositoryResponse'
-
     post:
-      tags: [Repositories]
+      tags:
+      - Repositories
       summary: Associar repositório ao projeto
       operationId: createRepository
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -2918,15 +3568,14 @@ paths:
           description: Fora da allowlist ou sem autorização
         '409':
           description: Repositório já associado
-
-  # ============ EXPANSÃO: AGENTS ============
-  /agents:
+  /v1/control-plane/agents:
     get:
-      tags: [Agents]
+      tags:
+      - Agents
       summary: Listar agentes do catálogo
       operationId: listAgents
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Catálogo de agentes
@@ -2937,11 +3586,12 @@ paths:
                 items:
                   $ref: '#/components/schemas/AgentDefinitionResponse'
     post:
-      tags: [Agents]
+      tags:
+      - Agents
       summary: Registrar defini??o de agente
       operationId: registerAgent
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -2955,14 +3605,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentDefinitionResponse'
-
-  /executors:
+  /v1/control-plane/executors:
     get:
-      tags: [Agents]
+      tags:
+      - Agents
       summary: Listar executores disponíveis
       operationId: listExecutors
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Lista de executores
@@ -2984,14 +3634,14 @@ paths:
                       type: object
                     is_certified:
                       type: boolean
-
-  /capabilities:
+  /v1/control-plane/capabilities:
     get:
-      tags: [Agents]
+      tags:
+      - Agents
       summary: Consultar capabilities declaradas
       operationId: getCapabilities
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Capabilities por agente/executor
@@ -2999,15 +3649,14 @@ paths:
             application/json:
               schema:
                 type: object
-
-  # ============ EXPANSÃO: PROFILES ============
-  /profiles:
+  /v1/control-plane/profiles:
     get:
-      tags: [Profiles]
+      tags:
+      - Profiles
       summary: Listar perfis
       operationId: listProfiles
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Lista de perfis
@@ -3017,13 +3666,13 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ProfileResponse'
-
     post:
-      tags: [Profiles]
+      tags:
+      - Profiles
       summary: Criar perfil
       operationId: createProfile
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3039,21 +3688,21 @@ paths:
                 $ref: '#/components/schemas/ProfileResponse'
         '422':
           description: Combinação inválida (capabilities incompatíveis)
-
-  /profiles/{id}/resolve:
+  /v1/control-plane/profiles/{profile_id}/resolve:
     post:
-      tags: [Profiles]
+      tags:
+      - Profiles
       summary: Validar combinação e gerar snapshot imutável
       operationId: resolveProfile
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: profile_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Snapshot efetivo
@@ -3065,15 +3714,14 @@ paths:
           description: Perfil não encontrado
         '422':
           description: Combinação incompatível
-
-  # ============ EXPANSÃO: SESSIONS ============
-  /sessions:
+  /v1/control-plane/sessions:
     get:
-      tags: [Sessions]
+      tags:
+      - Sessions
       summary: Listar sessões ativas
       operationId: listSessions
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Lista de sessões
@@ -3083,21 +3731,21 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/SessionResponse'
-
-  /sessions/{id}/threads:
+  /v1/control-plane/sessions/{session_id}/threads:
     get:
-      tags: [Sessions]
+      tags:
+      - Sessions
       summary: Obter árvore de threads da sessão
       operationId: getSessionThreads
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Sessão com threads
@@ -3105,25 +3753,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SessionResponse'
-
-  /sessions/{id}/events:
+  /v1/control-plane/sessions/{session_id}/events:
     get:
-      tags: [Sessions]
+      tags:
+      - Sessions
       summary: Stream de eventos da sessão e threads (SSE)
       operationId: getSessionEvents
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: Last-Event-ID
-          in: header
-          schema:
-            type: string
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: Last-Event-ID
+        in: header
+        schema:
+          type: string
       responses:
         '200':
           description: Stream SSE
@@ -3135,31 +3783,42 @@ paths:
           description: Sessão não encontrada
         '410':
           description: Cursor expirado
-
-  # ============ EXPANSÃO: METRICS ============
-  /runs/{id}/metrics:
+  /v1/control-plane/runs/{run_id}/metrics:
     get:
-      tags: [Metrics]
+      tags:
+      - Metrics
       summary: Obter métricas da execução
       operationId: getRunMetrics
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: scope
-          in: query
-          schema: {type: string, enum: [run, attempt, session, thread], default: run}
-        - name: scope_id
-          in: query
-          schema: {type: string}
-        - name: max_age_seconds
-          in: query
-          schema: {type: number, minimum: 0, maximum: 86400, default: 300}
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: scope
+        in: query
+        schema:
+          type: string
+          enum:
+          - run
+          - attempt
+          - session
+          - thread
+          default: run
+      - name: scope_id
+        in: query
+        schema:
+          type: string
+      - name: max_age_seconds
+        in: query
+        schema:
+          type: number
+          minimum: 0
+          maximum: 86400
+          default: 300
       responses:
         '200':
           description: Amostras de métricas
@@ -3169,17 +3828,18 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/MetricSampleResponse'
-
-  /runs/{id}/metrics/usage:
+  /v1/control-plane/runs/{run_id}/metrics/usage:
     get:
-      tags: [Metrics]
+      tags:
+      - Metrics
       summary: Agregar uso com cobertura parcial explícita
       operationId: getRunUsageMetrics
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Totais, subtotais conhecidos e quantidades observed/stale/unknown por tipo
@@ -3189,34 +3849,65 @@ paths:
                 type: array
                 items:
                   type: object
-                  required: [kind, value, known_subtotal, unit, status, scope_count, observed_count, stale_count, unknown_count, sources]
+                  required:
+                  - kind
+                  - value
+                  - known_subtotal
+                  - unit
+                  - status
+                  - scope_count
+                  - observed_count
+                  - stale_count
+                  - unknown_count
+                  - sources
                   properties:
-                    kind: {type: string, enum: [tokens_in, tokens_out, cost]}
-                    value: {type: number, nullable: true}
-                    known_subtotal: {type: number, nullable: true}
-                    unit: {type: string}
-                    status: {type: string, enum: [observed, stale, unknown]}
-                    scope_count: {type: integer}
-                    observed_count: {type: integer}
-                    stale_count: {type: integer}
-                    unknown_count: {type: integer}
-                    sources: {type: array, items: {type: string}}
-
-  # ============ EXPANSÃO: ROUTING ============
-  /runs/{id}/route-decisions:
+                    kind:
+                      type: string
+                      enum:
+                      - tokens_in
+                      - tokens_out
+                      - cost
+                    value:
+                      type: number
+                      nullable: true
+                    known_subtotal:
+                      type: number
+                      nullable: true
+                    unit:
+                      type: string
+                    status:
+                      type: string
+                      enum:
+                      - observed
+                      - stale
+                      - unknown
+                    scope_count:
+                      type: integer
+                    observed_count:
+                      type: integer
+                    stale_count:
+                      type: integer
+                    unknown_count:
+                      type: integer
+                    sources:
+                      type: array
+                      items:
+                        type: string
+  /v1/control-plane/runs/{run_id}/route-decisions:
     get:
-      tags: [Routing]
+      tags:
+      - Routing
       summary: Trilha auditável de seleção de rota
       operationId: getRouteDecisions
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Decisões de rota
@@ -3226,9 +3917,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/RouteDecisionResponse'
-
-  # T17 — implementação operacional
-  /consents:
+  /v1/control-plane/consents:
     post:
       summary: Create Consent Endpoint
       operationId: create_consent_endpoint_v1_control_plane_consents_post
@@ -3296,7 +3985,7 @@ paths:
           description: Principal ou escopo não autorizado
         '409':
           description: Consentimento inativo ou conflito de estado/versão
-  /consents/{consent_id}:
+  /v1/control-plane/consents/{consent_id}:
     post:
       summary: Decide Consent Endpoint
       operationId: decide_consent_endpoint_v1_control_plane_consents__consent_id__post
@@ -3330,7 +4019,7 @@ paths:
           description: Principal ou escopo não autorizado
         '409':
           description: Consentimento inativo ou conflito de estado/versão
-  /consents/{consent_id}/revoke:
+  /v1/control-plane/consents/{consent_id}/revoke:
     post:
       summary: Revoke Consent Endpoint
       operationId: revoke_consent_endpoint_v1_control_plane_consents__consent_id__revoke_post
@@ -3358,7 +4047,7 @@ paths:
           description: Principal ou escopo não autorizado
         '409':
           description: Consentimento inativo ou conflito de estado/versão
-  /memory:
+  /v1/control-plane/memory:
     post:
       summary: Create Memory Endpoint
       operationId: create_memory_endpoint_v1_control_plane_memory_post
@@ -3434,7 +4123,7 @@ paths:
           description: Principal ou escopo não autorizado
         '409':
           description: Consentimento inativo ou conflito de estado/versão
-  /memory/{memory_id}:
+  /v1/control-plane/memory/{memory_id}:
     put:
       summary: Update Memory Endpoint
       operationId: update_memory_endpoint_v1_control_plane_memory__memory_id__put
@@ -3475,7 +4164,7 @@ paths:
           description: Principal ou escopo não autorizado
         '409':
           description: Consentimento inativo ou conflito de estado/versão
-  /memory/{memory_id}/revoke:
+  /v1/control-plane/memory/{memory_id}/revoke:
     post:
       summary: Revoke Memory Endpoint
       operationId: revoke_memory_endpoint_v1_control_plane_memory__memory_id__revoke_post
@@ -3503,15 +4192,14 @@ paths:
           description: Principal ou escopo não autorizado
         '409':
           description: Consentimento inativo ou conflito de estado/versão
-
-  # ============ EXPANSÃO: DISCOVERY ============
-  /discovery/scan:
+  /v1/control-plane/discovery/scan:
     post:
-      tags: [Discovery]
+      tags:
+      - Discovery
       summary: Iniciar varredura opt-in
       operationId: scanDiscovery
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3529,14 +4217,14 @@ paths:
                   scan_id:
                     type: string
                     format: uuid
-
-  /discovery/resources:
+  /v1/control-plane/discovery/resources:
     get:
-      tags: [Discovery]
+      tags:
+      - Discovery
       summary: Listar recursos descobertos
       operationId: listDiscoveredResources
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Recursos com trust_status
@@ -3546,21 +4234,21 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/DiscoveredResourceResponse'
-
-  /discovery/resources/{id}/approve:
+  /v1/control-plane/discovery/resources/{resource_id}/approve:
     post:
-      tags: [Discovery]
+      tags:
+      - Discovery
       summary: Aprovar recurso descoberto
       operationId: approveDiscoveredResource
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: resource_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -3578,21 +4266,21 @@ paths:
           description: Recurso não encontrado
         '409':
           description: Hash divergente (já untrusted)
-
-  /discovery/resources/{id}/reject:
+  /v1/control-plane/discovery/resources/{resource_id}/reject:
     post:
-      tags: [Discovery]
+      tags:
+      - Discovery
       summary: Rejeitar recurso descoberto
       operationId: rejectDiscoveredResource
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: resource_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -3602,15 +4290,14 @@ paths:
       responses:
         '200':
           description: Recurso rejeitado
-
-  # ============ EXPANSÃO: SKILLS ============
-  /skills:
+  /v1/control-plane/skills:
     get:
-      tags: [Skills]
+      tags:
+      - Skills
       summary: Listar skills
       operationId: listSkills
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Skills cadastradas
@@ -3620,13 +4307,13 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/SkillDefinitionResponse'
-
     post:
-      tags: [Skills]
+      tags:
+      - Skills
       summary: Cadastrar skill
       operationId: createSkill
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3640,15 +4327,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SkillDefinitionResponse'
-
-  # ============ EXPANSÃO: MCPS ============
-  /mcps:
+  /v1/control-plane/mcps:
     get:
-      tags: [MCPs]
+      tags:
+      - MCPs
       summary: Listar servidores MCP
       operationId: listMcps
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: MCPs cadastrados
@@ -3658,13 +4344,13 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/McpDefinitionResponse'
-
     post:
-      tags: [MCPs]
+      tags:
+      - MCPs
       summary: Cadastrar servidor MCP
       operationId: createMcp
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3678,15 +4364,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/McpDefinitionResponse'
-
-  # ============ EXPANSÃO: EXTENSIONS ============
-  /extensions:
+  /v1/control-plane/extensions:
     get:
-      tags: [Extensions]
+      tags:
+      - Extensions
       summary: Listar extensões instaladas
       operationId: listExtensions
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Extensões
@@ -3697,11 +4382,12 @@ paths:
                 items:
                   $ref: '#/components/schemas/ExtensionInstallResponse'
     post:
-      tags: [Extensions]
-      summary: Registrar manifesto de extens?o
+      tags:
+      - Extensions
+      summary: Registrar manifesto de extensão
       operationId: registerExtensionManifest
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3715,14 +4401,14 @@ paths:
             application/json:
               schema:
                 type: object
-
-  /extensions/install:
+  /v1/control-plane/extensions/install:
     post:
-      tags: [Extensions]
+      tags:
+      - Extensions
       summary: Instalar extensão com manifesto verificado
       operationId: installExtension
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3740,21 +4426,21 @@ paths:
           description: Manifesto incompatível ou consentimento ausente
         '422':
           description: Checksum divergente
-
-  /extensions/{id}/revoke:
+  /v1/control-plane/extensions/{install_id}/revoke:
     post:
-      tags: [Extensions]
+      tags:
+      - Extensions
       summary: Revogar extensão imediatamente
       operationId: revokeExtension
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: install_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Extensão revogada
@@ -3762,21 +4448,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ExtensionInstallResponse'
-
-  /extensions/{id}/rollback:
+  /v1/control-plane/extensions/{install_id}/rollback:
     post:
-      tags: [Extensions]
+      tags:
+      - Extensions
       summary: Restaurar versão anterior aprovada
       operationId: rollbackExtension
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: install_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Rollback executado
@@ -3784,25 +4470,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ExtensionInstallResponse'
-
-  # ============ EXPANSÃO: PREFERENCES ============
-  /preferences:
+  /v1/control-plane/preferences:
     get:
-      tags: [Preferences]
+      tags:
+      - Preferences
       summary: Consultar preferências
       operationId: queryPreferences
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: scope_type
-          in: query
-          schema:
-            type: string
-            enum: [user, area, project]
-        - name: scope_id
-          in: query
-          schema:
-            type: string
+      - name: scope_type
+        in: query
+        schema:
+          type: string
+          enum:
+          - user
+          - area
+          - project
+      - name: scope_id
+        in: query
+        schema:
+          type: string
       responses:
         '200':
           description: Preferências
@@ -3812,13 +4500,13 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/PreferenceResponse'
-
     put:
-      tags: [Preferences]
+      tags:
+      - Preferences
       summary: Atualizar preferência
       operationId: updatePreference
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3832,15 +4520,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PreferenceResponse'
-
-  # ============ EXPANSÃO: TRANSPORTS ============
-  /transports:
+  /v1/control-plane/transports:
     get:
-      tags: [Transports]
+      tags:
+      - Transports
       summary: Listar transportes registrados
       operationId: listTransports
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Transportes
@@ -3851,11 +4538,12 @@ paths:
                 items:
                   $ref: '#/components/schemas/TransportDefinitionResponse'
     post:
-      tags: [Transports]
+      tags:
+      - Transports
       summary: Registrar defini??o de transporte
       operationId: registerTransport
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3869,21 +4557,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TransportDefinitionResponse'
-
-  /transports/{id}/health:
+  /v1/control-plane/transports/{transport_id}/health:
     get:
-      tags: [Transports]
+      tags:
+      - Transports
       summary: Healthcheck do transporte
       operationId: getTransportHealth
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: transport_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Status de saúde
@@ -3891,15 +4579,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TransportHealthResponse'
-
-  # ============ EXPANSÃO: TOKENS ============
-  /tokens:
+  /v1/control-plane/tokens:
+    get:
+      tags:
+      - Tokens
+      summary: Listar metadados seguros de tokens de acesso locais (sem segredo nem hash)
+      operationId: listTokens
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Lista de tokens cadastrados
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TokenSummaryResponse'
     post:
-      tags: [Tokens]
+      tags:
+      - Tokens
       summary: Emitir token local
       operationId: createToken
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3913,21 +4616,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenResponse'
-
-  /tokens/{id}/revoke:
+  /v1/control-plane/tokens/{token_id}/revoke:
     post:
-      tags: [Tokens]
+      tags:
+      - Tokens
       summary: Revogar token
       operationId: revokeToken
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: token_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Token revogado
@@ -3935,50 +4638,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenResponse'
-
-  # ============ INFERENCE (OpenAI Compatible) ============
-  /chat/completions:
-    post:
-      tags: [Inference]
-      summary: Proxy de inferência compatível OpenAI
-      operationId: chatCompletions
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ChatCompletionRequest'
-      responses:
-        '200':
-          description: Resposta do modelo
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatCompletionResponse'
-        '400':
-          description: Parâmetros inválidos
-        '422':
-          description: Modelo não suporta ferramentas/parâmetros solicitados
-        '503':
-          description: Nenhum provedor disponível
-
-  # ============ PR PACKAGE ============
-  /runs/{id}/pr-package:
+  /v1/control-plane/runs/{run_id}/pr-package:
     get:
-      tags: [Runs]
+      tags:
+      - Runs
       summary: Obter pacote de PR gerado
       operationId: getPRPackage
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Pacote PR
@@ -3987,17 +4661,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/PRPackageResponse'
     post:
-      tags: [Runs]
+      tags:
+      - Runs
       summary: Construir pacote de PR para o run
       operationId: buildPRPackage
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
       requestBody:
         required: false
         content:
@@ -4005,8 +4680,11 @@ paths:
             schema:
               type: object
               properties:
-                pr_branch: {type: string}
-                create_git_branch: {type: boolean, default: true}
+                pr_branch:
+                  type: string
+                create_git_branch:
+                  type: boolean
+                  default: true
       responses:
         '201':
           description: Pacote de PR criado
@@ -4015,13 +4693,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/PRPackageResponse'
         '409':
-          description: Pacote de PR j? existe
+          description: Política de publicação não autorizada
         '404':
           description: Run não encontrada ou pacote não gerado
-        '409':
-          description: Política de publicação não autorizada
-
-  /runs/{run_id}/sessions:
+  /v1/control-plane/runs/{run_id}/sessions:
     post:
       summary: Create Session Endpoint
       operationId: create_session_endpoint_v1_control_plane_runs__run_id__sessions_post
@@ -4072,7 +4747,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /runs/{run_id}/sessions/{session_id}:
+  /v1/control-plane/runs/{run_id}/sessions/{session_id}:
     get:
       summary: Get Session Endpoint
       operationId: get_session_endpoint_v1_control_plane_runs__run_id__sessions__session_id__get
@@ -4101,7 +4776,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /runs/{run_id}/sessions/{session_id}/state:
+  /v1/control-plane/runs/{run_id}/sessions/{session_id}/state:
     post:
       summary: Transition Session Endpoint
       operationId: transition_session_endpoint_v1_control_plane_runs__run_id__sessions__session_id__state_post
@@ -4136,7 +4811,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /runs/{run_id}/sessions/{session_id}/threads:
+  /v1/control-plane/runs/{run_id}/sessions/{session_id}/threads:
     post:
       summary: Create Thread Endpoint
       operationId: create_thread_endpoint_v1_control_plane_runs__run_id__sessions__session_id__threads_post
@@ -4199,7 +4874,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /runs/{run_id}/sessions/{session_id}/threads/{thread_id}/state:
+  /v1/control-plane/runs/{run_id}/sessions/{session_id}/threads/{thread_id}/state:
     post:
       summary: Transition Thread Endpoint
       operationId: transition_thread_endpoint_v1_control_plane_runs__run_id__sessions__session_id__threads__thread_id__state_post
@@ -4240,7 +4915,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /runs/{run_id}/sessions/{session_id}/threads/{thread_id}/messages:
+  /v1/control-plane/runs/{run_id}/sessions/{session_id}/threads/{thread_id}/messages:
     post:
       summary: Append Thread Message Endpoint
       operationId: append_thread_message_endpoint_v1_control_plane_runs__run_id__sessions__session_id__threads__thread_id__messages_post
@@ -4289,8 +4964,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-
-  /runs/{run_id}/interventions:
+  /v1/control-plane/runs/{run_id}/interventions:
     post:
       summary: Request Intervention Endpoint
       operationId: request_intervention_endpoint_v1_control_plane_runs__run_id__interventions_post
@@ -4347,15 +5021,14 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/HitlRequest'
-                title: Response List Interventions Endpoint V1 Control Plane Runs  Run
-                  Id  Interventions Get
+                title: Response List Interventions Endpoint V1 Control Plane Runs  Run Id  Interventions Get
         '422':
           description: Validation Error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /runs/{run_id}/interventions/{request_id}:
+  /v1/control-plane/runs/{run_id}/interventions/{request_id}:
     get:
       summary: Get Intervention Endpoint
       operationId: get_intervention_endpoint_v1_control_plane_runs__run_id__interventions__request_id__get
@@ -4385,7 +5058,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /runs/{run_id}/interventions/{request_id}/response:
+  /v1/control-plane/runs/{run_id}/interventions/{request_id}/response:
     post:
       summary: Respond Intervention Endpoint
       operationId: respond_intervention_endpoint_v1_control_plane_runs__run_id__interventions__request_id__response_post
@@ -4429,12 +5102,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /bootstrap:
+  /v1/control-plane/bootstrap:
     get:
       summary: Consultar metadados e capabilities do control plane
       operationId: controlPlaneBootstrap
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Capabilities atuais do control plane
@@ -4442,259 +5115,325 @@ paths:
             application/json:
               schema:
                 type: object
-  /workspaces/{id}/archive:
+  /v1/control-plane/workspaces/{workspace_id}/archive:
     post:
-      tags: [Workspaces]
+      tags:
+      - Workspaces
       summary: Arquivar workspace
       operationId: archiveWorkspace
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [expected_revision]
+              required:
+              - expected_revision
               properties:
-                expected_revision: {type: integer, minimum: 1}
+                expected_revision:
+                  type: integer
+                  minimum: 1
       responses:
         '200':
           description: Workspace arquivado
         '409':
-          description: Conflito de revis?o ou estado
-  /projects/{id}/adopt:
+          description: Conflito de revisão ou estado
+  /v1/control-plane/projects/{project_id}/adopt:
     post:
-      tags: [Workspaces]
+      tags:
+      - Workspaces
       summary: Adotar projeto legado em workspace
       operationId: adoptProject
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [workspace_id, expected_revision]
+              required:
+              - workspace_id
+              - expected_revision
               properties:
-                workspace_id: {type: string}
-                expected_revision: {type: integer, minimum: 1}
-                base_branch: {type: string, default: main}
+                workspace_id:
+                  type: string
+                expected_revision:
+                  type: integer
+                  minimum: 1
+                base_branch:
+                  type: string
+                  default: main
       responses:
         '200':
           description: Projeto adotado
-  /repositories/{id}/grant:
+  /v1/control-plane/repositories/{repository_id}/grant:
     post:
-      tags: [Workspaces]
-      summary: Conceder autoriza??o em reposit?rio
+      tags:
+      - Workspaces
+      summary: Conceder autorização em repositório
       operationId: grantRepository
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: repository_id
+        in: path
+        required: true
+        schema:
+          type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [authorized_principal_id, scopes]
+              required:
+              - authorized_principal_id
+              - scopes
               properties:
-                authorized_principal_id: {type: string}
-                scopes: {type: array, items: {type: string}}
+                authorized_principal_id:
+                  type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
       responses:
         '201':
           description: Autoriza??o concedida
-  /repositories/{id}/revoke:
+  /v1/control-plane/repositories/{repository_id}/revoke:
     post:
-      tags: [Workspaces]
-      summary: Revogar autoriza??o em reposit?rio
+      tags:
+      - Workspaces
+      summary: Revogar autorização em repositório
       operationId: revokeRepository
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: repository_id
+        in: path
+        required: true
+        schema:
+          type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [authorization_id]
+              required:
+              - authorization_id
               properties:
-                authorization_id: {type: string}
+                authorization_id:
+                  type: string
       responses:
         '200':
           description: Autoriza??o revogada
-  /agents/{id}/certificate:
+  /v1/control-plane/agents/{agent_id}/certificate:
     post:
-      tags: [Agents]
+      tags:
+      - Agents
       summary: Importar certificado de driver de agente
       operationId: importAgentCertificate
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [report_path]
+              required:
+              - report_path
               properties:
-                report_path: {type: string}
+                report_path:
+                  type: string
       responses:
         '201':
           description: Certificado importado
-  /skills/{id}/revoke:
+  /v1/control-plane/skills/{skill_id}/revoke:
     post:
-      tags: [Discovery]
+      tags:
+      - Discovery
       summary: Revogar skill registrada
       operationId: revokeSkill
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Skill revogada
-  /mcps/{id}/revoke:
+  /v1/control-plane/mcps/{mcp_id}/revoke:
     post:
-      tags: [Discovery]
+      tags:
+      - Discovery
       summary: Revogar MCP registrado
       operationId: revokeMcp
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: mcp_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: MCP revogado
-  /secrets:
+  /v1/control-plane/secrets:
     get:
-      tags: [Discovery]
-      summary: Listar refer?ncias de segredos (sem valores)
+      tags:
+      - Discovery
+      summary: Listar referências de segredos (sem valores)
       operationId: listSecretRefs
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Lista de SecretRefs
     post:
-      tags: [Discovery]
-      summary: Registrar refer?ncia l?gica de segredo (recusa valor bruto)
+      tags:
+      - Discovery
+      summary: Registrar referência lógica de segredo (recusa valor bruto)
       operationId: createSecretRef
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [secret_name, provider_type, source_key]
+              required:
+              - secret_name
+              - provider_type
+              - source_key
               properties:
-                secret_name: {type: string}
-                provider_type: {type: string, enum: [env, vault, keyring]}
-                source_key: {type: string}
-                secret_id: {type: string}
+                secret_name:
+                  type: string
+                provider_type:
+                  type: string
+                  enum:
+                  - env
+                  - vault
+                  - keyring
+                source_key:
+                  type: string
+                secret_id:
+                  type: string
       responses:
         '201':
           description: SecretRef registrada
         '400':
-          description: Valor bruto ou chave inv?lida rejeitada
-  /secrets/{id}/revoke:
+          description: Valor bruto ou chave inválida rejeitada
+  /v1/control-plane/secrets/{secret_id}/revoke:
     post:
-      tags: [Discovery]
+      tags:
+      - Discovery
       summary: Revogar SecretRef
       operationId: revokeSecretRef
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: secret_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: SecretRef revogada
-  /preferences/revert:
+  /v1/control-plane/preferences/revert:
     post:
-      tags: [Preferences]
-      summary: Reverter prefer?ncia para vers?o anterior
+      tags:
+      - Preferences
+      summary: Reverter preferência para versão anterior
       operationId: revertPreference
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [scope_type, scope_id, key]
+              required:
+              - scope_type
+              - scope_id
+              - key
               properties:
-                scope_type: {type: string, enum: [user, area, project]}
-                scope_id: {type: string}
-                key: {type: string}
-                target_version: {type: integer}
-                expected_version: {type: integer}
+                scope_type:
+                  type: string
+                  enum:
+                  - user
+                  - area
+                  - project
+                scope_id:
+                  type: string
+                key:
+                  type: string
+                target_version:
+                  type: integer
+                expected_version:
+                  type: integer
       responses:
         '200':
-          description: Prefer?ncia revertida
-  /runs/{run_id}/preferences/snapshot:
+          description: Preferência revertida
+  /v1/control-plane/runs/{run_id}/preferences/snapshot:
     post:
-      tags: [Preferences]
-      summary: Gerar snapshot imut?vel de prefer?ncias para o run
+      tags:
+      - Preferences
+      summary: Gerar snapshot imutável de preferências para o run
       operationId: snapshotRunPreferences
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '201':
           description: Snapshot criado
-  /transports/{id}/certify:
+  /v1/control-plane/transports/{transport_id}/certify:
     post:
-      tags: [Transports]
-      summary: Certificar transporte com relat?rio assinado pelo operador
+      tags:
+      - Transports
+      summary: Certificar transporte com relatório assinado pelo operador
       operationId: certifyTransport
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: transport_id
+        in: path
+        required: true
+        schema:
+          type: string
       requestBody:
         required: true
         content:
@@ -4704,317 +5443,361 @@ paths:
       responses:
         '201':
           description: Transporte certificado
-  /runs/{run_id}/conflicts:
+  /v1/control-plane/runs/{run_id}/conflicts:
     get:
-      tags: [Runs]
-      summary: Listar relat?rios de conflito do run
+      tags:
+      - Runs
+      summary: Listar relatórios de conflito do run
       operationId: listRunConflicts
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Lista de conflitos
-  /runs/{run_id}/conflicts/{conflict_id}/auto-repair:
+  /v1/control-plane/runs/{run_id}/conflicts/{conflict_id}/auto-repair:
     post:
-      tags: [Runs]
+      tags:
+      - Runs
       summary: Executar auto-repair em conflito isolado
       operationId: autoRepairConflict
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema: {type: string}
-        - name: conflict_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: conflict_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Resultado do auto-repair
-  /runs/{run_id}/conflicts/{conflict_id}/manual:
+  /v1/control-plane/runs/{run_id}/conflicts/{conflict_id}/manual:
     post:
-      tags: [Runs]
+      tags:
+      - Runs
       summary: Registrar resolu??o manual de conflito
       operationId: manualResolveConflict
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema: {type: string}
-        - name: conflict_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: conflict_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Conflito marcado/resolvido manualmente
-  /runs/{run_id}/conflicts/{conflict_id}/discard:
+  /v1/control-plane/runs/{run_id}/conflicts/{conflict_id}/discard:
     post:
-      tags: [Runs]
+      tags:
+      - Runs
       summary: Descartar tentativa conflitante
       operationId: discardConflict
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema: {type: string}
-        - name: conflict_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: conflict_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Conflito descartado
-  /runs/{run_id}/budget:
+  /v1/control-plane/runs/{run_id}/budget:
     get:
-      tags: [Runs]
-      summary: Consultar status audit?vel de or?amento do run
+      tags:
+      - Runs
+      summary: Consultar status auditável de orçamento do run
       operationId: getRunBudget
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
-          description: Status de or?amento
-  /runs/{run_id}/budget/extend:
+          description: Status de orçamento
+  /v1/control-plane/runs/{run_id}/budget/extend:
     post:
-      tags: [Runs]
-      summary: Aprovar ou negar extens?o de or?amento do run
+      tags:
+      - Runs
+      summary: Aprovar ou negar extensão de orçamento do run
       operationId: extendRunBudget
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
-          description: Decis?o de or?amento aplicada
+          description: Decisão de orçamento aplicada
         '409':
-          description: Or?amento j? exaurido
-  /runs/{run_id}/pr-package/publish:
+          description: Orçamento já exaurido
+  /v1/control-plane/runs/{run_id}/pr-package/publish:
     post:
-      tags: [Runs]
-      summary: Publicar pacote de PR (exige autoriza??o expl?cita)
+      tags:
+      - Runs
+      summary: Publicar pacote de PR (exige autorização explícita)
       operationId: publishPRPackage
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Pacote publicado
         '403':
           description: Publicação não autorizada
-  /omniroute/inventory:
+  /v1/control-plane/omniroute/inventory:
     get:
-      tags: [OmniRoute]
+      tags:
+      - OmniRoute
       summary: Consultar inventário de modelos, contas, quotas 5h e overrides OmniRoute
       operationId: getOmniRouteInventory
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: scope_id
-          in: query
-          schema: {type: string, default: default}
+      - name: scope_id
+        in: query
+        schema:
+          type: string
+          default: default
       responses:
         '200':
           description: Inventário não-secreto do gateway e modo direto
-  /omniroute/account:
+  /v1/control-plane/omniroute/account:
     post:
-      tags: [OmniRoute]
+      tags:
+      - OmniRoute
       summary: Selecionar conta de provedor para próximas execuções sem mutar runs ativas
       operationId: selectOmniRouteAccount
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Preferência de conta persistida para a próxima run
         '409':
           description: Conta indisponível no gateway
-  /pty/sessions:
+  /v1/control-plane/pty/sessions:
     get:
-      tags: [PTY]
+      tags:
+      - PTY
       summary: Listar sessões PTY ativas ou preservadas
       operationId: listPtySessions
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Lista de sessões PTY
     post:
-      tags: [PTY]
+      tags:
+      - PTY
       summary: Abrir nova sessão PTY interativa isolada em cwd autorizado
       operationId: openPtySession
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '201':
           description: Sessão PTY iniciada
         '400':
           description: Caminho cwd ou comando inválido
-  /pty/sessions/{session_id}:
+  /v1/control-plane/pty/sessions/{session_id}:
     get:
-      tags: [PTY]
+      tags:
+      - PTY
       summary: Consultar metadados e estado de uma sessão PTY
       operationId: getPtySession
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Estado da sessão PTY
         '404':
           description: Sessão não encontrada
-  /pty/sessions/{session_id}/input:
+  /v1/control-plane/pty/sessions/{session_id}/input:
     post:
-      tags: [PTY]
+      tags:
+      - PTY
       summary: Enviar entrada interativa para sessão PTY em execução
       operationId: writePtyInput
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Bytes gravados na sessão PTY
         '409':
           description: Sessão PTY encerrada
-  /pty/sessions/{session_id}/resize:
+  /v1/control-plane/pty/sessions/{session_id}/resize:
     post:
-      tags: [PTY]
+      tags:
+      - PTY
       summary: Redimensionar dimensões cols/rows da sessão PTY
       operationId: resizePtySession
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Dimensões atualizadas
-  /pty/sessions/{session_id}/interrupt:
+  /v1/control-plane/pty/sessions/{session_id}/interrupt:
     post:
-      tags: [PTY]
+      tags:
+      - PTY
       summary: Enviar interrupção SIGINT/CTRL_BREAK para a sessão PTY
       operationId: interruptPtySession
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Interrupção entregue
-  /pty/sessions/{session_id}/output:
+  /v1/control-plane/pty/sessions/{session_id}/output:
     get:
-      tags: [PTY]
+      tags:
+      - PTY
       summary: Ler chunks PTY acumulados após cursor after_seq
       operationId: readPtyOutput
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema: {type: string}
-        - name: after_seq
-          in: query
-          schema: {type: integer, default: 0}
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: after_seq
+        in: query
+        schema:
+          type: integer
+          default: 0
       responses:
         '200':
           description: Chunks e snapshot da sessão PTY
         '410':
           description: Cursor expirado do ring buffer
-  /pty/sessions/{session_id}/stream:
+  /v1/control-plane/pty/sessions/{session_id}/stream:
     get:
-      tags: [PTY]
+      tags:
+      - PTY
       summary: Acompanhar saída PTY via SSE com replay por after_seq/Last-Event-ID
       operationId: streamPtyOutput
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema: {type: string}
-        - name: after_seq
-          in: query
-          schema: {type: integer}
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: after_seq
+        in: query
+        schema:
+          type: integer
       responses:
         '200':
           description: Stream SSE text/event-stream de chunks PTY
-  /pty/sessions/{session_id}/close:
+  /v1/control-plane/pty/sessions/{session_id}/close:
     post:
-      tags: [PTY]
+      tags:
+      - PTY
       summary: Fechar sessão PTY optando por manter em segundo plano ou encerrar árvore
       operationId: closePtySession
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Sessão desconectada ou encerrada sem órfãos
-  /sessions/{session_id}/attachments:
+  /v1/control-plane/sessions/{session_id}/attachments:
     get:
-      tags: [Attachments]
+      tags:
+      - Attachments
       summary: Listar AttachmentRef pertencentes à sessão
       operationId: listSessionAttachments
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Lista de anexos escopados
     post:
-      tags: [Attachments]
+      tags:
+      - Attachments
       summary: Enviar anexo seguro validado por MIME/tamanho/SHA-256
       operationId: createSessionAttachment
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '201':
           description: Anexo gravado com SHA-256
@@ -5022,43 +5805,49 @@ paths:
           description: Anexo excede o tamanho máximo
         '422':
           description: Tipo de arquivo proibido ou inválido
-  /sessions/{session_id}/attachments/{attachment_id}/confirm-transfer:
+  /v1/control-plane/sessions/{session_id}/attachments/{attachment_id}/confirm-transfer:
     post:
-      tags: [Attachments]
+      tags:
+      - Attachments
       summary: Confirmar transferência explícita de anexo para host remoto
       operationId: confirmSessionAttachmentTransfer
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema: {type: string}
-        - name: attachment_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Transferência confirmada
         '403':
           description: Anexo pertence a outra sessão
-  /runs/{run_id}/artifacts/{artifact_id}/content:
+  /v1/control-plane/runs/{run_id}/artifacts/{artifact_id}/content:
     get:
-      tags: [Artifacts]
+      tags:
+      - Artifacts
       summary: Obter preview seguro de artefato da run (com isolamento anti-XSS e traversal)
       operationId: getRunArtifactContent
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema: {type: string}
-        - name: artifact_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: artifact_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Conteúdo sanitizado ou metadados de tipo não suportado
@@ -5066,163 +5855,184 @@ paths:
           description: Run ou artefato não encontrado
         '413':
           description: Artefato excede o limite de preview
-  /search:
+  /v1/control-plane/search:
     get:
-      tags: [Search]
+      tags:
+      - Search
       summary: Busca global QuickOpen em áreas, workspaces, projetos, runs, sessões e artefatos
       operationId: globalSearch
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: q
-          in: query
-          schema: {type: string, default: ""}
-        - name: scope
-          in: query
-          schema: {type: string}
-        - name: limit
-          in: query
-          schema: {type: integer, default: 25}
+      - name: q
+        in: query
+        schema:
+          type: string
+          default: ''
+      - name: scope
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 25
       responses:
         '200':
           description: Resultados indexados com contexto de navegação
-  /automations:
+  /v1/control-plane/automations:
     get:
-      tags: [Automations]
+      tags:
+      - Automations
       summary: Listar agendas duráveis AutomationSchedule
       operationId: listAutomations
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Lista de agendas
     post:
-      tags: [Automations]
+      tags:
+      - Automations
       summary: Criar agenda durável com cron ou intervalo e fuso IANA
       operationId: createAutomation
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '201':
           description: Agenda criada
         '400':
           description: Expressão cron ou timezone inválidos
-  /automations/tick:
+  /v1/control-plane/automations/tick:
     post:
-      tags: [Automations]
+      tags:
+      - Automations
       summary: Avaliar agendas vencidas e despachar com idempotência por ocorrência
       operationId: tickAutomations
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       responses:
         '200':
           description: Resultado dos disparos avaliados
-  /automations/{schedule_id}:
+  /v1/control-plane/automations/{schedule_id}:
     get:
-      tags: [Automations]
+      tags:
+      - Automations
       summary: Consultar agenda durável por ID
       operationId: getAutomation
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: schedule_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: schedule_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Detalhes da agenda
     put:
-      tags: [Automations]
+      tags:
+      - Automations
       summary: Atualizar configuração da agenda durável
       operationId: updateAutomation
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: schedule_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: schedule_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Agenda atualizada
     delete:
-      tags: [Automations]
+      tags:
+      - Automations
       summary: Remover agenda durável
       operationId: deleteAutomation
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: schedule_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: schedule_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Agenda removida
-  /automations/{schedule_id}/pause:
+  /v1/control-plane/automations/{schedule_id}/pause:
     post:
-      tags: [Automations]
+      tags:
+      - Automations
       summary: Pausar agenda durável
       operationId: pauseAutomation
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: schedule_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: schedule_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Agenda pausada
-  /automations/{schedule_id}/resume:
+  /v1/control-plane/automations/{schedule_id}/resume:
     post:
-      tags: [Automations]
+      tags:
+      - Automations
       summary: Retomar agenda durável
       operationId: resumeAutomation
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: schedule_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: schedule_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Agenda retomada
-  /automations/{schedule_id}/trigger:
+  /v1/control-plane/automations/{schedule_id}/trigger:
     post:
-      tags: [Automations]
+      tags:
+      - Automations
       summary: Disparar agenda imediatamente com histórico rastreável
       operationId: triggerAutomation
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: schedule_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: schedule_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Disparo registrado
-  /automations/{schedule_id}/runs:
+  /v1/control-plane/automations/{schedule_id}/runs:
     get:
-      tags: [Automations]
+      tags:
+      - Automations
       summary: Listar histórico de disparos e falhas de uma agenda
       operationId: listAutomationRuns
       security:
-        - BearerAuth: []
+      - BearerAuth: []
       parameters:
-        - name: schedule_id
-          in: path
-          required: true
-          schema: {type: string}
+      - name: schedule_id
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Histórico de disparos
-
-  # Conversas: escolhas por envio e coordenação em cópia isolada.
-  /conversation-agents:
+  /v1/control-plane/conversation-agents:
     get:
       summary: Conversation Agents
       operationId: conversation_agents_v1_control_plane_conversation_agents_get
@@ -5232,7 +6042,7 @@ paths:
           content:
             application/json:
               schema: {}
-  /conversations:
+  /v1/control-plane/conversations:
     post:
       summary: Create Conversation
       operationId: create_conversation_v1_control_plane_conversations_post
@@ -5304,7 +6114,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /omniroute/combos:
+  /v1/control-plane/omniroute/combos:
     get:
       summary: Conversation Route Catalog
       operationId: conversation_route_catalog_v1_control_plane_omniroute_combos_get
@@ -5348,7 +6158,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /conversation-routes/verify:
+  /v1/control-plane/conversation-routes/verify:
     post:
       summary: Certify Conversation Route
       operationId: certify_conversation_route_v1_control_plane_conversation_routes_verify_post
@@ -5370,7 +6180,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /conversation-routes/describe:
+  /v1/control-plane/conversation-routes/describe:
     post:
       summary: Describe Conversation Route
       operationId: describe_conversation_route_v1_control_plane_conversation_routes_describe_post
@@ -5392,7 +6202,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /conversation-routes/connection:
+  /v1/control-plane/conversation-routes/connection:
     get:
       summary: Get Conversation Connection
       operationId: get_conversation_connection_v1_control_plane_conversation_routes_connection_get
@@ -5423,7 +6233,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /conversations/{conversation_id}/route:
+  /v1/control-plane/conversations/{conversation_id}/route:
     patch:
       summary: Change Conversation Route
       operationId: change_conversation_route_v1_control_plane_conversations__conversation_id__route_patch
@@ -5452,7 +6262,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /conversations/{conversation_id}:
+  /v1/control-plane/conversations/{conversation_id}:
     get:
       summary: Conversation Snapshot
       operationId: conversation_snapshot_v1_control_plane_conversations__conversation_id__get
@@ -5475,7 +6285,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /conversations/{conversation_id}/messages:
+  /v1/control-plane/conversations/{conversation_id}/messages:
     post:
       summary: Send Conversation Message
       operationId: send_conversation_message_v1_control_plane_conversations__conversation_id__messages_post
@@ -5504,7 +6314,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /conversations/{conversation_id}/turns/{turn_id}/cancel:
+  /v1/control-plane/conversations/{conversation_id}/turns/{turn_id}/cancel:
     post:
       summary: Cancel Conversation Turn
       operationId: cancel_conversation_turn_v1_control_plane_conversations__conversation_id__turns__turn_id__cancel_post
@@ -5533,7 +6343,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /conversations/{conversation_id}/events:
+  /v1/control-plane/conversations/{conversation_id}/events:
     get:
       summary: Conversation Event Stream
       operationId: conversation_event_stream_v1_control_plane_conversations__conversation_id__events_get
@@ -5572,3 +6382,110 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /v1/control-plane/runs/{run_id}/discard:
+    post:
+      tags:
+      - Runs
+      summary: Descartar worktrees efêmeras de uma run preservando histórico de auditoria
+      operationId: discardRun
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunDiscardPayload'
+      responses:
+        '200':
+          description: Runtime descartado com sucesso
+        '404':
+          description: Run não encontrada
+        '409':
+          description: Worktree suja preservada sem force=true
+  /v1/control-plane/workspaces/{workspace_id}:
+    put:
+      tags:
+      - Workspaces
+      summary: Atualizar nome e metadados de um workspace
+      operationId: updateWorkspace
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceUpdatePayload'
+      responses:
+        '200':
+          description: Workspace atualizado
+        '404':
+          description: Workspace não encontrado
+        '409':
+          description: Conflito otimista de revisão ou workspace arquivado
+    delete:
+      tags:
+      - Workspaces
+      summary: Remover um workspace vazio
+      operationId: deleteWorkspace
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: expected_revision
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Workspace removido
+        '404':
+          description: Workspace não encontrado
+        '409':
+          description: Workspace possui projetos vinculados ou conflito de revisão
+  /v1/control-plane/conversations/{conversation_id}/apply:
+    post:
+      tags:
+      - Conversations
+      summary: Aplicar alterações da cópia isolada da conversa de volta ao projeto original (3-way sync / Git merge)
+      operationId: applyConversationChanges
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationApplyPayload'
+      responses:
+        '200':
+          description: Alterações sincronizadas com o projeto original
+        '404':
+          description: Conversa ou projeto não encontrado
+        '409':
+          description: Conflito detectado com edições externas no projeto original

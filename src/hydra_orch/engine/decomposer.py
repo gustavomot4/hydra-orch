@@ -122,7 +122,7 @@ class TaskDecomposer:
                 dependencies=list(deps),
                 estimated_tokens=3000,
                 assigned_logical_model=self.logical_roles.get("docs_and_review", "context_and_docs"),
-                target_files=["doc/", "README.md", "openapi.json"],
+                target_files=["doc/", "README.md"],
                 forbidden_files=list(LOCKED_DEPENDENCY_MANIFESTS),
             ),
         ])

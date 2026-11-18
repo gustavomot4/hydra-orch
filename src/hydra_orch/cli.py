@@ -6,30 +6,37 @@ import asyncio
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
+import inspect as _py_inspect
+import io
 import json
 import os
 from pathlib import Path
 import secrets
+import shlex
 import shutil
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+import sys
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
 import uuid
 
-from pydantic import BaseModel, ValidationError
+import httpx
+from pydantic import BaseModel, TypeAdapter, ValidationError
 import typer
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
+from rich.markup import escape as rich_escape
 from rich.panel import Panel
 from rich.table import Table
 
-from hydra_orch.config import ConfigError, load_config
+from hydra_orch.config import ConfigError, HydraConfig, load_config
 from hydra_orch.core.checkpointer import (
+    ExecutionStore,
     IdempotencyConflictError,
     OptimisticLockError,
     StorageError,
     StorageIntegrityError,
 )
-from hydra_orch.core.git_workspace import GitWorkspaceError
+from hydra_orch.core.git_workspace import GitWorkspaceError, GitWorkspaceService
 from hydra_orch.core.identifier import new_id
 from hydra_orch.core.redaction import redact, redact_text, redaction_scope
 from hydra_orch.core.router import HydraRouter
@@ -41,10 +48,30 @@ from hydra_orch.model import (
     CheckSpec,
     ContractViolation,
     IntegrationStatus,
+    RelativePath,
     RunSpec,
     TaskSpec,
 )
 from hydra_orch.server import get_run_service
+
+_DEFAULT_SERVER_GET_RUN_SERVICE = get_run_service
+_ACTIVE_CONFIG_PATH: Optional[Path] = None
+_CLI_SERVICE_CACHE: Dict[tuple[str, str], RunService] = {}
+
+
+def _ensure_utf8_streams() -> None:
+    """Safely configure UTF-8 output on redirected/Windows consoles without breaking test streams."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
+                pass
+
+
+_ensure_utf8_streams()
 
 app = typer.Typer(
     name="hydra",
@@ -52,6 +79,58 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+
+
+@app.callback()
+def _main_callback(
+    config: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        "-c",
+        envvar="HYDRA_CONFIG",
+        help="Path to Hydra YAML configuration file (or HYDRA_CONFIG)",
+    ),
+) -> None:
+    """Configure UTF-8 console output and optional explicit --config file."""
+    global _ACTIVE_CONFIG_PATH
+    _ensure_utf8_streams()
+    if config is None or not str(config).strip():
+        _ACTIVE_CONFIG_PATH = None
+        return
+
+    as_json = "--json" in sys.argv
+    resolved = Path(config).expanduser()
+    if not resolved.is_file():
+        _handle_cli_exception(
+            ConfigError(f"Configuration file not found: {resolved}"),
+            as_json=as_json,
+        )
+    resolved = resolved.resolve()
+    os.environ["HYDRA_CONFIG"] = str(resolved)
+    _ACTIVE_CONFIG_PATH = resolved
+    try:
+        import hydra_orch.config as _cfg_mod
+
+        if load_config is _cfg_mod.load_config:
+            loaded = _cfg_mod.load_config(resolved, reload=True)
+        else:
+            try:
+                loaded = load_config(resolved, reload=True)
+            except TypeError:
+                try:
+                    loaded = load_config(resolved)
+                except TypeError:
+                    loaded = load_config()
+        _cfg_mod._CONFIG_CACHE = loaded
+        _cfg_mod._CONFIG_CACHE_PATH = resolved
+        try:
+            import hydra_orch.server as _srv_mod
+
+            _srv_mod.config = loaded
+        except Exception:
+            pass
+    except Exception as exc:
+        _handle_cli_exception(exc, as_json=as_json)
 
 
 def _to_jsonable(value: Any) -> Any:
@@ -243,9 +322,120 @@ def _parse_json_value(raw: str) -> Any:
         return raw
 
 
+def _load_active_config() -> HydraConfig:
+    explicit_path = _ACTIVE_CONFIG_PATH
+    if explicit_path is None:
+        env_cfg = os.environ.get("HYDRA_CONFIG", "").strip()
+        if env_cfg:
+            explicit_path = Path(env_cfg).expanduser()
+    if explicit_path is not None:
+        try:
+            return load_config(explicit_path)
+        except TypeError:
+            return load_config()
+    return load_config()
+
+
+def _parse_repair_command(
+    repair_command: Optional[str],
+    repair_args: Optional[Sequence[str]] = None,
+) -> Optional[List[str]]:
+    tokens: List[str] = []
+    if repair_command is not None and repair_command.strip():
+        raw_tokens = shlex.split(repair_command.strip(), posix=(os.name != "nt"))
+        if os.name == "nt":
+            cleaned: List[str] = []
+            for tok in raw_tokens:
+                if len(tok) >= 2 and tok[0] == tok[-1] and tok[0] in {'"', "'"}:
+                    quote = tok[0]
+                    inner = tok[1:-1]
+                    if quote == '"':
+                        inner = inner.replace('\\"', '"')
+                    cleaned.append(inner)
+                else:
+                    cleaned.append(tok)
+            tokens.extend(cleaned)
+        else:
+            tokens.extend(raw_tokens)
+    if repair_args:
+        tokens.extend(str(arg) for arg in repair_args)
+    return tokens if tokens else None
+
+
+class _DetachedCliRunService(RunService):
+    """CWD-independent RunService when the operator invokes Hydra outside a Git repository."""
+
+    def __init__(
+        self,
+        base_dir: Path,
+        *,
+        store: Optional[ExecutionStore] = None,
+        runtime_dir: Optional[Path] = None,
+    ) -> None:
+        from hydra_orch.bridge.worker_runner import WorkerRunner
+        from hydra_orch.core.budget import BudgetGovernor
+        from hydra_orch.core.run_service import CheckRunner
+
+        resolved_base = Path(os.path.realpath(base_dir))
+        rt_dir = Path(os.path.realpath(runtime_dir or (resolved_base / ".orchestrator")))
+        self.repo_root = resolved_base
+        self.runtime_dir = rt_dir
+        self.store = store or ExecutionStore(db_path=rt_dir / "checkpoints.sqlite")
+        self.git_workspace = None  # type: ignore[assignment]
+        self.worker_runner = WorkerRunner()
+        self.check_runner = CheckRunner(repo_root=resolved_base, runtime_dir=rt_dir)
+        self._workspaces_by_root = {}
+        self._check_runners_by_root = {os.path.normcase(str(resolved_base)): self.check_runner}
+        self._project_meta = {}
+        self.budget_governor = BudgetGovernor(self.store)
+
+
 def get_cli_run_service() -> RunService:
-    """Resolve the active CLI RunService instance (local mode)."""
-    return get_run_service()
+    """Resolve the active CLI RunService instance without crashing outside a Git repository."""
+    if get_run_service is not _DEFAULT_SERVER_GET_RUN_SERVICE:
+        return get_run_service()
+
+    import hydra_orch.server as _srv_mod
+
+    if _srv_mod._run_service is not None:
+        return _srv_mod._run_service
+
+    try:
+        cfg = _load_active_config()
+        state_db_rel = cfg.hydra.state_db
+    except Exception:
+        state_db_rel = ".orchestrator/checkpoints.sqlite"
+
+    cwd_real = Path(os.path.realpath(Path.cwd()))
+    try:
+        repo_root = GitWorkspaceService.resolve_repo_root(cwd_real)
+        db_candidate = Path(state_db_rel)
+        db_path = db_candidate if db_candidate.is_absolute() else (repo_root / db_candidate)
+        rt_dir = db_path.parent
+        cache_key = ("git", os.path.normcase(str(repo_root)) + "::" + os.path.normcase(str(db_path)))
+        cached = _CLI_SERVICE_CACHE.get(cache_key)
+        if cached is None:
+            cached = RunService(
+                repo_root=repo_root,
+                store=ExecutionStore(db_path=db_path),
+                runtime_dir=rt_dir,
+            )
+            _CLI_SERVICE_CACHE[cache_key] = cached
+        return cached
+    except (GitWorkspaceError, ContractViolation):
+        db_candidate = Path(state_db_rel)
+        db_path = db_candidate if db_candidate.is_absolute() else (cwd_real / db_candidate)
+        rt_dir = db_path.parent
+        cache_key = ("detached", os.path.normcase(str(cwd_real)) + "::" + os.path.normcase(str(db_path)))
+        cached = _CLI_SERVICE_CACHE.get(cache_key)
+        if cached is None:
+            cached = _DetachedCliRunService(
+                cwd_real,
+                store=ExecutionStore(db_path=db_path),
+                runtime_dir=rt_dir,
+            )
+            _CLI_SERVICE_CACHE[cache_key] = cached
+        return cached
 
 
 def _launch_tui(
@@ -264,8 +454,8 @@ def _launch_tui(
     from hydra_orch.tui import run_cockpit
 
     resolved_principal = _default_principal(principal_id)
-    svc = None if api_url else get_cli_run_service()
     try:
+        svc = None if api_url else get_cli_run_service()
         run_cockpit(
             run_service=svc,
             api_url=api_url,
@@ -279,6 +469,8 @@ def _launch_tui(
             script=script,
             max_steps=max_steps,
         )
+    except typer.Exit:
+        raise
     except Exception as exc:
         _handle_cli_exception(exc, as_json=False)
 
@@ -290,14 +482,46 @@ def _run_cli_action(
     output_file: Optional[Path] = None,
     render_summary: Optional[Callable[[Any], str]] = None,
 ) -> Any:
-    svc = get_run_service()
     try:
+        svc = get_cli_run_service()
         result = asyncio.run(action(svc))
+    except typer.Exit:
+        raise
     except Exception as exc:
         _handle_cli_exception(exc, as_json=as_json)
     summary = render_summary(result) if render_summary is not None else None
     _emit_output(result, as_json=as_json, output_file=output_file, summary_text=summary)
     return result
+
+
+def _resolve_allowed_roots(svc: RunService) -> List[Path]:
+    configured: List[str] = []
+    try:
+        cfg = _load_cli_config(svc)
+        raw_cfg_roots = getattr(cfg, "allowed_workspace_roots", None) or getattr(
+            getattr(cfg, "hydra", None), "allowed_workspace_roots", None
+        )
+        if raw_cfg_roots:
+            configured = [str(p) for p in raw_cfg_roots if p]
+    except Exception:
+        pass
+
+    if not configured:
+        env_raw = os.environ.get("HYDRA_ALLOWED_WORKSPACE_ROOTS", "").strip()
+        if env_raw:
+            try:
+                parsed = (
+                    json.loads(env_raw)
+                    if env_raw.startswith("[")
+                    else [p.strip() for p in env_raw.split(",") if p.strip()]
+                )
+                configured = [str(p) for p in parsed if p]
+            except json.JSONDecodeError:
+                configured = [p.strip() for p in env_raw.split(",") if p.strip()]
+
+    if configured:
+        return [Path(root) for root in configured]
+    return [svc.repo_root]
 
 
 def _build_agent_registry(svc: RunService):
@@ -309,7 +533,7 @@ def _build_agent_registry(svc: RunService):
 def _build_workspace_registry(svc: RunService):
     from hydra_orch.core.workspace_registry import WorkspaceRegistry
 
-    return WorkspaceRegistry(svc.store, allowed_roots=[svc.repo_root])
+    return WorkspaceRegistry(svc.store, allowed_roots=_resolve_allowed_roots(svc))
 
 
 def _build_discovery_service(svc: RunService, *, principal_id: str, enabled: bool = True):
@@ -317,7 +541,7 @@ def _build_discovery_service(svc: RunService, *, principal_id: str, enabled: boo
 
     return DiscoveryService(
         svc.store,
-        allowed_roots=[svc.repo_root],
+        allowed_roots=_resolve_allowed_roots(svc),
         enabled=enabled,
         principal_id=principal_id,
     )
@@ -338,7 +562,7 @@ def _build_extension_host(svc: RunService):
     return ExtensionHost(
         svc.store,
         consents,
-        allowed_roots=[svc.repo_root],
+        allowed_roots=_resolve_allowed_roots(svc),
         runtime_dir=svc.runtime_dir / "extensions",
     )
 
@@ -350,11 +574,12 @@ def serve(
     reload: bool = typer.Option(False, "--reload", help="Enable auto-reload for development"),
 ) -> None:
     """Start the OpenAI-compatible proxy and Control Plane server (http://127.0.0.1:8000/v1)."""
+    safe_host = rich_escape(str(host))
     banner = (
         "[bold cyan]HYDRA ORCHESTRATOR[/bold cyan]\n"
         "[dim]Universal Autonomous LLM Orchestrator & Control Plane[/dim]\n\n"
-        f"API Endpoint: [green]http://{host}:{port}/v1[/green]\n"
-        f"Control Plane: [green]http://{host}:{port}/v1/control-plane[/green]"
+        f"API Endpoint: [green]http://{safe_host}:{port}/v1[/green]\n"
+        f"Control Plane: [green]http://{safe_host}:{port}/v1/control-plane[/green]"
     )
     console.print(Panel(banner, border_style="cyan"))
 
@@ -374,13 +599,18 @@ def run(
     ),
 ) -> None:
     """Run an inference instruction directly through hydra-orch (Swarm, Relay, or Persistent)."""
-    cfg = load_config()
+    try:
+        cfg = _load_active_config()
+    except Exception as exc:
+        _handle_cli_exception(exc, as_json=False)
     chosen_mode = mode or cfg.orchestrator.default_mode
+    safe_mode = rich_escape(redact_text(str(chosen_mode).upper()))
+    safe_prompt = rich_escape(redact_text(prompt))
 
     console.print(
         Panel(
-            f"[bold green]Starting Task in Mode:[/bold green] [yellow]{chosen_mode.upper()}[/yellow]\n"
-            f"[bold]Prompt:[/bold] {prompt}",
+            f"[bold green]Starting Task in Mode:[/bold green] [yellow]{safe_mode}[/yellow]\n"
+            f"[bold]Prompt:[/bold] {safe_prompt}",
             border_style="green",
         )
     )
@@ -405,7 +635,7 @@ def run(
     try:
         asyncio.run(_execute())
     except ConfigError as exc:
-        console.print(f"{exc.code}: {exc}", markup=False)
+        console.print(f"{exc.code}: {redact_text(str(exc))}", markup=False)
         raise typer.Exit(code=1) from exc
 
 
@@ -419,6 +649,9 @@ def submit(
     base_sha: Optional[str] = typer.Option(None, "--base-sha", help="Pinned 40-char base commit SHA"),
     task_id: str = typer.Option("task-1", "--task-id", help="Task identifier"),
     executor: str = typer.Option("codex", "--executor", help="Assigned CLI executor driver"),
+    allowed_paths: str = typer.Option(
+        "*", "--allowed-paths", help="Comma-separated allowed relative paths for the task"
+    ),
     check_cmd: Optional[List[str]] = typer.Option(
         None, "--check-cmd", help="Check command token(s) for acceptance_criteria"
     ),
@@ -431,17 +664,52 @@ def submit(
     output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
 ) -> None:
     """Submit a canonical M1 run through RunService (and optionally execute it)."""
-    async def _do_submit() -> Dict[str, Any]:
-        svc: RunService = get_run_service()
+    async def _do_submit() -> tuple[Dict[str, Any], bool]:
+        svc: RunService = get_cli_run_service()
         if spec_file is not None:
             raw_data = json.loads(spec_file.read_text(encoding="utf-8"))
+            if isinstance(raw_data, dict) and isinstance(raw_data.get("tasks"), list):
+                for idx, raw_task in enumerate(raw_data["tasks"]):
+                    if isinstance(raw_task, dict) and not raw_task.get("allowed_paths"):
+                        raise ContractViolation(
+                            "validation_error",
+                            f"Task #{idx + 1} in --spec-file must declare non-empty allowed_paths",
+                        )
             run_spec = RunSpec.model_validate(raw_data)
+            if isinstance(svc, _DetachedCliRunService):
+                svc = RunService(
+                    repo_root=run_spec.repo_root,
+                    store=svc.store,
+                    runtime_dir=svc.runtime_dir,
+                )
             req_hash = svc.store.compute_request_hash(run_spec)
         else:
             if not objective:
                 raise ContractViolation("missing_objective", "Either --spec-file or --objective must be provided")
+            parsed_allowed = _parse_csv(allowed_paths)
+            if not parsed_allowed:
+                raise ContractViolation(
+                    "validation_error",
+                    "--allowed-paths must specify at least one relative path pattern (e.g. '*' or 'src/**')",
+                )
+            try:
+                validated_allowed = tuple(
+                    TypeAdapter(RelativePath).validate_python(pat) for pat in parsed_allowed
+                )
+            except ValidationError as exc:
+                raise ContractViolation(
+                    "scope_violation",
+                    f"Invalid --allowed-paths pattern: {exc}",
+                ) from exc
+
             resolved_repo = Path(repo_root) if repo_root is not None else svc.repo_root
             ws = svc._get_git_workspace(resolved_repo)
+            if isinstance(svc, _DetachedCliRunService):
+                svc = RunService(
+                    repo_root=ws.repo_root,
+                    store=svc.store,
+                    runtime_dir=svc.runtime_dir,
+                )
             resolved_sha = base_sha or ws.resolve_commit_sha("HEAD")
             cmd_tokens = tuple(check_cmd) if check_cmd else ("git", "status", "--short")
             idem = idempotency_key or f"cli-idem-{uuid.uuid4().hex[:16]}"
@@ -451,7 +719,7 @@ def submit(
                 task_id=task_id,
                 run_id=gen_run_id,
                 objective=objective,
-                allowed_paths=("*",),
+                allowed_paths=validated_allowed,
                 acceptance_criteria=(
                     CheckSpec(
                         check_id="chk-default",
@@ -460,7 +728,7 @@ def submit(
                 ),
                 assigned_executor=exec_id,
             )
-            semantic = {
+            semantic: Dict[str, Any] = {
                 "project_id": project_id,
                 "repo_root": str(ws.repo_root),
                 "base_sha": resolved_sha,
@@ -469,6 +737,8 @@ def submit(
                 "command": list(cmd_tokens),
                 "assigned_executor": exec_id,
             }
+            if validated_allowed != ("*",):
+                semantic["allowed_paths"] = list(validated_allowed)
             req_hash = svc.store.compute_request_hash(semantic)
             run_spec = RunSpec(
                 run_id=gen_run_id,
@@ -484,34 +754,45 @@ def submit(
             )
 
         created, run_rec = await svc.submit_run(run_spec, request_hash=req_hash)
+        task_failed = False
         if created and execute:
             for t in run_spec.tasks:
-                await svc.execute_task_attempt(
+                outcome = await svc.execute_task_attempt(
                     run_id=run_rec["id"],
                     task_id=t.task_id,
                     dry_run=dry_run,
                 )
+                if outcome.result.task_status.value in {"failed", "cancelled", "blocked"}:
+                    task_failed = True
             refreshed = await svc.store.get_run(run_rec["id"])
             if refreshed is not None:
                 run_rec = refreshed
 
-        return {
+        final_status = "failed" if (task_failed and run_rec["status"] == "running") else run_rec["status"]
+        payload = {
             "run_id": run_rec["id"],
             "project_id": run_rec["project_id"],
-            "status": run_rec["status"],
+            "status": final_status,
             "revision": int(run_rec["revision"]),
             "created": created,
             "base_sha": run_rec["base_sha"],
         }
+        exec_failed = bool(execute and (task_failed or final_status in {"failed", "cancelled", "blocked"}))
+        return payload, exec_failed
 
     try:
-        res = asyncio.run(_do_submit())
+        res, exec_failed = asyncio.run(_do_submit())
+        rid = res.get("run_id") or res.get("id")
         _emit_output(
             res,
             as_json=as_json,
             output_file=output,
-            summary_text=f"Run {res['run_id']} submitted (status={res['status']}, created={res['created']})",
+            summary_text=f"Run {rid} submitted (status={res['status']}, created={res['created']})",
         )
+        if exec_failed:
+            raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
     except Exception as exc:
         _handle_cli_exception(exc, as_json=as_json)
 
@@ -524,7 +805,7 @@ def inspect(
 ) -> None:
     """Inspect a persisted run, its tasks, attempts, and artifacts via RunService."""
     async def _do_inspect() -> Dict[str, Any]:
-        svc = get_run_service()
+        svc = get_cli_run_service()
         detail = await svc.get_run_detail(run_id)
         if detail is None:
             raise StorageIntegrityError(f"Run '{run_id}' not found")
@@ -536,12 +817,13 @@ def inspect(
 
     try:
         res = asyncio.run(_do_inspect())
+        rid = res.get("run_id") or res.get("id")
         _emit_output(
             res,
             as_json=as_json,
             output_file=output,
             summary_text=(
-                f"Run {res['run_id']} | status={res['status']} | revision={res['revision']} | "
+                f"Run {rid} | status={res['status']} | revision={res['revision']} | "
                 f"tasks={len(res['tasks'])} | artifacts={len(res['artifacts'])}"
             ),
         )
@@ -562,7 +844,7 @@ def review(
 ) -> None:
     """Apply an explicit review decision (accepted/rejected) to a task result via RunService."""
     async def _do_review() -> Dict[str, Any]:
-        svc = get_run_service()
+        svc = get_cli_run_service()
         attempts = await svc.store.list_attempts(task_id)
         if not attempts:
             raise StorageIntegrityError(f"Task '{task_id}' has no attempts")
@@ -611,7 +893,7 @@ def integrate(
 ) -> None:
     """Integrate accepted task results for a run into integrate/<run_id> via RunService."""
     async def _do_integrate() -> Dict[str, Any]:
-        svc = get_run_service()
+        svc = get_cli_run_service()
         outcome = await svc.integrate_run(run_id=run_id, target_branch=target_branch)
         return {
             "integration_id": outcome.integration_id,
@@ -626,16 +908,17 @@ def integrate(
         res = asyncio.run(_do_integrate())
         if res["status"] in {IntegrationStatus.CONFLICTED.value, IntegrationStatus.FAILED.value}:
             if as_json:
-                typer.echo(json.dumps(res, sort_keys=True))
+                typer.echo(json.dumps(redact(_to_jsonable(res)), sort_keys=True))
             else:
-                console.print(f"integration_{res['status']}: {res}", markup=False)
+                console.print(f"integration_{res['status']}: {redact(_to_jsonable(res))}", markup=False)
             raise typer.Exit(code=1)
+        rid = res.get("run_id") or res.get("id")
         _emit_output(
             res,
             as_json=as_json,
             output_file=output,
             summary_text=(
-                f"Integrated run {res['run_id']} into {res['target_branch']} "
+                f"Integrated run {rid} into {res['target_branch']} "
                 f"(sha={res['result_sha']}, status={res['status']})"
             ),
         )
@@ -655,7 +938,7 @@ def cancel(
 ) -> None:
     """Cancel an active run or a specific task via RunService."""
     async def _do_cancel() -> Dict[str, Any]:
-        svc = get_run_service()
+        svc = get_cli_run_service()
         if task_id:
             updated_task = await svc.cancel_task(run_id=run_id, task_id=task_id, reason=reason)
             return {
@@ -677,7 +960,7 @@ def cancel(
             res,
             as_json=as_json,
             output_file=output,
-            summary_text=f"Cancelled {res['scope']} {res.get('task_id') or res['run_id']} (status={res['status']})",
+            summary_text=f"Cancelled {res['scope']} {res.get('task_id') or res.get('run_id') or res.get('id')} (status={res['status']})",
         )
     except Exception as exc:
         _handle_cli_exception(exc, as_json=as_json)
@@ -693,7 +976,7 @@ def retry(
 ) -> None:
     """Retry a failed, rejected, or blocked task in a new isolated worktree via RunService."""
     async def _do_retry() -> Dict[str, Any]:
-        svc = get_run_service()
+        svc = get_cli_run_service()
         outcome = await svc.retry_task(run_id=run_id, task_id=task_id, prompt=prompt)
         return {
             "run_id": run_id,
@@ -722,7 +1005,10 @@ def retry(
 @app.command()
 def status() -> None:
     """Display status of all configured adapters, ports, and resilience checkpoints."""
-    cfg = load_config()
+    try:
+        cfg = _load_active_config()
+    except Exception as exc:
+        _handle_cli_exception(exc, as_json=False)
     router = HydraRouter(cfg)
 
     table = Table(title="Hydra Orchestrator - Adapter Statuses", border_style="cyan")
@@ -735,12 +1021,17 @@ def status() -> None:
         async def _probe(name: str, adapter: Any) -> tuple[str, str, str, str]:
             avail = await adapter.is_available()
             status_text = "[green]ONLINE[/green]" if avail else "[red]OFFLINE[/red]"
-            details = adapter.last_error or "Ready"
+            details = str(adapter.last_error or "Ready")
             if hasattr(adapter, "cdp_port"):
                 details = f"Port: {adapter.cdp_port} | {details}"
             elif hasattr(adapter, "base_url"):
                 details = f"URL: {adapter.base_url} | {details}"
-            return (name, adapter.__class__.__name__, status_text, details)
+            return (
+                rich_escape(redact_text(str(name))),
+                rich_escape(str(adapter.__class__.__name__)),
+                status_text,
+                rich_escape(redact_text(details)),
+            )
 
         results = await asyncio.gather(
             *[_probe(name, adapter) for name, adapter in router.adapters.items()]
@@ -757,7 +1048,10 @@ def quota() -> None:
     """Display real-time 5-hour subscription quota windows (Claude, ChatGPT, Gemini)."""
     from hydra_orch.bridge.omniroute_client import OmniRouteClient
 
-    cfg = load_config()
+    try:
+        cfg = _load_active_config()
+    except Exception as exc:
+        _handle_cli_exception(exc, as_json=False)
     client = OmniRouteClient(
         base_url=cfg.omniroute.base_url,
         quota_api_url=cfg.omniroute.quota_api_url,
@@ -779,8 +1073,13 @@ def quota() -> None:
                 reset = v.get("resets_in_seconds")
                 rem = f"{remaining}%" if remaining is not None else "unknown"
                 resets = f"{reset}s" if reset is not None else "unknown"
-                status_str = v.get("status", "unknown").upper()
-                table.add_row(k.replace("_", " ").title(), rem, resets, status_str)
+                status_str = str(v.get("status", "unknown")).upper()
+                table.add_row(
+                    rich_escape(redact_text(str(k).replace("_", " ").title())),
+                    rich_escape(rem),
+                    rich_escape(resets),
+                    rich_escape(redact_text(status_str)),
+                )
 
     asyncio.run(_fetch())
     console.print(table)
@@ -793,11 +1092,14 @@ def quota() -> None:
 
 @app.command("project-create")
 def project_create_cmd(
-    canonical_root: Path = typer.Option(..., "--root", help="Canonical project repository root"),
+    canonical_root: Path = typer.Option(..., "--root", help="Canonical project repository or folder root"),
     name: str = typer.Option(..., "--name", help="Project name"),
     base_branch: str = typer.Option("main", "--base-branch", help="Default base branch"),
     base_sha: Optional[str] = typer.Option(None, "--base-sha", help="Pinned base commit SHA"),
     project_id: Optional[str] = typer.Option(None, "--project-id", help="Optional explicit project ID"),
+    allow_plain_folder: bool = typer.Option(
+        False, "--allow-plain-folder", help="Allow registering a plain folder without a Git repository"
+    ),
     as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
     output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
 ) -> None:
@@ -809,10 +1111,11 @@ def project_create_cmd(
             base_branch=base_branch,
             base_sha=base_sha,
             project_id=project_id,
+            allow_plain_folder=allow_plain_folder,
         ),
         as_json=as_json,
         output_file=output,
-        render_summary=lambda res: f"project={res.get('id')} name={res.get('name')} branch={res.get('base_branch')}",
+        render_summary=lambda res: f"project={res.get('project_id') or res.get('id')} name={res.get('name')} branch={res.get('base_branch')}",
     )
 
 
@@ -877,6 +1180,43 @@ app.add_typer(memory_app, name="memory")
 app.add_typer(discovery_app, name="discovery")
 
 
+async def _cli_http_request(
+    method: str,
+    api_url: str,
+    path: str,
+    *,
+    api_token_env: str = "HYDRA_API_TOKEN",
+    json_body: Any = None,
+    params: Optional[Dict[str, Any]] = None,
+) -> Any:
+    from hydra_orch.tui import resolve_api_token, sanitize_api_url
+
+    base_url = sanitize_api_url(api_url)
+    token = resolve_api_token(api_token_env=api_token_env, interactive=False)
+    headers: Dict[str, str] = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    scope_cm = redaction_scope([token]) if token else redaction_scope([])
+    with scope_cm:
+        async with httpx.AsyncClient(base_url=base_url, headers=headers, timeout=30.0) as client:
+            resp = await client.request(method, path, json=json_body, params=params)
+            if resp.status_code >= 400:
+                code = f"http_{resp.status_code}"
+                msg = f"Control Plane returned HTTP {resp.status_code}"
+                try:
+                    data = resp.json()
+                    if isinstance(data, dict):
+                        code = str(data.get("code") or code)
+                        msg = str(data.get("message") or data.get("detail") or msg)
+                except Exception:
+                    if resp.text:
+                        msg = resp.text[:300]
+                if resp.status_code == 409 and code in {"http_409", "optimistic_lock_conflict"}:
+                    raise OptimisticLockError(redact_text(msg))
+                raise ContractViolation(code, redact_text(msg))
+            return resp.json() if resp.content else {}
+
+
 @area_app.command("create")
 def area_create(
     name: str = typer.Option(..., "--name", help="Area name"),
@@ -891,7 +1231,7 @@ def area_create(
         lambda svc: _build_workspace_registry(svc).create_area(name, principal_id=actor, description=description),
         as_json=as_json,
         output_file=output,
-        render_summary=lambda res: f"area={res.get('area_id')} name={res.get('name')}",
+        render_summary=lambda res: f"area={res.get('area_id') or res.get('id')} name={res.get('name')}",
     )
 
 
@@ -925,7 +1265,7 @@ def workspace_create(
         lambda svc: _build_workspace_registry(svc).create_workspace(area_id, name, principal_id=actor),
         as_json=as_json,
         output_file=output,
-        render_summary=lambda res: f"workspace={res.get('workspace_id')} area={res.get('area_id')}",
+        render_summary=lambda res: f"workspace={res.get('workspace_id') or res.get('id')} area={res.get('area_id')}",
     )
 
 
@@ -943,6 +1283,157 @@ def workspace_list(
         as_json=as_json,
         output_file=output,
         render_summary=lambda res: f"workspaces={len(res)}",
+    )
+
+
+@workspace_app.command("update")
+def workspace_update(
+    workspace_id: str = typer.Argument(..., help="Workspace ID to update"),
+    name: str = typer.Option(..., "--name", help="Updated workspace name"),
+    expected_revision: Optional[int] = typer.Option(None, "--expected-revision", help="Optional expected revision"),
+    principal_id: Optional[str] = typer.Option(None, "--principal-id", help="Acting principal ID"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Optional remote Control Plane base URL"),
+    api_token_env: str = typer.Option("HYDRA_API_TOKEN", "--api-token-env", help="Env var holding Bearer token"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Update workspace metadata (such as name) with optional optimistic revision check."""
+    actor = _default_principal(principal_id)
+    if api_url is not None:
+        body: Dict[str, Any] = {"name": name}
+        if expected_revision is not None:
+            body["expected_revision"] = expected_revision
+        try:
+            res = asyncio.run(
+                _cli_http_request(
+                    "PUT",
+                    api_url,
+                    f"/v1/control-plane/workspaces/{workspace_id}",
+                    api_token_env=api_token_env,
+                    json_body=body,
+                )
+            )
+        except Exception as exc:
+            _handle_cli_exception(exc, as_json=as_json)
+        ws_id = res.get("workspace_id") or res.get("id") or workspace_id
+        _emit_output(
+            res,
+            as_json=as_json,
+            output_file=output,
+            summary_text=f"workspace={ws_id} name={res.get('name', name)}",
+        )
+        return
+
+    async def _action(svc: RunService) -> dict[str, Any]:
+        reg = _build_workspace_registry(svc)
+        if hasattr(reg, "update_workspace"):
+            sig = _py_inspect.signature(reg.update_workspace)
+            kwargs: Dict[str, Any] = {"principal_id": actor}
+            if "name" in sig.parameters:
+                kwargs["name"] = name
+            if expected_revision is not None and "expected_revision" in sig.parameters:
+                kwargs["expected_revision"] = expected_revision
+            return await reg.update_workspace(workspace_id, **kwargs)
+
+        clean_name = name.strip()
+        if not clean_name or len(clean_name) > 256 or "\x00" in clean_name:
+            raise ContractViolation("registry_invalid", "Expected a nonempty bounded identifier or name")
+        await svc.store.initialize()
+        async with svc.store._connect() as db:
+            async with svc.store._transaction(db):
+                row = await reg._workspace(db, workspace_id, actor)
+                if expected_revision is not None and int(row["revision"]) != expected_revision:
+                    raise OptimisticLockError("Workspace revision changed")
+                await db.execute(
+                    "UPDATE area_workspaces SET name = ?, revision = revision + 1, updated_at = datetime('now') WHERE id = ?",
+                    (clean_name, workspace_id),
+                )
+                await reg._audit(db, "workspace.updated", actor, workspace_id)
+            return dict(await reg._workspace(db, workspace_id, actor))
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"workspace={res.get('workspace_id') or res.get('id')} name={res.get('name')}",
+    )
+
+
+@workspace_app.command("delete")
+def workspace_delete(
+    workspace_id: str = typer.Argument(..., help="Workspace ID to delete"),
+    expected_revision: Optional[int] = typer.Option(None, "--expected-revision", help="Optional expected revision"),
+    principal_id: Optional[str] = typer.Option(None, "--principal-id", help="Acting principal ID"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Optional remote Control Plane base URL"),
+    api_token_env: str = typer.Option("HYDRA_API_TOKEN", "--api-token-env", help="Env var holding Bearer token"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Delete an empty workspace owned by the acting principal."""
+    actor = _default_principal(principal_id)
+    if api_url is not None:
+        params: Optional[Dict[str, Any]] = (
+            {"expected_revision": expected_revision} if expected_revision is not None else None
+        )
+        try:
+            res = asyncio.run(
+                _cli_http_request(
+                    "DELETE",
+                    api_url,
+                    f"/v1/control-plane/workspaces/{workspace_id}",
+                    api_token_env=api_token_env,
+                    params=params,
+                )
+            )
+        except Exception as exc:
+            _handle_cli_exception(exc, as_json=as_json)
+        ws_id = res.get("workspace_id") or res.get("id") or workspace_id
+        _emit_output(
+            res or {"workspace_id": ws_id, "deleted": True},
+            as_json=as_json,
+            output_file=output,
+            summary_text=f"workspace={ws_id} deleted=True",
+        )
+        return
+
+    async def _action(svc: RunService) -> dict[str, Any]:
+        reg = _build_workspace_registry(svc)
+        if hasattr(reg, "delete_workspace"):
+            sig = _py_inspect.signature(reg.delete_workspace)
+            kwargs: Dict[str, Any] = {"principal_id": actor}
+            if expected_revision is not None and "expected_revision" in sig.parameters:
+                kwargs["expected_revision"] = expected_revision
+            out = await reg.delete_workspace(workspace_id, **kwargs)
+            return out if isinstance(out, dict) else {"workspace_id": workspace_id, "deleted": True}
+
+        await svc.store.initialize()
+        async with svc.store._connect() as db:
+            async with svc.store._transaction(db):
+                row = await (await db.execute("SELECT * FROM area_workspaces WHERE id = ?", (workspace_id,))).fetchone()
+                if row is None:
+                    raise ContractViolation("resource_not_found", "Workspace does not exist")
+                await reg._area(db, row["area_id"], actor)
+                if expected_revision is not None and int(row["revision"]) != expected_revision:
+                    raise OptimisticLockError("Workspace revision changed")
+                linked_projects = (
+                    await (
+                        await db.execute("SELECT COUNT(*) FROM projects WHERE workspace_id = ?", (workspace_id,))
+                    ).fetchone()
+                )[0]
+                if linked_projects > 0:
+                    raise ContractViolation(
+                        "registry_conflict",
+                        "Cannot delete workspace while projects remain attached to it",
+                    )
+                await db.execute("DELETE FROM area_workspaces WHERE id = ?", (workspace_id,))
+                await reg._audit(db, "workspace.deleted", actor, workspace_id)
+        return {"workspace_id": workspace_id, "deleted": True}
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"workspace={res.get('workspace_id') or res.get('id') or workspace_id} deleted=True",
     )
 
 
@@ -980,6 +1471,9 @@ def project_create_scoped(
     root: Path = typer.Option(..., "--root", help="Canonical project root path"),
     base_branch: str = typer.Option("main", "--base-branch", help="Default base branch"),
     base_sha: Optional[str] = typer.Option(None, "--base-sha", help="Pinned base commit SHA"),
+    allow_plain_folder: bool = typer.Option(
+        False, "--allow-plain-folder", help="Allow registering a plain folder without Git"
+    ),
     metadata_json: Optional[str] = typer.Option(None, "--metadata-json", help="Optional metadata JSON object"),
     principal_id: Optional[str] = typer.Option(None, "--principal-id", help="Acting principal ID"),
     as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
@@ -990,21 +1484,44 @@ def project_create_scoped(
 
     async def _action(svc: RunService) -> dict[str, Any]:
         metadata = _parse_json_obj(metadata_json, flag_name="--metadata-json")
-        return await _build_workspace_registry(svc).create_project(
-            workspace_id,
-            name,
-            root,
-            principal_id=actor,
-            base_branch=base_branch,
-            base_sha=base_sha,
-            metadata=metadata or None,
-        )
+        reg = _build_workspace_registry(svc)
+        kwargs: Dict[str, Any] = {
+            "principal_id": actor,
+            "base_branch": base_branch,
+            "base_sha": base_sha,
+            "metadata": metadata or None,
+        }
+        sig = _py_inspect.signature(reg.create_project)
+        if "allow_plain_folder" in sig.parameters:
+            kwargs["allow_plain_folder"] = allow_plain_folder
+        elif allow_plain_folder and not (Path(root) / ".git").exists():
+            raw_root = reg._absolute(root).resolve()
+            if not any(raw_root == allowed or allowed in raw_root.parents for allowed in reg.allowed_roots):
+                raise ContractViolation("authorization_denied", "Project directory is outside the root allowlist")
+            if not raw_root.is_dir():
+                raise ContractViolation("workspace_invalid", "Project folder does not exist")
+            merged_meta = dict(metadata or {})
+            merged_meta.setdefault("workspace_kind", "folder")
+            await svc.store.initialize()
+            async with svc.store._connect() as db:
+                async with svc.store._transaction(db):
+                    await reg._workspace(db, workspace_id, actor)
+                    pid = new_id()
+                    await db.execute(
+                        """INSERT INTO projects
+                        (id,canonical_root,name,workspace_id,metadata_json,base_branch,base_sha)
+                        VALUES (?,?,?,?,?,?,?)""",
+                        (pid, str(raw_root), name.strip(), workspace_id, json.dumps(redact(merged_meta), sort_keys=True), None, None),
+                    )
+                    await reg._audit(db, "project.created", actor, pid)
+                return dict((await reg._project(db, pid, actor))[0])
+        return await reg.create_project(workspace_id, name, root, **kwargs)
 
     _run_cli_action(
         _action,
         as_json=as_json,
         output_file=output,
-        render_summary=lambda res: f"project={res.get('project_id')} workspace={res.get('workspace_id')}",
+        render_summary=lambda res: f"project={res.get('project_id') or res.get('id')} workspace={res.get('workspace_id')}",
     )
 
 
@@ -1047,7 +1564,7 @@ def project_adopt(
         ),
         as_json=as_json,
         output_file=output,
-        render_summary=lambda res: f"project={res.get('project_id')} workspace={res.get('workspace_id')}",
+        render_summary=lambda res: f"project={res.get('project_id') or res.get('id')} workspace={res.get('workspace_id')}",
     )
 
 
@@ -1057,7 +1574,7 @@ def repo_register(
     root: Path = typer.Option(..., "--root", help="Canonical repository root"),
     authorized_principal: Optional[str] = typer.Option(None, "--authorized-principal", help="Authorized principal ID"),
     scopes: str = typer.Option("read,write", "--scopes", help="Comma-separated authorization scopes"),
-    allowed_paths: Optional[str] = typer.Option(None, "--allowed-paths", help="Comma-separated allowed relative paths"),
+    allowed_paths: str = typer.Option(..., "--allowed-paths", help="Comma-separated allowed relative paths (required)"),
     base_branch: str = typer.Option("main", "--base-branch", help="Repository base branch"),
     base_sha: Optional[str] = typer.Option(None, "--base-sha", help="Pinned base commit SHA"),
     principal_id: Optional[str] = typer.Option(None, "--principal-id", help="Acting principal ID"),
@@ -1080,7 +1597,109 @@ def repo_register(
         ),
         as_json=as_json,
         output_file=output,
-        render_summary=lambda res: f"repository={res.get('repository_id')} project={res.get('project_id')}",
+        render_summary=lambda res: f"repository={res.get('repository_id') or res.get('id')} project={res.get('project_id')}",
+    )
+
+
+@repo_app.command("update")
+def repo_update(
+    repository_id: str = typer.Argument(..., help="Repository ID to update"),
+    allowed_paths: Optional[str] = typer.Option(None, "--allowed-paths", help="Updated comma-separated allowed relative paths"),
+    base_branch: Optional[str] = typer.Option(None, "--base-branch", help="Updated repository base branch"),
+    base_sha: Optional[str] = typer.Option(None, "--base-sha", help="Updated pinned base commit SHA"),
+    principal_id: Optional[str] = typer.Option(None, "--principal-id", help="Acting principal ID"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Update an existing repository registration (such as allowed_paths or base_branch)."""
+    actor = _default_principal(principal_id)
+
+    async def _action(svc: RunService) -> dict[str, Any]:
+        reg = _build_workspace_registry(svc)
+        parsed_paths = list(_parse_csv(allowed_paths)) if allowed_paths is not None else None
+        if hasattr(reg, "update_repository"):
+            sig = _py_inspect.signature(reg.update_repository)
+            kwargs: Dict[str, Any] = {"principal_id": actor}
+            if parsed_paths is not None and "allowed_paths" in sig.parameters:
+                kwargs["allowed_paths"] = parsed_paths
+            if base_branch is not None and "base_branch" in sig.parameters:
+                kwargs["base_branch"] = base_branch
+            if base_sha is not None and "base_sha" in sig.parameters:
+                kwargs["base_sha"] = base_sha
+            return await reg.update_repository(repository_id, **kwargs)
+
+        await svc.store.initialize()
+        async with svc.store._connect() as db:
+            async with svc.store._transaction(db):
+                repo = await (await db.execute("SELECT * FROM repositories WHERE id = ?", (repository_id,))).fetchone()
+                if repo is None:
+                    raise ContractViolation("resource_not_found", "Repository does not exist")
+                await reg._project(db, repo["project_id"], actor)
+                new_paths_json = repo["allowed_paths_json"]
+                if parsed_paths is not None:
+                    if not parsed_paths:
+                        raise ContractViolation("scope_violation", "Explicit repository file scope is required")
+                    try:
+                        validated = tuple(TypeAdapter(RelativePath).validate_python(p) for p in parsed_paths)
+                    except ValidationError:
+                        raise ContractViolation("scope_violation", "File scopes must be relative without traversal") from None
+                    new_paths_json = json.dumps(validated)
+                eff_branch = base_branch or repo["base_branch"]
+                if base_branch is not None or base_sha is not None:
+                    _, eff_sha = await reg._git_identity(repo["root_canonical"], eff_branch, base_sha)
+                else:
+                    eff_sha = repo["base_sha"]
+                await db.execute(
+                    "UPDATE repositories SET allowed_paths_json = ?, base_branch = ?, base_sha = ? WHERE id = ?",
+                    (new_paths_json, eff_branch, eff_sha, repository_id),
+                )
+                await reg._audit(db, "repository.updated", actor, repository_id)
+            return dict(await (await db.execute("SELECT * FROM repositories WHERE id = ?", (repository_id,))).fetchone())
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"repository={res.get('repository_id') or res.get('id')} project={res.get('project_id')}",
+    )
+
+
+@repo_app.command("delete")
+def repo_delete(
+    repository_id: str = typer.Argument(..., help="Repository ID to delete"),
+    principal_id: Optional[str] = typer.Option(None, "--principal-id", help="Acting principal ID"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Delete a repository registration and revoke its authorizations."""
+    actor = _default_principal(principal_id)
+
+    async def _action(svc: RunService) -> dict[str, Any]:
+        reg = _build_workspace_registry(svc)
+        if hasattr(reg, "delete_repository"):
+            out = await reg.delete_repository(repository_id, principal_id=actor)
+            return out if isinstance(out, dict) else {"repository_id": repository_id, "deleted": True}
+
+        await svc.store.initialize()
+        async with svc.store._connect() as db:
+            async with svc.store._transaction(db):
+                repo = await (await db.execute("SELECT * FROM repositories WHERE id = ?", (repository_id,))).fetchone()
+                if repo is None:
+                    raise ContractViolation("resource_not_found", "Repository does not exist")
+                await reg._project(db, repo["project_id"], actor)
+                await db.execute(
+                    "UPDATE authorizations SET revoked_at = COALESCE(revoked_at, datetime('now')) WHERE resource_ref = ?",
+                    (f"repository:{repository_id}",),
+                )
+                await db.execute("DELETE FROM repositories WHERE id = ?", (repository_id,))
+                await reg._audit(db, "repository.deleted", actor, repository_id)
+        return {"repository_id": repository_id, "deleted": True}
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"repository={res.get('repository_id') or res.get('id') or repository_id} deleted=True",
     )
 
 
@@ -1212,7 +1831,11 @@ def agent_list(
 @agent_app.command("certify")
 def agent_certify(
     agent_id: str = typer.Argument(..., help="Agent ID"),
-    report: Path = typer.Option(..., "--report", help="Path to certification JSON report"),
+    report: Path = typer.Option(
+        ...,
+        "--report",
+        help="Path to certification JSON report (under .orchestrator/certification/)",
+    ),
     principal_id: Optional[str] = typer.Option(None, "--principal-id", help="Acting principal ID"),
     as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
     output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
@@ -1442,7 +2065,7 @@ def session_create(
         _action,
         as_json=as_json,
         output_file=output,
-        render_summary=lambda res: f"session={res.get('id')} state={res.get('state')}",
+        render_summary=lambda res: f"session={res.get('session_id') or res.get('id')} state={res.get('state')}",
     )
 
 
@@ -1497,7 +2120,9 @@ def session_threads(
         as_json=as_json,
         output_file=output,
         render_summary=lambda res: (
-            f"thread={res.get('id')} state={res.get('state')}" if isinstance(res, dict) else f"threads={len(res)}"
+            f"thread={res.get('thread_id') or res.get('id')} state={res.get('state')}"
+            if isinstance(res, dict)
+            else f"threads={len(res)}"
         ),
     )
 
@@ -1537,7 +2162,7 @@ def session_transition(
         _action,
         as_json=as_json,
         output_file=output,
-        render_summary=lambda res: f"id={res.get('id')} state={res.get('state')}",
+        render_summary=lambda res: f"id={res.get('id') or res.get('thread_id') or res.get('session_id')} state={res.get('state')}",
     )
 
 
@@ -1881,6 +2506,7 @@ budget_app = typer.Typer(help="Inspect and extend run execution budgets.")
 pr_package_app = typer.Typer(help="Build and publish run PR packages.")
 route_app = typer.Typer(help="Inspect OmniRoute models/quotas and select next-run provider accounts.")
 automation_app = typer.Typer(help="Manage durable automation schedules and view trigger history.")
+conversation_app = typer.Typer(help="List conversations and apply isolated workspace changes to source projects.")
 
 app.add_typer(skill_app, name="skill")
 app.add_typer(mcp_app, name="mcp")
@@ -1894,6 +2520,7 @@ app.add_typer(budget_app, name="budget")
 app.add_typer(pr_package_app, name="pr-package")
 app.add_typer(route_app, name="route")
 app.add_typer(automation_app, name="automation")
+app.add_typer(conversation_app, name="conversation")
 
 
 @skill_app.command("register")
@@ -2700,7 +3327,12 @@ def conflict_analyze(
 @conflict_app.command("auto-repair")
 def conflict_auto_repair(
     conflict_id: str = typer.Argument(..., help="Conflict ID"),
-    repair_command: Optional[str] = typer.Option(None, "--repair-command", help="Optional repair command"),
+    repair_command: Optional[str] = typer.Option(
+        None, "--repair-command", help="Optional repair command (parsed via shlex.split)"
+    ),
+    repair_arg: Optional[List[str]] = typer.Option(
+        None, "--repair-arg", help="Optional repeatable repair command argument token"
+    ),
     max_repair_attempts: Optional[int] = typer.Option(None, "--max-repair-attempts", help="Max repair attempts"),
     actor: str = typer.Option("conflict_resolver", "--actor", help="Acting actor ID"),
     idempotency_key: Optional[str] = typer.Option(None, "--idempotency-key", help="Idempotency key"),
@@ -2708,24 +3340,42 @@ def conflict_auto_repair(
     output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
 ) -> None:
     """Attempt bounded automatic conflict repair."""
+    try:
+        parsed_cmd = _parse_repair_command(repair_command, repair_arg)
+    except Exception as exc:
+        _handle_cli_exception(exc, as_json=as_json)
 
     async def _action(svc: RunService):
         from hydra_orch.core.conflict_resolver import ConflictResolver
 
         return await ConflictResolver(svc.store).auto_repair(
             conflict_id,
-            repair_command=repair_command,
+            repair_command=parsed_cmd,
             max_repair_attempts=max_repair_attempts,
             actor=actor,
             idempotency_key=idempotency_key,
         )
 
-    _run_cli_action(
+    res = _run_cli_action(
         _action,
         as_json=as_json,
         output_file=output,
-        render_summary=lambda res: f"conflict={res.conflict_id} status={res.status}",
+        render_summary=lambda r: f"conflict={r.conflict_id} status={r.status} repaired={r.repaired}",
     )
+    repaired = getattr(res, "repaired", res.get("repaired") if isinstance(res, dict) else None)
+    status_val = getattr(res, "status", res.get("status") if isinstance(res, dict) else None)
+    failures = getattr(res, "failures", res.get("failures") if isinstance(res, dict) else ()) or ()
+    only_missing_repairer = (
+        parsed_cmd is None
+        and len(failures) == 1
+        and (
+            getattr(failures[0], "code", None)
+            or (failures[0].get("code") if isinstance(failures[0], dict) else None)
+        )
+        == "repairer_missing"
+    )
+    if status_val == "failed" or (repaired is False and not only_missing_repairer):
+        raise typer.Exit(code=1)
 
 
 @conflict_app.command("manual")
@@ -2916,6 +3566,11 @@ def pr_package_publish(
 
 
 def _load_cli_config(svc: RunService):
+    if _ACTIVE_CONFIG_PATH is not None:
+        return load_config(_ACTIVE_CONFIG_PATH)
+    env_cfg = os.environ.get("HYDRA_CONFIG", "").strip()
+    if env_cfg:
+        return load_config(Path(env_cfg).expanduser())
     cfg_path = svc.repo_root / "config.yaml"
     return load_config(cfg_path) if cfg_path.is_file() else load_config()
 
@@ -3160,7 +3815,7 @@ def automation_trigger(
         _action,
         as_json=as_json,
         output_file=output,
-        render_summary=lambda res: f"schedule={schedule_id} status={res.get('status')} run_id={res.get('run_id')}",
+        render_summary=lambda res: f"schedule={schedule_id} status={res.get('status')} run_id={res.get('run_id') or res.get('id')}",
     )
 
 
@@ -3219,6 +3874,207 @@ def automation_delete(
         as_json=as_json,
         output_file=output,
         render_summary=lambda res: f"deleted={res['schedule_id']}",
+    )
+
+
+async def _fallback_apply_conversation_changes(
+    svc: RunService,
+    conversation_id: str,
+    *,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """Fallback 3-way conversation sync when ConversationService.apply_changes is not yet wired."""
+    from hydra_orch.core.conversation_service import ConversationService
+    from hydra_orch.core.folder_workspace import files as list_folder_files
+
+    conv_svc = ConversationService(svc)
+    conv = await conv_svc.snapshot(conversation_id)
+    proj = await svc.get_project(conv["project_id"])
+    if proj is None:
+        raise ContractViolation("project_not_found", "Projeto da conversa não encontrado.")
+    source_root = Path(proj["canonical_root"]).resolve()
+    ws_path_raw = conv.get("workspace_path")
+    if not ws_path_raw:
+        return {"conversation_id": conversation_id, "applied": False, "changed_files": [], "conflicts": []}
+
+    kind = proj.get("workspace_kind", "git")
+    if kind == "folder":
+        work_dir = Path(ws_path_raw).resolve()
+        base_dir = work_dir.parent / "base"
+        if not work_dir.is_dir() or not base_dir.is_dir():
+            raise ContractViolation("workspace_missing", "A cópia isolada desta conversa não está disponível.")
+        base_files = set(list_folder_files(base_dir))
+        work_files = set(list_folder_files(work_dir))
+        source_files = set(list_folder_files(source_root))
+        all_rel = sorted(base_files | work_files | source_files)
+        conflicts: List[str] = []
+        to_write: List[Path] = []
+        to_delete: List[Path] = []
+        for rel in all_rel:
+            b_bytes = (base_dir / rel).read_bytes() if rel in base_files else None
+            w_bytes = (work_dir / rel).read_bytes() if rel in work_files else None
+            s_bytes = (source_root / rel).read_bytes() if rel in source_files else None
+            if w_bytes == b_bytes:
+                continue
+            if s_bytes != b_bytes and s_bytes != w_bytes:
+                conflicts.append(rel.as_posix())
+                if not force:
+                    continue
+            if w_bytes is None:
+                to_delete.append(rel)
+            else:
+                to_write.append(rel)
+        if conflicts and not force:
+            raise ContractViolation(
+                "conversation_apply_conflict",
+                f"Arquivos editados externamente no projeto original: {', '.join(conflicts)}",
+            )
+        applied_files: List[str] = []
+        for rel in to_write:
+            dst = source_root / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(work_dir / rel, dst, follow_symlinks=False)
+            base_dst = base_dir / rel
+            base_dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(work_dir / rel, base_dst, follow_symlinks=False)
+            applied_files.append(rel.as_posix())
+        for rel in to_delete:
+            dst = source_root / rel
+            if dst.is_file():
+                dst.unlink()
+            base_dst = base_dir / rel
+            if base_dst.is_file():
+                base_dst.unlink()
+            applied_files.append(rel.as_posix())
+        return {
+            "conversation_id": conversation_id,
+            "applied": True,
+            "workspace_kind": "folder",
+            "changed_files": applied_files,
+            "conflicts": conflicts,
+        }
+
+    ws = svc._get_git_workspace(source_root)
+    work_dir = Path(ws_path_raw).resolve()
+    status_out = ws._run_git(["status", "--porcelain"], cwd=work_dir).stdout.strip()
+    if status_out:
+        ws._run_git(["add", "--all", "--", "."], cwd=work_dir)
+        ws._run_git(
+            ["-c", "user.name=Hydra", "-c", "user.email=hydra@localhost", "commit", "-m", f"feat(chat): apply {conversation_id}"],
+            cwd=work_dir,
+        )
+    head_sha = ws.resolve_commit_sha("HEAD" if not work_dir.exists() else ws._run_git(["rev-parse", "HEAD"], cwd=work_dir).stdout.strip())
+    merge_args = ["merge", "--ff-only", head_sha] if not force else ["merge", "--no-edit", head_sha]
+    proc = ws._run_git(merge_args, cwd=source_root, check=False)
+    if proc.returncode != 0:
+        raise ContractViolation("conversation_apply_conflict", redact_text(proc.stderr.strip() or "Merge conflict applying conversation"))
+    return {
+        "conversation_id": conversation_id,
+        "applied": True,
+        "workspace_kind": "git",
+        "result_sha": head_sha,
+    }
+
+
+@conversation_app.command("list")
+def conversation_list(
+    project_id: Optional[str] = typer.Option(None, "--project-id", help="Filter by project ID"),
+    limit: int = typer.Option(30, "--limit", help="Maximum conversations to return"),
+    offset: int = typer.Option(0, "--offset", help="Pagination offset"),
+    query: Optional[str] = typer.Option(None, "--query", "-q", help="Optional title filter"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Optional remote Control Plane base URL"),
+    api_token_env: str = typer.Option("HYDRA_API_TOKEN", "--api-token-env", help="Env var holding Bearer token"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """List persisted conversations."""
+    if api_url is not None:
+        params: Dict[str, Any] = {"limit": limit, "offset": offset}
+        if project_id:
+            params["project_id"] = project_id
+        if query:
+            params["q"] = query
+        try:
+            res = asyncio.run(
+                _cli_http_request(
+                    "GET",
+                    api_url,
+                    "/v1/control-plane/conversations",
+                    api_token_env=api_token_env,
+                    params=params,
+                )
+            )
+        except Exception as exc:
+            _handle_cli_exception(exc, as_json=as_json)
+        _emit_output(
+            res,
+            as_json=as_json,
+            output_file=output,
+            summary_text=f"conversations={len(res.get('items', []))} total={res.get('total', 0)}",
+        )
+        return
+
+    async def _action(svc: RunService):
+        from hydra_orch.core.conversation_service import ConversationService
+
+        return await ConversationService(svc).list(project_id=project_id, offset=offset, limit=limit, q=query)
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: f"conversations={len(res.get('items', []))} total={res.get('total', 0)}",
+    )
+
+
+@conversation_app.command("apply")
+def conversation_apply(
+    conversation_id: str = typer.Argument(..., help="Conversation ID whose isolated edits should be applied"),
+    force: bool = typer.Option(False, "--force", help="Force apply even when source files changed externally"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Optional remote Control Plane base URL"),
+    api_token_env: str = typer.Option("HYDRA_API_TOKEN", "--api-token-env", help="Env var holding Bearer token"),
+    as_json: bool = typer.Option(False, "--json", help="Emit structured JSON output"),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write JSON output to file"),
+) -> None:
+    """Apply isolated conversation changes back to the original folder or Git project."""
+    if api_url is not None:
+        try:
+            res = asyncio.run(
+                _cli_http_request(
+                    "POST",
+                    api_url,
+                    f"/v1/control-plane/conversations/{conversation_id}/apply",
+                    api_token_env=api_token_env,
+                    json_body={"force": force},
+                )
+            )
+        except Exception as exc:
+            _handle_cli_exception(exc, as_json=as_json)
+        cid = res.get("conversation_id") or res.get("id") or conversation_id
+        _emit_output(
+            res,
+            as_json=as_json,
+            output_file=output,
+            summary_text=f"conversation={cid} applied={res.get('applied', True)}",
+        )
+        return
+
+    async def _action(svc: RunService):
+        from hydra_orch.core.conversation_service import ConversationService
+
+        conv_svc = ConversationService(svc)
+        if hasattr(conv_svc, "apply_changes"):
+            return await conv_svc.apply_changes(conversation_id, force=force)
+        return await _fallback_apply_conversation_changes(svc, conversation_id, force=force)
+
+    _run_cli_action(
+        _action,
+        as_json=as_json,
+        output_file=output,
+        render_summary=lambda res: (
+            f"conversation={res.get('conversation_id') or res.get('id') or conversation_id} "
+            f"applied={res.get('applied', True)}"
+        ),
     )
 
 

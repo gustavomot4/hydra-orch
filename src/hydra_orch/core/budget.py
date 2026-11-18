@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from decimal import Decimal
+import hashlib
+import json
 import math
 from typing import Any, Optional, Tuple
 from pydantic import Field
@@ -108,6 +111,60 @@ def _evaluate_thresholds(
     if pct_dec >= Decimal(str(alert_threshold_pct)):
         return pct_float, True, False
     return pct_float, False, False
+
+
+RECURRING_BUDGET_REQUIRED_MESSAGE = (
+    "Nenhuma inferência recorrente pode ser habilitada sem orçamento definido (max_usd ou limite de tokens)."
+)
+
+
+def _policy_has_finite_cap(budget_policy: Any, *, strict: bool = False) -> bool:
+    """Return True if a BudgetPolicy or mapping defines at least one positive finite USD or token cap."""
+    if budget_policy is None:
+        return False
+    if isinstance(budget_policy, BudgetPolicy):
+        return bool(
+            (budget_policy.max_usd is not None and math.isfinite(float(budget_policy.max_usd)) and float(budget_policy.max_usd) > 0)
+            or (budget_policy.max_tokens_in is not None and int(budget_policy.max_tokens_in) > 0)
+            or (budget_policy.max_tokens_out is not None and int(budget_policy.max_tokens_out) > 0)
+        )
+    if not isinstance(budget_policy, Mapping):
+        if strict:
+            raise ContractViolation("budget_invalid", "budget_policy must be a mapping or BudgetPolicy")
+        return False
+
+    has_cap = False
+    raw_usd = budget_policy.get("max_usd")
+    if raw_usd is not None:
+        if isinstance(raw_usd, bool) or not isinstance(raw_usd, (int, float)) or not math.isfinite(float(raw_usd)) or float(raw_usd) < 0:
+            if strict:
+                raise ContractViolation("budget_invalid", "max_usd must be a non-negative finite number")
+        elif float(raw_usd) > 0:
+            has_cap = True
+
+    for tok_key in ("max_tokens_in", "max_tokens_out"):
+        raw_tok = budget_policy.get(tok_key)
+        if raw_tok is not None:
+            if isinstance(raw_tok, bool) or not isinstance(raw_tok, int) or raw_tok < 0:
+                if strict:
+                    raise ContractViolation("budget_invalid", f"{tok_key} must be a non-negative integer")
+            elif raw_tok > 0:
+                has_cap = True
+
+    if strict:
+        raw_wall = budget_policy.get("max_wall_seconds")
+        if raw_wall is not None and (isinstance(raw_wall, bool) or not isinstance(raw_wall, int) or raw_wall <= 0):
+            raise ContractViolation("budget_invalid", "max_wall_seconds must be a positive integer")
+        raw_alert = budget_policy.get("alert_threshold_pct")
+        if raw_alert is not None and (
+            isinstance(raw_alert, bool)
+            or not isinstance(raw_alert, (int, float))
+            or not math.isfinite(float(raw_alert))
+            or not (50.0 <= float(raw_alert) <= 99.0)
+        ):
+            raise ContractViolation("budget_invalid", "alert_threshold_pct must be in [50.0, 99.0]")
+
+    return has_cap
 
 
 def _validate_positive_delta(name: str, value: Optional[float | int], *, integer_only: bool = False) -> Optional[float | int]:
@@ -758,10 +815,186 @@ class BudgetGovernor:
             resolved_at=now,
         )
 
+    async def _has_configured_budget_in_db(
+        self,
+        db: Any,
+        *,
+        project_id: Optional[str] = None,
+        budget_policy: Optional[Any] = None,
+        schedule_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> bool:
+        if _policy_has_finite_cap(budget_policy, strict=True):
+            return True
+
+        table_rows = await (
+            await db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('preferences', 'area_workspaces')"
+            )
+        ).fetchall()
+        present_tables = {row["name"] for row in table_rows}
+        has_prefs = "preferences" in present_tables
+        has_workspaces = "area_workspaces" in present_tables
+
+        async def _any_pref_matches(sql: str, params: tuple[Any, ...]) -> bool:
+            rows = await (await db.execute(sql, params)).fetchall()
+            for row in rows:
+                try:
+                    parsed = json.loads(row["value_json"])
+                except (ValueError, TypeError):
+                    continue
+                if _policy_has_finite_cap(parsed, strict=False):
+                    return True
+            return False
+
+        if schedule_id is not None and has_prefs:
+            sched_scope_id = f"schedule:{schedule_id}"
+            if len(sched_scope_id) > 128:
+                sched_scope_id = f"schedule:{hashlib.sha256(schedule_id.encode('utf-8')).hexdigest()}"
+            if await _any_pref_matches(
+                "SELECT value_json FROM preferences WHERE scope_id = ? AND key = 'budget_policy'",
+                (sched_scope_id,),
+            ):
+                return True
+
+        if project_id is not None:
+            bp_rows = await (
+                await db.execute(
+                    """
+                    SELECT bp.max_usd, bp.max_tokens_in, bp.max_tokens_out
+                    FROM budget_policies bp
+                    JOIN runs r ON r.id = bp.run_id
+                    WHERE r.project_id = ?
+                    """,
+                    (project_id,),
+                )
+            ).fetchall()
+            for row in bp_rows:
+                if _policy_has_finite_cap(dict(row), strict=False):
+                    return True
+
+            run_rows = await (
+                await db.execute(
+                    "SELECT spec_json FROM runs WHERE project_id = ? ORDER BY rowid DESC LIMIT 100",
+                    (project_id,),
+                )
+            ).fetchall()
+            for row in run_rows:
+                try:
+                    spec_data = json.loads(row["spec_json"])
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(spec_data, Mapping) and _policy_has_finite_cap(
+                    spec_data.get("budget_policy"), strict=False
+                ):
+                    return True
+
+            if has_prefs:
+                if await _any_pref_matches(
+                    "SELECT value_json FROM preferences WHERE scope_type = 'project' AND scope_id = ? AND key = 'budget_policy'",
+                    (project_id,),
+                ):
+                    return True
+                if has_workspaces:
+                    area_rows = await (
+                        await db.execute(
+                            """
+                            SELECT aw.area_id
+                            FROM projects p
+                            JOIN area_workspaces aw ON aw.id = p.workspace_id
+                            WHERE p.id = ?
+                            """,
+                            (project_id,),
+                        )
+                    ).fetchall()
+                    for area_row in area_rows:
+                        if await _any_pref_matches(
+                            "SELECT value_json FROM preferences WHERE scope_type = 'area' AND scope_id = ? AND key = 'budget_policy'",
+                            (area_row["area_id"],),
+                        ):
+                            return True
+
+        if workspace_id is not None and has_prefs:
+            if await _any_pref_matches(
+                "SELECT value_json FROM preferences WHERE scope_id = ? AND key = 'budget_policy'",
+                (workspace_id,),
+            ):
+                return True
+            if has_workspaces:
+                ws_rows = await (
+                    await db.execute("SELECT area_id FROM area_workspaces WHERE id = ?", (workspace_id,))
+                ).fetchall()
+                for ws_row in ws_rows:
+                    if await _any_pref_matches(
+                        "SELECT value_json FROM preferences WHERE scope_type = 'area' AND scope_id = ? AND key = 'budget_policy'",
+                        (ws_row["area_id"],),
+                    ):
+                        return True
+
+        if has_prefs:
+            if user_id is not None:
+                if await _any_pref_matches(
+                    "SELECT value_json FROM preferences WHERE scope_type = 'user' AND scope_id = ? AND key = 'budget_policy'",
+                    (user_id,),
+                ):
+                    return True
+            else:
+                if await _any_pref_matches(
+                    "SELECT value_json FROM preferences WHERE scope_type = 'user' AND key = 'budget_policy'",
+                    (),
+                ):
+                    return True
+
+        return False
+
+    async def has_configured_budget(
+        self,
+        *,
+        project_id: Optional[str] = None,
+        budget_policy: Optional[Any] = None,
+        schedule_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """Return True when recurring inference has a finite USD or token budget cap configured."""
+        if _policy_has_finite_cap(budget_policy, strict=True):
+            return True
+        await self.store.initialize()
+        async with self.store._connect() as db:
+            return await self._has_configured_budget_in_db(
+                db,
+                project_id=project_id,
+                budget_policy=budget_policy,
+                schedule_id=schedule_id,
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+
+    async def validate_recurring_budget(
+        self,
+        *,
+        project_id: Optional[str] = None,
+        budget_policy: Optional[Any] = None,
+        schedule_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> None:
+        """Raise ContractViolation('budget_required', ...) unless a finite USD or token cap exists."""
+        if not await self.has_configured_budget(
+            project_id=project_id,
+            budget_policy=budget_policy,
+            schedule_id=schedule_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+        ):
+            raise ContractViolation("budget_required", RECURRING_BUDGET_REQUIRED_MESSAGE)
+
 
 __all__ = [
     "BudgetDimensionReport",
     "BudgetGovernor",
     "BudgetStatus",
     "ExtensionResult",
+    "RECURRING_BUDGET_REQUIRED_MESSAGE",
 ]

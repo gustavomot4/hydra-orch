@@ -3,17 +3,27 @@
 from __future__ import annotations
 
 import asyncio
+import calendar
+from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone as dt_timezone
+import hashlib
 import inspect
+import json
 import logging
+import math
 import re
 from typing import Any, Awaitable, Callable, Dict, Iterable, List, Literal, Optional, Tuple, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, model_validator
 
+from hydra_orch.core.budget import (
+    RECURRING_BUDGET_REQUIRED_MESSAGE,
+    BudgetGovernor,
+    _policy_has_finite_cap,
+)
 from hydra_orch.core.checkpointer import (
     ExecutionStore,
     OptimisticLockError,
@@ -22,6 +32,7 @@ from hydra_orch.core.checkpointer import (
 from hydra_orch.core.identifier import new_id
 from hydra_orch.core.redaction import redact, redact_text
 from hydra_orch.model import (
+    BudgetPolicy,
     ContractViolation,
     ExecutionModel,
     Identifier,
@@ -38,6 +49,10 @@ DispatcherFn = Callable[
     ["AutomationSchedule", str],
     Union[Optional[Dict[str, Any]], Awaitable[Optional[Dict[str, Any]]]],
 ]
+RunnerFn = Callable[
+    ["AutomationSchedule", "AutomationRunRecord", Dict[str, Any]],
+    Union[Optional[Dict[str, Any]], Awaitable[Optional[Dict[str, Any]]]],
+]
 
 _OVERLAP_POLICIES = frozenset({"skip", "queue", "allow"})
 
@@ -49,6 +64,7 @@ __all__ = [
     "DispatcherFn",
     "MissedPolicy",
     "OverlapPolicy",
+    "RunnerFn",
     "SchedulerService",
     "compute_next_occurrence",
     "compute_previous_occurrence",
@@ -59,6 +75,8 @@ _MISSED_POLICIES = frozenset({"skip", "run_once"})
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _UNSET: Any = object()
 _QUEUED_MARKER = "Queued due to active overlapping run"
+_CALENDAR_RANGE_MSG = "Schedule occurrence exceeds supported calendar range"
+_STALE_LEASE_ERROR_TEXT = "Interrupted automation run reconciled after stale lease timeout"
 
 _CRON_SHORTCUTS: Dict[str, str] = {
     "@hourly": "0 * * * *",
@@ -308,7 +326,24 @@ def parse_cron_expression(expr: str) -> CronExpression:
     )
 
 
+def _safe_date_sub_days(current: date, days: int) -> date:
+    target_ord = current.toordinal() - days
+    if target_ord < 1:
+        return date.min
+    return date.fromordinal(target_ord)
+
+
+def _safe_date_add_days(current: date, days: int) -> date:
+    max_ord = date.max.toordinal()
+    target_ord = current.toordinal() + days
+    if target_ord > max_ord:
+        return date.max
+    return date.fromordinal(target_ord)
+
+
 def _advance_next_matching_month(current: date, allowed_months: frozenset[int]) -> date:
+    if not allowed_months:
+        raise ContractViolation("invalid_schedule", _CALENDAR_RANGE_MSG)
     year = current.year
     month = current.month
     while True:
@@ -316,11 +351,15 @@ def _advance_next_matching_month(current: date, allowed_months: frozenset[int]) 
         if month > 12:
             month = 1
             year += 1
+        if year > date.max.year:
+            raise ContractViolation("invalid_schedule", _CALENDAR_RANGE_MSG)
         if month in allowed_months:
             return date(year, month, 1)
 
 
 def _step_prev_matching_month(current: date, allowed_months: frozenset[int]) -> date:
+    if not allowed_months:
+        raise ContractViolation("invalid_schedule", _CALENDAR_RANGE_MSG)
     year = current.year
     month = current.month
     while True:
@@ -328,10 +367,11 @@ def _step_prev_matching_month(current: date, allowed_months: frozenset[int]) -> 
         if month < 1:
             month = 12
             year -= 1
+        if year < date.min.year:
+            raise ContractViolation("invalid_schedule", _CALENDAR_RANGE_MSG)
         if month in allowed_months:
-            next_m = month + 1 if month < 12 else 1
-            next_y = year if month < 12 else year + 1
-            return date(next_y, next_m, 1) - timedelta(days=1)
+            last_day = calendar.monthrange(year, month)[1]
+            return date(year, month, last_day)
 
 
 def _valid_utc_instants_for_day(
@@ -345,9 +385,12 @@ def _valid_utc_instants_for_day(
     for hour in cron.hours:
         for minute in cron.minutes:
             for fold in folds:
-                local_dt = datetime(day.year, day.month, day.day, hour, minute, 0, 0, tzinfo=tz, fold=fold)
-                cand_utc = local_dt.astimezone(dt_timezone.utc)
-                rt = cand_utc.astimezone(tz)
+                try:
+                    local_dt = datetime(day.year, day.month, day.day, hour, minute, 0, 0, tzinfo=tz, fold=fold)
+                    cand_utc = local_dt.astimezone(dt_timezone.utc)
+                    rt = cand_utc.astimezone(tz)
+                except (OverflowError, ValueError):
+                    continue
                 if (rt.year, rt.month, rt.day, rt.hour, rt.minute, rt.fold) == (
                     day.year, day.month, day.day, hour, minute, fold
                 ):
@@ -395,31 +438,52 @@ def compute_next_occurrence(
     after_utc = _ensure_utc(after or datetime.now(dt_timezone.utc))
 
     if valid_interval is not None:
-        return after_utc if inclusive else after_utc + timedelta(seconds=valid_interval)
+        if inclusive:
+            return after_utc
+        try:
+            return after_utc + timedelta(seconds=valid_interval)
+        except (OverflowError, ValueError) as exc:
+            raise ContractViolation("invalid_schedule", _CALENDAR_RANGE_MSG) from exc
 
     assert parsed_cron is not None
     base = after_utc.replace(second=0, microsecond=0)
-    if inclusive:
-        start_utc = base if base >= after_utc else base + timedelta(minutes=1)
-    else:
-        start_utc = base + timedelta(minutes=1)
+    try:
+        if inclusive:
+            start_utc = base if base >= after_utc else base + timedelta(minutes=1)
+        else:
+            start_utc = base + timedelta(minutes=1)
+    except (OverflowError, ValueError) as exc:
+        raise ContractViolation("invalid_schedule", _CALENDAR_RANGE_MSG) from exc
 
-    start_local = start_utc.astimezone(tz)
-    cursor_day = start_local.date() - timedelta(days=1)
-    max_day = start_local.date() + timedelta(days=366 * 9)
+    try:
+        start_local_date = start_utc.astimezone(tz).date()
+    except (OverflowError, ValueError) as exc:
+        if start_utc.year <= date.min.year:
+            start_local_date = date.min
+        else:
+            raise ContractViolation("invalid_schedule", _CALENDAR_RANGE_MSG) from exc
+
+    cursor_day = _safe_date_sub_days(start_local_date, 1)
+    max_day = _safe_date_add_days(start_local_date, 366 * 9)
 
     while cursor_day <= max_day:
         if cursor_day.month not in parsed_cron.months:
             cursor_day = _advance_next_matching_month(cursor_day, parsed_cron.months)
             continue
         if not parsed_cron.matches_date(cursor_day):
+            if cursor_day >= date.max:
+                raise ContractViolation("invalid_schedule", _CALENDAR_RANGE_MSG)
             cursor_day += timedelta(days=1)
             continue
         candidates = [c for c in _valid_utc_instants_for_day(parsed_cron, tz, cursor_day) if c >= start_utc]
         if candidates:
             return min(candidates)
+        if cursor_day >= date.max:
+            raise ContractViolation("invalid_schedule", _CALENDAR_RANGE_MSG)
         cursor_day += timedelta(days=1)
 
+    if max_day >= date.max:
+        raise ContractViolation("invalid_schedule", _CALENDAR_RANGE_MSG)
     raise ContractViolation("invalid_schedule", "Cron expression produced no occurrence within search horizon")
 
 
@@ -446,24 +510,46 @@ def compute_previous_occurrence(
             return upper_utc
         if upper_utc < lower_utc:
             return None
-        steps = int((upper_utc - lower_utc).total_seconds() // valid_interval)
-        return lower_utc + timedelta(seconds=steps * valid_interval)
+        delta = upper_utc - lower_utc
+        total_us = (delta.days * 86400 + delta.seconds) * 1_000_000 + delta.microseconds
+        steps = total_us // (valid_interval * 1_000_000)
+        try:
+            return lower_utc + timedelta(seconds=steps * valid_interval)
+        except (OverflowError, ValueError) as exc:
+            raise ContractViolation("invalid_schedule", _CALENDAR_RANGE_MSG) from exc
 
     assert parsed_cron is not None
     end_utc = upper_utc.replace(second=0, microsecond=0)
-    end_local = end_utc.astimezone(tz)
-    cursor_day = end_local.date() + timedelta(days=1)
-    min_day = (
-        max(date(1970, 1, 1), lower_utc.astimezone(tz).date() - timedelta(days=1))
-        if lower_utc is not None
-        else max(date(1970, 1, 1), end_local.date() - timedelta(days=366 * 9))
-    )
+    try:
+        end_local_date = end_utc.astimezone(tz).date()
+    except (OverflowError, ValueError):
+        if end_utc.year <= date.min.year:
+            return None
+        end_local_date = date.max
+
+    cursor_day = _safe_date_add_days(end_local_date, 1)
+    if lower_utc is not None:
+        try:
+            lower_local_date = lower_utc.astimezone(tz).date()
+            min_day = _safe_date_sub_days(lower_local_date, 1)
+        except (OverflowError, ValueError):
+            if lower_utc.year <= date.min.year:
+                min_day = date.min
+            else:
+                return None
+    else:
+        min_day = _safe_date_sub_days(end_local_date, 366 * 9)
 
     while cursor_day >= min_day:
         if cursor_day.month not in parsed_cron.months:
-            cursor_day = _step_prev_matching_month(cursor_day, parsed_cron.months)
+            try:
+                cursor_day = _step_prev_matching_month(cursor_day, parsed_cron.months)
+            except ContractViolation:
+                return None
             continue
         if not parsed_cron.matches_date(cursor_day):
+            if cursor_day <= date.min:
+                break
             cursor_day -= timedelta(days=1)
             continue
         candidates = [
@@ -473,6 +559,8 @@ def compute_previous_occurrence(
         ]
         if candidates:
             return max(candidates)
+        if cursor_day <= date.min:
+            break
         cursor_day -= timedelta(days=1)
     return None
 
@@ -494,6 +582,7 @@ class AutomationSchedule(ExecutionModel):
     overlap_policy: OverlapPolicy = "skip"
     missed_policy: MissedPolicy = "skip"
     max_retries: int = Field(default=0, ge=0, le=5, strict=True)
+    budget_policy: Optional[Dict[str, Any]] = None
     next_run_at: Optional[UtcTimestamp] = None
     last_run_at: Optional[UtcTimestamp] = None
     revision: int = Field(default=1, ge=1, strict=True)
@@ -527,13 +616,137 @@ class AutomationRunRecord(ExecutionModel):
     dispatched_at: UtcTimestamp
     finished_at: Optional[UtcTimestamp] = None
 
+    @property
+    def error_text(self) -> Optional[str]:
+        return self.error_detail
 
-def _row_to_schedule(row: Any) -> AutomationSchedule:
+    @property
+    def started_at(self) -> datetime:
+        return self.dispatched_at
+
+
+def _schedule_pref_scope_id(schedule_id: str) -> str:
+    candidate = f"schedule:{schedule_id}"
+    if len(candidate) <= 128:
+        return candidate
+    digest = hashlib.sha256(schedule_id.encode("utf-8")).hexdigest()
+    return f"schedule:{digest}"
+
+
+def _normalize_schedule_budget_policy(raw: Any) -> Optional[Dict[str, Any]]:
+    if raw is None:
+        return None
+    if isinstance(raw, BudgetPolicy):
+        clean_map: Dict[str, Any] = {
+            k: v
+            for k, v in raw.model_dump(exclude={"schema_version"}).items()
+            if v is not None
+        }
+    elif isinstance(raw, Mapping):
+        _policy_has_finite_cap(raw, strict=True)
+        clean_map = {str(k): v for k, v in raw.items()}
+    else:
+        raise ContractViolation("budget_invalid", "budget_policy must be a mapping or BudgetPolicy")
+
+    try:
+        serialized = json.dumps(
+            clean_map,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ContractViolation("budget_invalid", f"budget_policy must be finite JSON-serializable data: {exc}") from exc
+
+    if "\x00" in serialized:
+        raise ContractViolation("budget_invalid", "budget_policy cannot contain NUL bytes")
+    if redact(clean_map) != clean_map or redact_text(serialized) != serialized:
+        raise ContractViolation("budget_invalid", "budget_policy cannot contain secrets or credentials")
+    return json.loads(serialized)
+
+
+async def _load_schedule_budgets_in_db(db: Any, schedule_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+    ids = list(dict.fromkeys(schedule_ids))
+    if not ids:
+        return {}
+    scope_to_sid = {_schedule_pref_scope_id(sid): sid for sid in ids}
+    placeholders = ", ".join("?" for _ in scope_to_sid)
+    rows = await (
+        await db.execute(
+            f"SELECT scope_id, value_json FROM preferences "
+            f"WHERE scope_type = 'project' AND key = 'budget_policy' AND scope_id IN ({placeholders})",
+            tuple(scope_to_sid.keys()),
+        )
+    ).fetchall()
+    result: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        sid = scope_to_sid.get(row["scope_id"])
+        if sid is None:
+            continue
+        try:
+            parsed = json.loads(row["value_json"])
+        except (ValueError, TypeError):
+            continue
+        if isinstance(parsed, dict):
+            result[sid] = parsed
+    return result
+
+
+async def _save_schedule_budget_in_tx(
+    db: Any,
+    schedule_id: str,
+    budget_policy: Optional[Dict[str, Any]],
+    now_utc: datetime,
+) -> None:
+    scope_id = _schedule_pref_scope_id(schedule_id)
+    if budget_policy is None:
+        await db.execute(
+            "DELETE FROM preferences WHERE scope_type = 'project' AND scope_id = ? AND key = 'budget_policy'",
+            (scope_id,),
+        )
+        return
+    value_json = json.dumps(
+        budget_policy,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    now_iso = _utc_iso(now_utc)
+    existing = await (
+        await db.execute(
+            "SELECT id, version FROM preferences WHERE scope_type = 'project' AND scope_id = ? AND key = 'budget_policy'",
+            (scope_id,),
+        )
+    ).fetchone()
+    if existing is None:
+        await db.execute(
+            """
+            INSERT INTO preferences (id, scope_type, scope_id, key, value_json, source, version, created_at, updated_at)
+            VALUES (?, 'project', ?, 'budget_policy', ?, 'explicit', 1, ?, ?)
+            """,
+            (new_id(), scope_id, value_json, now_iso, now_iso),
+        )
+    else:
+        await db.execute(
+            """
+            UPDATE preferences
+            SET value_json = ?, source = 'explicit', version = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (value_json, int(existing["version"]) + 1, now_iso, existing["id"]),
+        )
+
+
+def _row_to_schedule(row: Any, *, budget_policy: Optional[Dict[str, Any]] = None) -> AutomationSchedule:
     data = dict(row)
     data["enabled"] = bool(data["enabled"])
     for key in ("next_run_at", "last_run_at", "created_at", "updated_at"):
         if data.get(key) is not None:
             data[key] = _ensure_utc(data[key])
+    if budget_policy is not None:
+        data["budget_policy"] = budget_policy
     return AutomationSchedule.model_validate(data)
 
 
@@ -573,11 +786,23 @@ class SchedulerService:
         store: ExecutionStore,
         dispatcher: Optional[DispatcherFn] = None,
         *,
+        runner: Optional[RunnerFn] = None,
         retry_backoff_seconds: float = 0.0,
+        require_budget: bool = False,
     ) -> None:
         self.store = store
         self.dispatcher = dispatcher
+        self.runner = runner
         self.retry_backoff_seconds = max(0.0, float(retry_backoff_seconds))
+        self.require_budget = bool(require_budget)
+        self._active_tasks: set[asyncio.Task[Any]] = set()
+        self._running_automation_run_ids: set[str] = set()
+        self._loop_task: Optional[asyncio.Task[None]] = None
+        self._stop_event: Optional[asyncio.Event] = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._loop_task is not None and not self._loop_task.done()
 
     @staticmethod
     def _validate_policies(overlap_policy: str, missed_policy: str, max_retries: int) -> None:
@@ -589,6 +814,26 @@ class SchedulerService:
             raise ContractViolation("invalid_schedule", f"Invalid missed_policy '{missed_policy}'")
         if isinstance(max_retries, bool) or not isinstance(max_retries, int) or not (0 <= max_retries <= 5):
             raise ContractViolation("invalid_schedule", "max_retries must be an integer in [0, 5]")
+
+    async def _assert_budget_gate_in_db(
+        self,
+        db: Any,
+        *,
+        project_id: Optional[str],
+        workspace_id: Optional[str],
+        budget_policy: Optional[Dict[str, Any]],
+        schedule_id: Optional[str] = None,
+    ) -> None:
+        governor = BudgetGovernor(self.store)
+        configured = await governor._has_configured_budget_in_db(
+            db,
+            project_id=project_id,
+            budget_policy=budget_policy,
+            schedule_id=schedule_id,
+            workspace_id=workspace_id,
+        )
+        if not configured:
+            raise ContractViolation("budget_required", RECURRING_BUDGET_REQUIRED_MESSAGE)
 
     async def create_schedule(
         self,
@@ -606,6 +851,8 @@ class SchedulerService:
         overlap_policy: OverlapPolicy = "skip",
         missed_policy: MissedPolicy = "skip",
         max_retries: int = 0,
+        budget_policy: Optional[Union[Dict[str, Any], BudgetPolicy]] = None,
+        require_budget: bool = False,
         schedule_id: Optional[str] = None,
         next_run_at: Optional[datetime] = None,
         now: Optional[datetime] = None,
@@ -621,6 +868,7 @@ class SchedulerService:
         _reject_nul(timezone, "timezone")
         _reject_nul(cron_expr, "cron_expr")
         self._validate_policies(overlap_policy, missed_policy, max_retries)
+        clean_bp = _normalize_schedule_budget_policy(budget_policy)
 
         parsed_cron, valid_interval, _ = _validate_schedule_timing(cron_expr, interval_seconds, timezone)
         clean_cron = parsed_cron.raw if parsed_cron is not None else None
@@ -638,9 +886,17 @@ class SchedulerService:
         else:
             computed_next = None
 
+        effective_require_budget = bool(self.require_budget or require_budget)
         await self.store.initialize()
         async with self.store._connect() as db:
             async with self.store._transaction(db):
+                if enabled and effective_require_budget:
+                    await self._assert_budget_gate_in_db(
+                        db,
+                        project_id=clean_proj,
+                        workspace_id=clean_ws,
+                        budget_policy=clean_bp,
+                    )
                 await db.execute(
                     """
                     INSERT INTO automation_schedules (
@@ -657,9 +913,11 @@ class SchedulerService:
                         _utc_iso(ref_now), _utc_iso(ref_now),
                     ),
                 )
+                if clean_bp is not None:
+                    await _save_schedule_budget_in_tx(db, sid, clean_bp, ref_now)
                 row = await (await db.execute("SELECT * FROM automation_schedules WHERE id = ?", (sid,))).fetchone()
                 assert row is not None
-                return _row_to_schedule(row)
+                return _row_to_schedule(row, budget_policy=clean_bp)
 
     async def get_schedule(self, schedule_id: str) -> AutomationSchedule:
         """Fetch an AutomationSchedule by ID or raise resource_not_found."""
@@ -667,9 +925,10 @@ class SchedulerService:
         await self.store.initialize()
         async with self.store._connect() as db:
             row = await (await db.execute("SELECT * FROM automation_schedules WHERE id = ?", (schedule_id,))).fetchone()
-        if row is None:
-            raise ContractViolation("resource_not_found", f"AutomationSchedule '{schedule_id}' does not exist")
-        return _row_to_schedule(row)
+            if row is None:
+                raise ContractViolation("resource_not_found", f"AutomationSchedule '{schedule_id}' does not exist")
+            bp_map = await _load_schedule_budgets_in_db(db, (schedule_id,))
+        return _row_to_schedule(row, budget_policy=bp_map.get(schedule_id))
 
     async def list_schedules(
         self,
@@ -698,7 +957,8 @@ class SchedulerService:
             rows = await (
                 await db.execute(f"SELECT * FROM automation_schedules {where} ORDER BY created_at ASC, id ASC", params)
             ).fetchall()
-        return [_row_to_schedule(row) for row in rows]
+            bp_map = await _load_schedule_budgets_in_db(db, (row["id"] for row in rows))
+        return [_row_to_schedule(row, budget_policy=bp_map.get(row["id"])) for row in rows]
 
     async def update_schedule(
         self,
@@ -717,6 +977,8 @@ class SchedulerService:
         overlap_policy: Optional[OverlapPolicy] = None,
         missed_policy: Optional[MissedPolicy] = None,
         max_retries: Optional[int] = None,
+        budget_policy: Any = _UNSET,
+        require_budget: bool = False,
         next_run_at: Any = _UNSET,
         expected_revision: Optional[int] = None,
         now: Optional[datetime] = None,
@@ -724,13 +986,19 @@ class SchedulerService:
         """Update mutable fields of a schedule with validation and optional optimistic concurrency."""
         _reject_nul(schedule_id, "schedule_id")
         ref_now = _ensure_utc(now or datetime.now(dt_timezone.utc))
+        new_bp_explicit = (
+            _UNSET if budget_policy is _UNSET else _normalize_schedule_budget_policy(budget_policy)
+        )
+        effective_require_budget = bool(self.require_budget or require_budget)
+
         await self.store.initialize()
         async with self.store._connect() as db:
             async with self.store._transaction(db):
                 row = await (await db.execute("SELECT * FROM automation_schedules WHERE id = ?", (schedule_id,))).fetchone()
                 if row is None:
                     raise ContractViolation("resource_not_found", f"AutomationSchedule '{schedule_id}' does not exist")
-                current = _row_to_schedule(row)
+                bp_map = await _load_schedule_budgets_in_db(db, (schedule_id,))
+                current = _row_to_schedule(row, budget_policy=bp_map.get(schedule_id))
                 if expected_revision is not None and current.revision != expected_revision:
                     raise OptimisticLockError("AutomationSchedule revision changed")
 
@@ -747,6 +1015,7 @@ class SchedulerService:
                 new_missed = missed_policy if missed_policy is not None else current.missed_policy
                 new_retries = max_retries if max_retries is not None else current.max_retries
                 self._validate_policies(new_overlap, new_missed, new_retries)
+                new_bp = current.budget_policy if new_bp_explicit is _UNSET else new_bp_explicit
 
                 if cron_expr is not _UNSET and interval_seconds is not _UNSET:
                     new_cron_raw = cron_expr
@@ -764,6 +1033,14 @@ class SchedulerService:
                 _reject_nul(new_cron_raw, "cron_expr")
                 parsed_cron, valid_interval, _ = _validate_schedule_timing(new_cron_raw, new_interval, new_tz)
                 new_cron = parsed_cron.raw if parsed_cron is not None else None
+
+                if new_enabled and effective_require_budget:
+                    await self._assert_budget_gate_in_db(
+                        db,
+                        project_id=new_proj,
+                        workspace_id=new_ws,
+                        budget_policy=new_bp,
+                    )
 
                 timing_changed = (
                     new_cron != current.cron_expr
@@ -802,9 +1079,11 @@ class SchedulerService:
                         _utc_iso(ref_now), schedule_id,
                     ),
                 )
+                if new_bp_explicit is not _UNSET:
+                    await _save_schedule_budget_in_tx(db, schedule_id, new_bp, ref_now)
                 updated = await (await db.execute("SELECT * FROM automation_schedules WHERE id = ?", (schedule_id,))).fetchone()
                 assert updated is not None
-                return _row_to_schedule(updated)
+                return _row_to_schedule(updated, budget_policy=new_bp)
 
     async def set_enabled(
         self,
@@ -813,6 +1092,7 @@ class SchedulerService:
         *,
         expected_revision: Optional[int] = None,
         now: Optional[datetime] = None,
+        require_budget: bool = False,
     ) -> AutomationSchedule:
         """Pause (enabled=False) or resume (enabled=True) an existing schedule."""
         return await self.update_schedule(
@@ -820,6 +1100,7 @@ class SchedulerService:
             enabled=bool(enabled),
             expected_revision=expected_revision,
             now=now,
+            require_budget=require_budget,
         )
 
     async def delete_schedule(self, schedule_id: str) -> None:
@@ -831,6 +1112,7 @@ class SchedulerService:
                 cursor = await db.execute("DELETE FROM automation_schedules WHERE id = ?", (schedule_id,))
                 if cursor.rowcount == 0:
                     raise ContractViolation("resource_not_found", f"AutomationSchedule '{schedule_id}' does not exist")
+                await _save_schedule_budget_in_tx(db, schedule_id, None, datetime.now(dt_timezone.utc))
 
     async def list_runs(self, schedule_id: str, *, limit: int = 100) -> List[AutomationRunRecord]:
         """List historical automation runs for a schedule, newest first."""
@@ -862,6 +1144,7 @@ class SchedulerService:
         status: Literal["succeeded", "failed"] = "succeeded",
         run_id: Optional[str] = None,
         error_detail: Optional[str] = None,
+        error_text: Optional[str] = None,
         now: Optional[datetime] = None,
     ) -> AutomationRunRecord:
         """Mark an active pending/dispatched automation run as succeeded or failed."""
@@ -869,7 +1152,8 @@ class SchedulerService:
         if status not in {"succeeded", "failed"}:
             raise ContractViolation("invalid_schedule", f"Invalid completion status '{status}'")
         ref_now = _ensure_utc(now or datetime.now(dt_timezone.utc))
-        safe_error = redact_text(error_detail) if error_detail is not None else None
+        effective_error = error_detail if error_detail is not None else error_text
+        safe_error = redact_text(effective_error) if effective_error is not None else None
         clean_run_id = _clean_optional_identifier(run_id, "run_id")
 
         await self.store.initialize()
@@ -895,6 +1179,112 @@ class SchedulerService:
                 assert updated is not None
                 return _row_to_run(updated)
 
+    async def reconcile_stale_runs(
+        self,
+        *,
+        max_age_seconds: float = 1800.0,
+        now: Optional[datetime] = None,
+    ) -> List[AutomationRunRecord]:
+        """Reconcile orphaned or completed pending/dispatched automation_runs past max_age_seconds."""
+        if (
+            isinstance(max_age_seconds, bool)
+            or not isinstance(max_age_seconds, (int, float))
+            or math.isnan(float(max_age_seconds))
+            or float(max_age_seconds) < 0.0
+        ):
+            raise ContractViolation("invalid_schedule", "max_age_seconds must be a non-negative number")
+
+        now_utc = _ensure_utc(now or datetime.now(dt_timezone.utc))
+        if math.isinf(float(max_age_seconds)):
+            cutoff_utc = datetime.min.replace(tzinfo=dt_timezone.utc)
+        else:
+            try:
+                cutoff_utc = now_utc - timedelta(seconds=float(max_age_seconds))
+            except (OverflowError, ValueError):
+                cutoff_utc = datetime.min.replace(tzinfo=dt_timezone.utc)
+
+        await self.store.initialize()
+        reconciled: List[AutomationRunRecord] = []
+
+        async with self.store._connect() as db:
+            async with self.store._transaction(db):
+                candidates = await (
+                    await db.execute(
+                        """
+                        SELECT * FROM automation_runs
+                        WHERE status IN ('pending', 'dispatched')
+                        ORDER BY scheduled_for ASC, dispatched_at ASC, id ASC
+                        """
+                    )
+                ).fetchall()
+
+                for row in candidates:
+                    auto_run_id = str(row["id"])
+                    if auto_run_id in self._running_automation_run_ids:
+                        continue
+
+                    ts_raw = row["dispatched_at"] or row["scheduled_for"]
+                    lease_started = _ensure_utc(ts_raw)
+                    if lease_started > cutoff_utc:
+                        continue
+
+                    linked_run_id = row["run_id"]
+                    new_status: Literal["succeeded", "failed"] = "failed"
+                    new_error: Optional[str] = _STALE_LEASE_ERROR_TEXT
+
+                    if linked_run_id is not None:
+                        run_row = await (
+                            await db.execute("SELECT status FROM runs WHERE id = ?", (linked_run_id,))
+                        ).fetchone()
+                        if run_row is not None:
+                            run_state = str(run_row["status"])
+                            if run_state == "succeeded":
+                                new_status = "succeeded"
+                                new_error = None
+                            elif run_state in {"failed", "cancelled"}:
+                                new_status = "failed"
+                                new_error = (
+                                    str(row["error_detail"])
+                                    if row["error_detail"]
+                                    else f"Linked run '{linked_run_id}' terminated with status '{run_state}'"
+                                )
+                            else:
+                                att_rows = await (
+                                    await db.execute(
+                                        """
+                                        SELECT started_at, created_at
+                                        FROM attempts
+                                        WHERE run_id = ? AND process_status = 'running'
+                                        """,
+                                        (linked_run_id,),
+                                    )
+                                ).fetchall()
+                                has_fresh_attempt = False
+                                for att in att_rows:
+                                    att_ts_raw = att["started_at"] or att["created_at"]
+                                    if att_ts_raw is not None and _ensure_utc(att_ts_raw) > cutoff_utc:
+                                        has_fresh_attempt = True
+                                        break
+                                if has_fresh_attempt:
+                                    continue
+
+                    safe_err = redact_text(new_error) if new_error is not None else None
+                    await db.execute(
+                        """
+                        UPDATE automation_runs
+                        SET status = ?, error_detail = ?, finished_at = ?
+                        WHERE id = ? AND status IN ('pending', 'dispatched')
+                        """,
+                        (new_status, safe_err, _utc_iso(now_utc), auto_run_id),
+                    )
+                    updated = await (
+                        await db.execute("SELECT * FROM automation_runs WHERE id = ?", (auto_run_id,))
+                    ).fetchone()
+                    if updated is not None:
+                        reconciled.append(_row_to_run(updated))
+
+        return reconciled
+
     async def _advance_next_run_if_stale(self, schedule_id: str, next_future: datetime, now_utc: datetime) -> None:
         async with self.store._connect() as db:
             async with self.store._transaction(db):
@@ -919,7 +1309,10 @@ class SchedulerService:
             latest = compute_previous_occurrence(schedule, at_or_before=now_utc, min_bound=scheduled_slot)
             anchor = latest or scheduled_slot
             if schedule.interval_seconds is not None:
-                next_future = anchor + timedelta(seconds=schedule.interval_seconds)
+                try:
+                    next_future = anchor + timedelta(seconds=schedule.interval_seconds)
+                except (OverflowError, ValueError) as exc:
+                    raise ContractViolation("invalid_schedule", _CALENDAR_RANGE_MSG) from exc
             else:
                 next_future = compute_next_occurrence(schedule, after=now_utc)
             if schedule.missed_policy == "skip":
@@ -967,22 +1360,35 @@ class SchedulerService:
         self,
         schedule_id: str,
         now_utc: datetime,
+        *,
+        require_budget: bool = False,
     ) -> Optional[Tuple[str, AutomationSchedule, Optional[AutomationRunRecord]]]:
         """Claim a due scheduled occurrence inside a transaction.
 
         Returns ("dispatch", schedule, claim_record), ("terminal", schedule, record), or None if skipped/not due.
         """
         hit_duplicate = False
+        effective_require_budget = bool(self.require_budget or require_budget)
         async with self.store._connect() as db:
             try:
                 async with self.store._transaction(db):
                     row = await (await db.execute("SELECT * FROM automation_schedules WHERE id = ?", (schedule_id,))).fetchone()
                     if row is None or not row["enabled"] or row["next_run_at"] is None:
                         return None
-                    schedule = _row_to_schedule(row)
+                    bp_map = await _load_schedule_budgets_in_db(db, (schedule_id,))
+                    schedule = _row_to_schedule(row, budget_policy=bp_map.get(schedule_id))
                     assert schedule.next_run_at is not None
                     if schedule.next_run_at > now_utc:
                         return None
+
+                    if effective_require_budget:
+                        await self._assert_budget_gate_in_db(
+                            db,
+                            project_id=schedule.project_id,
+                            workspace_id=schedule.workspace_id,
+                            budget_policy=schedule.budget_policy,
+                            schedule_id=schedule.id,
+                        )
 
                     missed_status, effective_slot, next_future = self._compute_slot_plan(
                         schedule, schedule.next_run_at, now_utc
@@ -1074,14 +1480,22 @@ class SchedulerService:
                     await self._advance_next_run_if_stale(schedule_id, next_future, now_utc)
         return None
 
-    async def _claim_queued_run(self, schedule_id: str, now_utc: datetime) -> Optional[Tuple[AutomationSchedule, AutomationRunRecord]]:
+    async def _claim_queued_run(
+        self,
+        schedule_id: str,
+        now_utc: datetime,
+        *,
+        require_budget: bool = False,
+    ) -> Optional[Tuple[AutomationSchedule, AutomationRunRecord]]:
         """Atomically claim the oldest queued run for `schedule_id` if no active run is in flight."""
+        effective_require_budget = bool(self.require_budget or require_budget)
         async with self.store._connect() as db:
             async with self.store._transaction(db):
                 row = await (await db.execute("SELECT * FROM automation_schedules WHERE id = ?", (schedule_id,))).fetchone()
                 if row is None or not row["enabled"]:
                     return None
-                schedule = _row_to_schedule(row)
+                bp_map = await _load_schedule_budgets_in_db(db, (schedule_id,))
+                schedule = _row_to_schedule(row, budget_policy=bp_map.get(schedule_id))
                 if schedule.overlap_policy != "queue":
                     return None
                 busy = await (
@@ -1110,6 +1524,16 @@ class SchedulerService:
                 ).fetchone()
                 if queued is None:
                     return None
+
+                if effective_require_budget:
+                    await self._assert_budget_gate_in_db(
+                        db,
+                        project_id=schedule.project_id,
+                        workspace_id=schedule.workspace_id,
+                        budget_policy=schedule.budget_policy,
+                        schedule_id=schedule.id,
+                    )
+
                 cur = await db.execute(
                     """
                     UPDATE automation_runs
@@ -1160,6 +1584,90 @@ class SchedulerService:
                 assert row is not None
                 return _row_to_run(row)
 
+    def _spawn_runner_task(
+        self,
+        schedule: AutomationSchedule,
+        run_record: AutomationRunRecord,
+        dispatch_result: Dict[str, Any],
+    ) -> asyncio.Task[None]:
+        self._running_automation_run_ids.add(run_record.id)
+        task = asyncio.create_task(
+            self._run_supervised(schedule, run_record, dict(dispatch_result)),
+            name=f"hydra-sched-run-{run_record.id}",
+        )
+        self._active_tasks.add(task)
+
+        def _cleanup(done_task: asyncio.Task[Any]) -> None:
+            self._active_tasks.discard(done_task)
+            self._running_automation_run_ids.discard(run_record.id)
+
+        task.add_done_callback(_cleanup)
+        return task
+
+    async def _run_supervised(
+        self,
+        schedule: AutomationSchedule,
+        run_record: AutomationRunRecord,
+        dispatch_result: Dict[str, Any],
+    ) -> None:
+        assert self.runner is not None
+        final_status: Literal["succeeded", "failed"] = "failed"
+        final_run_id: Optional[str] = run_record.run_id
+        error_text: Optional[str] = None
+        try:
+            outcome = self.runner(schedule, run_record, dispatch_result)
+            if inspect.isawaitable(outcome):
+                outcome = await outcome
+            if isinstance(outcome, dict):
+                if outcome.get("run_id") is not None:
+                    with suppress(ContractViolation):
+                        final_run_id = _clean_optional_identifier(str(outcome["run_id"]), "run_id")
+                out_status = outcome.get("status")
+                out_ok = outcome.get("ok")
+                raw_err = outcome.get("error_text") or outcome.get("error_detail") or outcome.get("error")
+                if out_ok is False or out_status in {"failed", "error", "cancelled"}:
+                    final_status = "failed"
+                    error_text = str(raw_err) if raw_err else f"Runner reported status '{out_status}'"
+                else:
+                    final_status = "succeeded"
+                    if raw_err:
+                        error_text = str(raw_err)
+            else:
+                final_status = "succeeded"
+        except asyncio.CancelledError:
+            final_status = "failed"
+            error_text = "Automation runner task was cancelled"
+            raise
+        except Exception as exc:
+            final_status = "failed"
+            error_text = redact_text(f"{type(exc).__name__}: {exc}") or type(exc).__name__
+        finally:
+            self._running_automation_run_ids.discard(run_record.id)
+            try:
+                await asyncio.shield(
+                    self.complete_run(
+                        run_record.id,
+                        status=final_status,
+                        run_id=final_run_id,
+                        error_text=error_text,
+                    )
+                )
+            except ContractViolation as exc:
+                if exc.code not in {"invalid_transition", "resource_not_found"}:
+                    logger.exception("Failed completing supervised automation run %s", run_record.id)
+            except Exception:
+                logger.exception("Failed completing supervised automation run %s", run_record.id)
+
+            if not (self._stop_event is not None and self._stop_event.is_set()):
+                try:
+                    now_drain = datetime.now(dt_timezone.utc)
+                    claimed_pair = await self._claim_queued_run(schedule.id, now_drain)
+                    if claimed_pair is not None:
+                        next_sched, queued_rec = claimed_pair
+                        await self._execute_claimed_run(next_sched, queued_rec, now_drain)
+                except Exception:
+                    logger.exception("Failed draining queued automation run for schedule %s", schedule.id)
+
     async def _execute_claimed_run(
         self,
         schedule: AutomationSchedule,
@@ -1167,6 +1675,19 @@ class SchedulerService:
         now_utc: datetime,
     ) -> Dict[str, Any]:
         if self.dispatcher is None:
+            if self.runner is not None:
+                dispatch_payload: Dict[str, Any] = {"status": "dispatched", "run_id": None}
+                record = await self._persist_run_outcome(
+                    claimed.id,
+                    status="dispatched",
+                    attempt_count=1,
+                    run_id=None,
+                    error_detail=None,
+                    finished_at=None,
+                )
+                self._spawn_runner_task(schedule, record, dispatch_payload)
+                return _run_record_to_result(record, dispatch_payload)
+
             record = await self._persist_run_outcome(
                 claimed.id,
                 status="failed",
@@ -1272,6 +1793,8 @@ class SchedulerService:
                     error_detail=None,
                     finished_at=finished,
                 )
+                if final_status == "dispatched" and self.runner is not None:
+                    self._spawn_runner_task(schedule, record, raw_result)
                 return _run_record_to_result(record, raw_result)
             except StorageIntegrityError as exc:
                 record = await self._persist_run_outcome(
@@ -1295,7 +1818,12 @@ class SchedulerService:
         )
         return _run_record_to_result(record)
 
-    async def tick(self, *, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    async def tick(
+        self,
+        *,
+        now: Optional[datetime] = None,
+        require_budget: bool = False,
+    ) -> List[Dict[str, Any]]:
         """Evaluate all enabled schedules due at `now` and dispatch idempotently."""
         now_utc = _ensure_utc(now or datetime.now(dt_timezone.utc))
         await self.store.initialize()
@@ -1330,15 +1858,30 @@ class SchedulerService:
             if _ensure_utc(row["next_run_at"]) <= now_utc
         ]
         queued_ids = [row["id"] for row in queued_sched_rows]
+        deferred_budget_err: Optional[ContractViolation] = None
 
         for sid in queued_ids:
-            claimed_pair = await self._claim_queued_run(sid, now_utc)
+            try:
+                claimed_pair = await self._claim_queued_run(sid, now_utc, require_budget=require_budget)
+            except ContractViolation as exc:
+                if exc.code == "budget_required":
+                    if deferred_budget_err is None:
+                        deferred_budget_err = exc
+                    continue
+                raise
             if claimed_pair is not None:
                 sched, queued_rec = claimed_pair
                 results.append(await self._execute_claimed_run(sched, queued_rec, now_utc))
 
         for sid in due_ids:
-            claim = await self._claim_due_occurrence(sid, now_utc)
+            try:
+                claim = await self._claim_due_occurrence(sid, now_utc, require_budget=require_budget)
+            except ContractViolation as exc:
+                if exc.code == "budget_required":
+                    if deferred_budget_err is None:
+                        deferred_budget_err = exc
+                    continue
+                raise
             if claim is None:
                 continue
             action, schedule, record = claim
@@ -1348,12 +1891,22 @@ class SchedulerService:
             else:
                 results.append(await self._execute_claimed_run(schedule, record, now_utc))
 
+        if deferred_budget_err is not None:
+            raise deferred_budget_err
         return results
 
-    async def trigger_now(self, schedule_id: str, *, now: Optional[datetime] = None) -> Dict[str, Any]:
+    async def trigger_now(
+        self,
+        schedule_id: str,
+        *,
+        now: Optional[datetime] = None,
+        force: bool = False,
+        require_budget: bool = False,
+    ) -> Dict[str, Any]:
         """Manually trigger a schedule immediately with a unique manual:<uuid> occurrence_key."""
         _reject_nul(schedule_id, "schedule_id")
         now_utc = _ensure_utc(now or datetime.now(dt_timezone.utc))
+        effective_require_budget = bool(self.require_budget or require_budget)
         await self.store.initialize()
 
         queued_immediately = False
@@ -1362,7 +1915,23 @@ class SchedulerService:
                 row = await (await db.execute("SELECT * FROM automation_schedules WHERE id = ?", (schedule_id,))).fetchone()
                 if row is None:
                     raise ContractViolation("resource_not_found", f"AutomationSchedule '{schedule_id}' does not exist")
-                schedule = _row_to_schedule(row)
+                bp_map = await _load_schedule_budgets_in_db(db, (schedule_id,))
+                schedule = _row_to_schedule(row, budget_policy=bp_map.get(schedule_id))
+
+                if not schedule.enabled and not force:
+                    raise ContractViolation(
+                        "schedule_disabled",
+                        f"Schedule '{schedule_id}' is disabled; resume it or pass force=True to trigger",
+                    )
+
+                if effective_require_budget:
+                    await self._assert_budget_gate_in_db(
+                        db,
+                        project_id=schedule.project_id,
+                        workspace_id=schedule.workspace_id,
+                        budget_policy=schedule.budget_policy,
+                        schedule_id=schedule.id,
+                    )
 
                 active_rows = await (
                     await db.execute(
@@ -1410,3 +1979,102 @@ class SchedulerService:
         if queued_immediately:
             return _run_record_to_result(claimed)
         return await self._execute_claimed_run(schedule, claimed, now_utc)
+
+    async def wait_for_active_tasks(self, *, timeout: Optional[float] = None) -> None:
+        """Await all currently tracked supervised runner tasks."""
+        while True:
+            pending = [t for t in list(self._active_tasks) if not t.done()]
+            if not pending:
+                return
+            if timeout is not None:
+                await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=timeout)
+            else:
+                await asyncio.gather(*pending, return_exceptions=True)
+
+    async def _background_loop(
+        self,
+        stop_event: asyncio.Event,
+        *,
+        interval_seconds: float,
+        stale_lease_seconds: float,
+    ) -> None:
+        while not stop_event.is_set():
+            try:
+                await self.reconcile_stale_runs(max_age_seconds=stale_lease_seconds)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Scheduler background stale-run reconciliation failed")
+
+            if stop_event.is_set():
+                break
+
+            try:
+                await self.tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Scheduler background tick failed")
+
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+                break
+            except asyncio.TimeoutError:
+                continue
+
+    async def start_background_loop(
+        self,
+        *,
+        interval_seconds: float = 5.0,
+        stale_lease_seconds: float = 1800.0,
+    ) -> None:
+        """Start the periodic reconcile_stale_runs() + tick() background loop."""
+        if (
+            isinstance(interval_seconds, bool)
+            or not isinstance(interval_seconds, (int, float))
+            or not math.isfinite(float(interval_seconds))
+            or float(interval_seconds) <= 0.0
+        ):
+            raise ContractViolation("invalid_schedule", "interval_seconds for background loop must be > 0")
+        if (
+            isinstance(stale_lease_seconds, bool)
+            or not isinstance(stale_lease_seconds, (int, float))
+            or math.isnan(float(stale_lease_seconds))
+            or float(stale_lease_seconds) < 0.0
+        ):
+            raise ContractViolation("invalid_schedule", "stale_lease_seconds must be >= 0")
+
+        if self._loop_task is not None and not self._loop_task.done():
+            return
+
+        stop_event = asyncio.Event()
+        self._stop_event = stop_event
+        self._loop_task = asyncio.create_task(
+            self._background_loop(
+                stop_event,
+                interval_seconds=float(interval_seconds),
+                stale_lease_seconds=float(stale_lease_seconds),
+            ),
+            name="hydra-scheduler-loop",
+        )
+
+    async def stop_background_loop(self) -> None:
+        """Stop the periodic scheduler loop and cancel/await any in-flight tasks."""
+        if self._stop_event is not None:
+            self._stop_event.set()
+        loop_task = self._loop_task
+        self._loop_task = None
+        if loop_task is not None:
+            if not loop_task.done():
+                loop_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await loop_task
+
+        active = [t for t in list(self._active_tasks) if not t.done()]
+        for task in active:
+            task.cancel()
+        if active:
+            await asyncio.gather(*active, return_exceptions=True)
+        self._active_tasks.clear()
+        self._running_automation_run_ids.clear()
+        self._stop_event = None

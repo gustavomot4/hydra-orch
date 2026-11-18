@@ -206,6 +206,13 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     app.state.shutdown_signal = shutdown_sig
     await startup_event()
     await get_conversation_service().start()
+    scheduler: Optional[SchedulerService] = None
+    try:
+        scheduler = get_scheduler_service()
+        await scheduler.start_background_loop(interval_seconds=15.0)
+    except Exception:
+        logger.debug("Scheduler background loop skipped at startup", exc_info=True)
+        scheduler = None
     async def reconcile_deadlines():
         while not shutdown_sig.is_set():
             try:
@@ -223,6 +230,9 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         shutdown_sig.set()
+        if scheduler is not None:
+            with suppress(Exception):
+                await scheduler.stop_background_loop()
         await get_conversation_service().close()
         deadline_task.cancel()
         with suppress(asyncio.CancelledError):
@@ -578,6 +588,20 @@ async def send_conversation_message(conversation_id: str, payload: ConversationM
     service = get_conversation_service()
     await service.start()
     return await service.send(conversation_id, **payload.model_dump())
+
+
+class ConversationApplyPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    force: bool = False
+
+
+@app.post("/v1/control-plane/conversations/{conversation_id}/apply")
+async def apply_conversation_changes_endpoint(
+    conversation_id: str,
+    payload: Optional[ConversationApplyPayload] = None,
+):
+    req = payload or ConversationApplyPayload()
+    return await get_conversation_service().apply_changes(conversation_id, force=req.force)
 
 
 @app.post("/v1/control-plane/conversations/{conversation_id}/turns/{turn_id}/cancel")
@@ -1171,6 +1195,7 @@ async def list_run_artifacts_endpoint(
     if run_rec is None:
         return _error_response(404, "run_not_found", f"Run '{run_id}' not found", run_id=run_id)
     artifacts = await svc.store.get_artifacts(run_id, kind=kind)
+    ts_map = await svc.store.get_artifact_timestamps(run_id)
     return [
         {
             "id": a.artifact_id,
@@ -1181,7 +1206,7 @@ async def list_run_artifacts_endpoint(
             "kind": a.kind,
             "sha256": a.sha256,
             "size_bytes": a.size_bytes,
-            "created_at": run_rec["created_at"],
+            "created_at": ts_map.get(a.artifact_id, run_rec["created_at"]),
         }
         for a in artifacts
     ]
@@ -1497,9 +1522,9 @@ async def _stream_events_response(
             )
         if cursor_seq < 0:
             return _error_response(
-                410,
-                "cursor_expired",
-                f"Cursor {cursor_seq} has expired; fetch full run snapshot",
+                400,
+                "invalid_cursor",
+                f"Last-Event-ID must be a non-negative integer, got {cursor_seq}",
                 run_id=run_id,
             )
         if cursor_seq > _MAX_SQLITE_CURSOR:
@@ -1940,6 +1965,34 @@ async def create_workspace_endpoint(payload: WorkspaceCreatePayload) -> Dict[str
         payload.area_id,
         payload.name,
         principal_id=app.state.local_principal_id,
+    )
+
+
+class WorkspaceUpdatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=128)
+    expected_revision: Optional[int] = Field(default=None, ge=1, strict=True)
+
+
+@app.put("/v1/control-plane/workspaces/{workspace_id}")
+async def update_workspace_endpoint(workspace_id: str, payload: WorkspaceUpdatePayload) -> Dict[str, Any]:
+    return await _get_workspace_registry().update_workspace(
+        workspace_id,
+        payload.name,
+        principal_id=app.state.local_principal_id,
+        expected_revision=payload.expected_revision,
+    )
+
+
+@app.delete("/v1/control-plane/workspaces/{workspace_id}")
+async def delete_workspace_endpoint(
+    workspace_id: str,
+    expected_revision: Optional[int] = Query(default=None, ge=1),
+) -> Dict[str, Any]:
+    return await _get_workspace_registry().delete_workspace(
+        workspace_id,
+        principal_id=app.state.local_principal_id,
+        expected_revision=expected_revision,
     )
 
 
@@ -3035,10 +3088,41 @@ async def _default_automation_dispatcher(schedule: Any, occurrence_key: str) -> 
     return {"run_id": str(res.get("run_id") or res.get("id") or run_id), "status": "dispatched"}
 
 
+async def _default_automation_runner(schedule: Any, run_rec: Any, dispatch_result: Dict[str, Any]) -> Dict[str, Any]:
+    run_id = str((dispatch_result or {}).get("run_id") or getattr(run_rec, "run_id", "") or "")
+    if not run_id:
+        return {"status": "failed", "error_text": "Dispatched automation did not produce a run_id"}
+    svc = get_run_service()
+    outcome = await svc.execute_run(run_id)
+    final_status = "succeeded" if outcome.get("status") == "succeeded" else "failed"
+    return {"run_id": run_id, "status": final_status}
+
+
 def get_scheduler_service() -> SchedulerService:
     svc = get_run_service()
-    dispatcher = getattr(app.state, "automation_dispatcher", None) or _default_automation_dispatcher
-    return SchedulerService(svc.store, dispatcher=dispatcher)
+    custom_dispatcher = getattr(app.state, "automation_dispatcher", None)
+    dispatcher = custom_dispatcher or _default_automation_dispatcher
+    custom_runner = getattr(app.state, "automation_runner", None)
+    if custom_runner is None and custom_dispatcher is None and getattr(app.state, "automation_runner_enabled", False):
+        custom_runner = _default_automation_runner
+    require_budget = bool(getattr(app.state, "automation_require_budget", False))
+    cached: Optional[SchedulerService] = getattr(app.state, "scheduler_service", None)
+    if (
+        cached is not None
+        and cached.store is svc.store
+        and cached.dispatcher is dispatcher
+        and cached.runner is custom_runner
+        and cached.require_budget == require_budget
+    ):
+        return cached
+    inst = SchedulerService(
+        svc.store,
+        dispatcher=dispatcher,
+        runner=custom_runner,
+        require_budget=require_budget,
+    )
+    app.state.scheduler_service = inst
+    return inst
 
 
 class OmniRouteAccountPayload(BaseModel):
@@ -3102,6 +3186,7 @@ class AutomationCreatePayload(BaseModel):
     overlap_policy: Literal["skip", "queue", "allow"] = "skip"
     missed_policy: Literal["skip", "run_once"] = "skip"
     max_retries: int = Field(default=0, ge=0, le=5, strict=True)
+    budget_policy: Optional[Dict[str, Any]] = None
 
 
 class AutomationUpdatePayload(BaseModel):
@@ -3119,6 +3204,7 @@ class AutomationUpdatePayload(BaseModel):
     overlap_policy: Optional[Literal["skip", "queue", "allow"]] = None
     missed_policy: Optional[Literal["skip", "run_once"]] = None
     max_retries: Optional[int] = Field(default=None, ge=0, le=5, strict=True)
+    budget_policy: Optional[Dict[str, Any]] = None
     expected_revision: Optional[int] = Field(default=None, ge=1, strict=True)
 
 
@@ -3460,6 +3546,7 @@ async def create_automation_endpoint(payload: AutomationCreatePayload) -> Any:
         overlap_policy=payload.overlap_policy,
         missed_policy=payload.missed_policy,
         max_retries=payload.max_retries,
+        budget_policy=payload.budget_policy,
     )
 
 
@@ -3614,6 +3701,8 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         "invalid_pty_dimensions",
         "invalid_session_id",
         "route_invalid",
+        "workspace_readonly",
+        "invalid_unicode",
     }
     conflict_codes |= {
         "session_state_conflict",
@@ -3654,6 +3743,11 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         "a11y_contract_violation",
         "pty_session_closed",
         "schedule_overlap",
+        "schedule_disabled",
+        "budget_required",
+        "workspace_sync_conflict",
+        "conversation_busy",
+        "max_attempts_exceeded",
         "account_not_available",
         "attachment_conflict",
         "attachment_not_remote",
@@ -3690,7 +3784,8 @@ async def contract_violation_handler(request: Request, exc: ContractViolation) -
         status_code = 400
     else:
         status_code = 422
-    return _error_response(status_code, exc.code, str(exc), retryable=False)
+    extra = {"conflicts": list(exc.conflicts)} if hasattr(exc, "conflicts") and exc.conflicts else None
+    return _error_response(status_code, exc.code, str(exc), retryable=False, extra=extra)
 
 
 @app.exception_handler(GitWorkspaceError)
