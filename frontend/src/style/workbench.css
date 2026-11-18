@@ -222,6 +222,7 @@ html .canvas-live,
 html .conversation-header p,
 html .chat-assistant > h2 {
   font-size: max(12px, 0.75rem);
+  line-height: 1.5;
 }
 [data-testid='hydra-app-shell'] input:not([type='checkbox']):not([type='range']),
 [data-testid='hydra-app-shell'] select,
@@ -278,7 +279,7 @@ html .canvas-workbench.with-inspector {
     );
 }
 html .canvas-provenance {
-  font-size: 0.75rem;
+  font-size: var(--font-size-caption);
   padding: 5px 16px;
 }
 html .conversation-header {

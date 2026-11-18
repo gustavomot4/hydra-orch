@@ -12,6 +12,7 @@
 Este diretório concentra as especificações formais de testes do **hydra-orch**, garantindo que cada requisito funcional e técnico tenha evidência de validação automatizada.
 
 Verificação posterior dos fluxos e da base M5: [checkup pós-M5 e correções da coordenação](checkup_pos_m5.md).
+Refinamento posterior de interface e acompanhamento: [Chat/Swarm e Área de trabalho](refinamento_chat.md).
 
 ## 1. Matriz de Rastreabilidade (RF/RT → Testes)
 

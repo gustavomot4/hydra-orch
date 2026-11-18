@@ -5,7 +5,12 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentCanvas } from '@/feature/canvas/AgentCanvas';
 import { AgentWorkspacePage } from '@/feature/canvas/AgentWorkspacePage';
-import { graphFromConversation, graphFromRun, parseAgentLog } from '@/feature/canvas/canvasModel';
+import {
+  graphFromConversation,
+  graphFromRun,
+  layoutNodes,
+  parseAgentLog,
+} from '@/feature/canvas/canvasModel';
 import { RunDetailSnapshot } from '@/feature/chat/chatTypes';
 import { ConversationSnapshot } from '@/feature/chat/conversationTypes';
 import { useLayoutStore } from '@/store/layoutStore';
@@ -77,6 +82,79 @@ afterEach(() => {
 });
 
 describe('agent workspace uses persisted evidence', () => {
+  it('keeps local checks in mixed plans after the editing run loads without creating a fake agent', () => {
+    const chat: ConversationSnapshot = {
+      id: 'mixed-chat',
+      title: 'Conferir e editar',
+      project_id: 'p1',
+      last_seq: 5,
+      executor: 'codex',
+      tools: [],
+      access_mode: 'workspace-write',
+      turns: [
+        {
+          id: 'mixed-turn',
+          ordinal: 1,
+          state: 'running',
+          content: 'Conferir e editar',
+          response: '',
+          error: null,
+          diff: '',
+          attachments: [],
+          coordination: {
+            plan: {
+              objective: 'Conferir e editar',
+              tasks: [
+                {
+                  id: 'local-check',
+                  title: 'Verificar tipos',
+                  paths: ['tsconfig.json'],
+                  operation: 'validate',
+                },
+                {
+                  id: 'interface',
+                  title: 'Construir interface',
+                  paths: ['src/form.tsx'],
+                  operation: 'edit',
+                },
+              ],
+            },
+            tasks: {
+              'local-check': {
+                title: 'Verificar tipos',
+                state: 'accepted',
+                operation: 'validate',
+                summary: 'TypeScript passou',
+                checks: [
+                  {
+                    check_id: 'types',
+                    command: ['node', 'tsc'],
+                    exit_code: 0,
+                    duration_seconds: 1,
+                    output: 'OK',
+                  },
+                ],
+              },
+            },
+          },
+        },
+      ],
+    };
+    const planned = graphFromConversation(chat).nodes.find((n) => n.id === 'interface')!;
+    expect(planned.paths).toEqual([]);
+    expect(planned.plannedPaths).toEqual(['src/form.tsx']);
+    const graph = graphFromConversation(chat, run);
+    const check = graph.nodes.find((n) => n.id === 'local-check')!;
+    expect(check.role).toBe('validation');
+    expect(check.executor).toBe('Hydra');
+    expect(check.paths).toEqual([]);
+    expect(check.checkEvidence?.[0].output).toBe('OK');
+    expect(graph.nodes.filter((n) => n.title === 'Construir interface')).toHaveLength(1);
+    expect(layoutNodes(graph.nodes)['local-check']).toEqual(
+      expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
+    );
+  });
+
   it('builds only recorded task dependencies, results and review decisions', () => {
     const graph = graphFromRun(run);
     expect(graph.nodes.map((n) => n.id)).toEqual(['coordinator', 'interface', 'api', 'review']);

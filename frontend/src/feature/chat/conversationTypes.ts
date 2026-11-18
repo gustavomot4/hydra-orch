@@ -21,6 +21,33 @@ export function routeSelection(value: ConversationRoute): ConversationRoute {
   return { executor, connection_mode, target_kind, target_ref };
 }
 
+export interface CoordinationCheck {
+  check_id: string;
+  command: string[];
+  cwd?: string | null;
+  exit_code: number;
+  duration_seconds: number;
+  output?: string;
+}
+
+export interface CoordinationTask {
+  id: string;
+  title: string;
+  paths: string[];
+  operation?: 'edit' | 'validate';
+}
+
+export interface CoordinationProgress {
+  title: string;
+  state: string;
+  operation?: 'edit' | 'validate';
+  reason?: string;
+  review?: string;
+  summary?: string;
+  checks?: CoordinationCheck[];
+  route?: ConversationRoute;
+}
+
 export interface ConversationTurn {
   id: string;
   ordinal: number;
@@ -34,13 +61,10 @@ export interface ConversationTurn {
   route_revision?: number;
   execution_mode?: 'single' | 'swarm';
   coordination?: {
-    plan?: { objective: string; tasks: { id: string; title: string; paths: string[] }[] };
-    run_id?: string;
+    plan?: { objective: string; tasks: CoordinationTask[] };
+    run_id?: string | null;
     phase?: string;
-    tasks?: Record<
-      string,
-      { title: string; state: string; reason?: string; review?: string; route?: ConversationRoute }
-    >;
+    tasks?: Record<string, CoordinationProgress>;
   };
 }
 

@@ -1,3 +1,4 @@
+import { CoordinationPanel } from './CoordinationPanel';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createParser } from 'eventsource-parser';
@@ -412,50 +413,7 @@ export function ConversationPage({ conversationId }: { conversationId: string })
                       <MarkdownSafeView markdown={turn.response} bare />
                     </div>
                   )}
-                  {turn.coordination?.plan && (
-                    <div className="my-3 rounded-lg border border-[#666] p-3 text-sm">
-                      <h3 className="font-semibold">Tarefas deste pedido</h3>
-                      <p className="my-2 text-[#D1D1D1]">{turn.coordination.plan.objective}</p>
-                      <ol className="list-decimal space-y-3 pl-5">
-                        {turn.coordination.plan.tasks.map((task) => {
-                          const progress = turn.coordination?.tasks?.[task.id];
-                          return (
-                            <li key={task.id}>
-                              <p>
-                                {task.title} ·{' '}
-                                {(
-                                  {
-                                    starting: 'Iniciando',
-                                    accepted: 'Revisão aprovada',
-                                    rejected: 'Revisão recusada',
-                                    failed: 'Verificação falhou',
-                                  } as Record<string, string>
-                                )[progress?.state ?? ''] ?? 'Planejada'}
-                              </p>
-                              <p className="break-words text-[#D1D1D1]">{task.paths.join(', ')}</p>
-                              {progress?.route?.target_ref && (
-                                <p>Destino: {progress.route.target_ref}</p>
-                              )}
-                              {progress?.reason && (
-                                <p className="mt-1 text-[#D1D1D1]">{progress.reason}</p>
-                              )}
-                              {progress?.review && (
-                                <p className="mt-1 text-[#D1D1D1]">Revisão: {progress.review}</p>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ol>
-                      {turn.coordination.run_id && turn.coordination.phase && (
-                        <Link
-                          className="mt-3 inline-block min-h-11 py-2 underline"
-                          to={`/chat/${turn.coordination.run_id}`}
-                        >
-                          Ver execução e verificações
-                        </Link>
-                      )}
-                    </div>
-                  )}
+                  <CoordinationPanel turn={turn} />
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <p role="status" className="text-sm text-[#D1D1D1]">
                       {labels[turn.state]}

@@ -27,6 +27,14 @@ Uma validação pura guarda as referências nos eventos da conversa; não cria u
 
 Se o executável do agente não for localizado, a mensagem distingue esse fato de autenticação. Confira a instalação e o PATH herdado pelo backend; reinicie o Hydra se o PATH mudou. Esse diagnóstico não afirma que a conta está desconectada.
 
+## Acompanhar pela interface
+
+Na conversa, **Tarefas deste pedido** mostra a contagem de conclusões registradas, o tipo e o estado de cada tarefa. **Verificação local · Hydra** identifica um check direto; **Edição por agente** identifica o fluxo de patch/revisão. Uma validação aceita aparece como **Validada**, sem simular revisão de agente. Quando o turno termina com falha ou cancelamento, tarefas cujo último evento ainda indicava execução aparecem como interrompidas.
+
+Abra a linha de uma verificação para consultar comando, pasta, duração, código de saída e trecho de saída já redigido pelo backend. A linha pode ser aberta e fechada com Enter pelo teclado. **Detalhes da tarefa** concentra caminhos, motivo da seleção e revisão, quando registrados. Esses controles apenas consultam resultados; não executam o comando exibido.
+
+Em **Área de trabalho**, verificações locais aparecem ao lado das tarefas de edição mesmo depois de carregar a execução do plano misto. Selecionar uma verificação abre a aba **Verificações** com a mesma evidência da conversa. O link para uma execução completa aparece quando existe uma execução de patches vinculada; uma validação pura não cria esse link. A vista **Lista** oferece a alternativa ao canvas, e **Abrir conversa** permite continuar o pedido.
+
 ## Checkup local sem inferência
 
 Execute `python -m pytest tests -q` fora de workers para conferir toda a suíte. Em máquinas com pouco recurso, divida pelos arquivos; mantenha `test_server.py`, `test_integration.py`, `test_m5_pty_matrix.py` e `test_omniroute_daemon.py` em blocos próprios. `test_omniroute_live.py` é opt-in e permanece ignorado sem configuração explícita.

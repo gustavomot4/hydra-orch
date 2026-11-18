@@ -5,6 +5,7 @@ import { ArrowUpRight, MessageSquare, X } from 'lucide-react';
 import { useControlPlaneClient } from '@/hook/useControlPlaneClient';
 import { ConversationSnapshot } from '@/feature/chat/conversationTypes';
 import { CanvasNode, parseAgentLog, statusMeta } from './canvasModel';
+import { CheckEvidence } from '@/feature/chat/CoordinationPanel';
 
 export function AgentInspector({
   node,
@@ -28,8 +29,8 @@ export function AgentInspector({
         (previousNode.current === null && node.id === 'coordinator'),
     });
     previousNode.current = node.id;
-    setTab('Conversa');
-  }, [node.id]);
+    setTab(node.role === 'validation' ? 'Verificações' : 'Conversa');
+  }, [node.id, node.role]);
   const artifactQuery = useQuery({
     queryKey: ['canvas-artifacts', node.runId],
     queryFn: ({ signal }) =>
@@ -65,17 +66,19 @@ export function AgentInspector({
   return (
     <aside
       className="agent-inspector"
-      aria-label="Detalhes do agente"
+      aria-label={node.role === 'validation' ? 'Detalhes da verificação' : 'Detalhes do agente'}
       data-testid="agent-inspector"
     >
       <header>
         <div>
           <span className="canvas-eyebrow">
-            {node.role === 'worker'
-              ? 'Agente selecionado'
-              : node.role === 'review'
-                ? 'Decisões registradas'
-                : 'Conversa e coordenação'}
+            {node.role === 'validation'
+              ? 'Verificação local'
+              : node.role === 'worker'
+                ? 'Agente selecionado'
+                : node.role === 'review'
+                  ? 'Decisões registradas'
+                  : 'Conversa e coordenação'}
           </span>
           <h2 ref={title} tabIndex={-1}>
             {node.title}
@@ -93,13 +96,22 @@ export function AgentInspector({
         {state.label}
       </div>
       <div className="inspector-tabs" aria-label="Conteúdo dos detalhes">
-        {['Conversa', 'Atividade', 'Alterações'].map((label) => (
+        {(node.role === 'validation'
+          ? ['Verificações', 'Atividade']
+          : ['Conversa', 'Atividade', 'Alterações']
+        ).map((label) => (
           <button key={label} aria-pressed={tab === label} onClick={() => setTab(label)}>
             {label}
           </button>
         ))}
       </div>
       <div className="inspector-body">
+        {tab === 'Verificações' && (
+          <>
+            <p className="canvas-note">Resultados executados pelo Hydra na cópia isolada.</p>
+            <CheckEvidence checks={node.checkEvidence ?? []} />
+          </>
+        )}
         {tab === 'Conversa' && (
           <>
             {messages.map((message, index) => (
@@ -167,7 +179,9 @@ export function AgentInspector({
               </details>
             ))}
             <h3>Verificações</h3>
-            {!node.checks.length ? (
+            {node.checkEvidence ? (
+              <CheckEvidence checks={node.checkEvidence} />
+            ) : !node.checks.length ? (
               <p className="canvas-note">Nenhuma verificação executada registrada.</p>
             ) : (
               <ul>
@@ -191,15 +205,27 @@ export function AgentInspector({
         )}
         {tab === 'Alterações' && (
           <>
+            {!node.paths.length && Boolean(node.plannedPaths?.length) && (
+              <>
+                <p className="canvas-note">
+                  Arquivos previstos no plano; nenhuma alteração registrada.
+                </p>
+                <ul className="canvas-paths">
+                  {node.plannedPaths!.map((path) => (
+                    <li key={path}>{path}</li>
+                  ))}
+                </ul>
+              </>
+            )}
             {node.paths.length > 0 ? (
               <ul className="canvas-paths">
                 {node.paths.map((path) => (
                   <li key={path}>{path}</li>
                 ))}
               </ul>
-            ) : (
+            ) : !node.plannedPaths?.length ? (
               <p className="canvas-note">Nenhum arquivo alterado registrado para este card.</p>
-            )}
+            ) : null}
             {diff && <pre>{diff}</pre>}
             {node.runId && (
               <Link className="canvas-button" to={`/chat/${encodeURIComponent(node.runId)}`}>
@@ -212,9 +238,11 @@ export function AgentInspector({
       </div>
       <footer>
         <p>
-          {node.conversationId
-            ? 'Continue o pedido pela conversa. Mensagens para um worker em execução ainda não estão disponíveis.'
-            : 'Consulte os registros desta execução. Ela não está vinculada a uma conversa para continuação.'}
+          {node.role === 'validation'
+            ? 'Confira a saída de cada verificação. Continue o pedido pela conversa.'
+            : node.conversationId
+              ? 'Continue o pedido pela conversa. Mensagens para um worker em execução ainda não estão disponíveis.'
+              : 'Consulte os registros desta execução. Ela não está vinculada a uma conversa para continuação.'}
         </p>
         <Link
           className="canvas-button canvas-primary"

@@ -355,6 +355,9 @@ export function AgentCanvas({
             const position = positions[node.id];
             if (!position) return null;
             const state = statusMeta(node.state);
+            const firstLine = node.action.split('\n')[0];
+            const actionPreview =
+              firstLine.length > 160 ? firstLine.slice(0, 157).trimEnd() + '…' : firstLine;
             return (
               <article
                 key={node.id}
@@ -447,7 +450,9 @@ export function AgentCanvas({
                       ? 'Coordenação'
                       : node.role === 'review'
                         ? 'Revisão'
-                        : 'Agente'}
+                        : node.role === 'validation'
+                          ? 'Verificação local'
+                          : 'Agente'}
                   </span>
                   <strong>{node.title}</strong>
                   <span className="agent-node-executor">
@@ -457,7 +462,7 @@ export function AgentCanvas({
                     <span aria-hidden="true">{state.symbol}</span>
                     {state.label}
                   </span>
-                  <span className="agent-node-action">{node.action}</span>
+                  <span className="agent-node-action">{actionPreview}</span>
                 </button>
               </article>
             );

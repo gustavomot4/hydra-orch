@@ -1,5 +1,10 @@
 import { RunDetailSnapshot, BackendTask } from '@/feature/chat/chatTypes';
-import { ConversationSnapshot, ConversationTurn } from '@/feature/chat/conversationTypes';
+import {
+  CoordinationCheck,
+  ConversationSnapshot,
+  ConversationTurn,
+} from '@/feature/chat/conversationTypes';
+import { taskState } from '@/feature/chat/coordinationModel';
 
 export interface CanvasMessage {
   author: string;
@@ -8,14 +13,16 @@ export interface CanvasMessage {
 export interface CanvasNode {
   id: string;
   title: string;
-  role: 'coordinator' | 'worker' | 'review';
+  role: 'coordinator' | 'worker' | 'review' | 'validation';
   executor: string;
   model: string;
   state: string;
   action: string;
   messages: CanvasMessage[];
   paths: string[];
+  plannedPaths?: string[];
   checks: { name: string; state: string }[];
+  checkEvidence?: CoordinationCheck[];
   task?: BackendTask;
   runId?: string;
   conversationId?: string;
@@ -63,7 +70,7 @@ export function statusMeta(value: string) {
 
 export function layoutNodes(nodes: CanvasNode[]): Record<string, Point> {
   const result: Record<string, Point> = {};
-  const workers = nodes.filter((n) => n.role === 'worker');
+  const workers = nodes.filter((n) => n.role === 'worker' || n.role === 'validation');
   const center = 32 + ((Math.min(workers.length || 1, 3) - 1) * 420) / 2;
   nodes
     .filter((n) => n.role === 'coordinator')
@@ -114,35 +121,62 @@ export function graphFromConversation(
         paths: [],
         checks: [],
         conversationId: chat.id,
-        runId: turn.coordination?.run_id,
+        runId: turn.coordination?.run_id ?? undefined,
       },
     ],
     edges: [],
   };
   if (run) appendRun(graph, run, chat.id, turn);
-  else
-    (turn.coordination?.plan?.tasks ?? []).forEach((t) => {
-      const progress = turn.coordination?.tasks?.[t.id];
-      graph.nodes.push({
-        id: t.id,
-        title: t.title,
-        role: 'worker',
-        executor: agentLabel(progress?.route?.executor ?? route?.executor ?? ''),
-        model: progress?.route?.target_ref || route?.target_ref || 'Padrão do agente',
-        state: progress?.state || 'planned',
-        action:
-          progress?.review ||
-          progress?.reason ||
-          (chat.access_mode === 'read-only'
-            ? 'Plano em leitura; execução não iniciada'
-            : 'Tarefa registrada no plano'),
-        messages: [],
-        paths: t.paths,
-        checks: [],
-        conversationId: chat.id,
-      });
-      graph.edges.push({ id: 'plan-' + t.id, source: 'coordinator', target: t.id, label: 'Plano' });
+  (turn.coordination?.plan?.tasks ?? []).forEach((t) => {
+    const progress = turn.coordination?.tasks?.[t.id];
+    const presentation = taskState(t, progress, turn.state);
+    if (
+      !presentation.validation &&
+      run?.tasks.some((task) => task.spec.objective.split('\n')[0] === t.title)
+    )
+      return;
+    graph.nodes.push({
+      id: t.id,
+      title: t.title,
+      role: presentation.validation ? 'validation' : 'worker',
+      executor: presentation.validation
+        ? 'Hydra'
+        : agentLabel(progress?.route?.executor ?? route?.executor ?? ''),
+      model: presentation.validation
+        ? 'Verificação local'
+        : progress?.route?.target_ref || route?.target_ref || 'Padrão do agente',
+      state: presentation.state,
+      action:
+        progress?.review ||
+        progress?.summary ||
+        progress?.reason ||
+        (chat.access_mode === 'read-only'
+          ? 'Plano em leitura; execução não iniciada'
+          : 'Tarefa registrada no plano'),
+      messages: progress?.summary
+        ? [
+            {
+              author: presentation.validation ? 'Resultado local' : 'Resultado registrado',
+              text: progress.summary,
+            },
+          ]
+        : [],
+      paths: [],
+      plannedPaths: t.paths,
+      checks: (progress?.checks ?? []).map((check) => ({
+        name: check.check_id,
+        state: check.exit_code === 0 ? 'passed' : 'failed',
+      })),
+      checkEvidence: progress?.checks,
+      conversationId: chat.id,
     });
+    graph.edges.push({
+      id: 'plan-' + t.id,
+      source: 'coordinator',
+      target: t.id,
+      label: presentation.validation ? 'Verificação local' : 'Plano',
+    });
+  });
   const observed = (chat.agents ?? []).filter((a) => a.turn_id === turn.id);
   for (const agent of observed) {
     graph.nodes.push({
@@ -208,8 +242,8 @@ function appendRun(
       result as typeof result & { review?: { actor: string; decision: string; reason: string } }
     )?.review;
     if (review) reviews.push({ author: review.actor, text: review.reason });
-    const planTask = turn?.coordination?.plan?.tasks?.find((t) =>
-      task.spec.objective.startsWith(t.title),
+    const planTask = turn?.coordination?.plan?.tasks?.find(
+      (t) => task.spec.objective.split('\n')[0] === t.title,
     );
     const progress = planTask ? turn?.coordination?.tasks?.[planTask.id] : undefined;
     graph.nodes.push({

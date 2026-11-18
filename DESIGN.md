@@ -76,6 +76,19 @@ O arrasto funciona no corpo do card, preservando clique para abrir detalhes e al
 
 Referências primárias consultadas para interação e eventos: [Claude Code interativo](https://code.claude.com/docs/en/interactive-mode), [seleção de modelo](https://code.claude.com/docs/en/model-config), [eventos Codex exec](https://github.com/openai/codex/blob/main/codex-rs/exec/src/exec_events.rs) e [mensagens de tarefas Claude](https://code.claude.com/docs/en/agent-sdk/typescript#sdktaskstartedmessage). As escolhas de composição são adaptação ao Hydra, não uma alegação de equivalência entre os produtos.
 
+## Acompanhamento do trabalho coordenado
+
+Conversa e Área de trabalho distinguem edição por agente de verificação local. Validações mostram Hydra como executor, checks observados, duração e saída registrada; não recebem revisão de agente fictícia. Planos mistos conservam ambas as operações no mapa. Um turno interrompido não continua exibindo uma tarefa como se estivesse trabalhando.
+
+Na conversa, o plano usa uma lista compacta com tipo, estado em texto e ícone, contagem de conclusões observadas e detalhes recolhíveis. Comandos, caminhos e logs aparecem sob demanda. Detalhes de checks usam a mesma apresentação na conversa e no inspetor. A fonte usa rem, espaços em passos de 4px, bordas e cores dos tokens existentes, linhas com alvo de 44px e texto quebrável em telas pequenas e zoom. Nenhuma troca de identidade visual.
+
+Token auxiliar `--font-size-caption: max(0.75rem, 12px)` mantém o piso de 12px quando a escala compacta reduz o tamanho raiz e continua crescendo com a fonte do navegador.
+Legendas e textos auxiliares no piso usam entrelinha de pelo menos 1,5 para não herdar uma altura menor após a correção do tamanho da fonte.
+
+Os controles de evidência usam `--control-target-min: max(2.75rem, 44px)`, mantendo o alvo de toque de 44px também na escala compacta.
+
+Cards conservam altura mínima lógica de 202px e crescem quando o título ou o espaçamento exigem; o título não é limitado a duas linhas. A ação resumida mantém seu conteúdo integral no inspetor. A lista continua sendo alternativa em fluxo.
+
 ## Evidência da implementação
 
 Registrar provas e limites da rodada no manual Windows e nos artefatos locais ignorados em `ws/b_output/`. Capturas com dados fictícios, sem contas, prompts ou projetos do operador. Verificador automatizado não substitui leitor de tela nem teste com pessoas.

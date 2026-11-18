@@ -63,3 +63,16 @@ Plano derivado de [`b_interface.md`](../b_spc/a_ui/b_interface.md) (`UI01`–`UI
    - **Identidade Figma consolidada:** PT-BR, sem bolinhas de janela macOS, barra lateral estreita (`#181818`) + sidebar (`#1C1C1C`) + área principal (`#141414`) + cartões (`#202020`), `Inter` + `JetBrains Mono`, SVGs Lucide + logos dos provedores, rodapé compacto apenas com ícone + barra + `%` (nunca `0%` quando desconhecido).
    - **Taxonomia no Frontend (`taxonomia_file_system.md`):** Usar pastas internas no singular (`frontend/src/component/`, `feature/`, `hook/`, `page/`, `store/`, `type/`) e registrar a reconciliação com `doc/g_code/stack.md` (§4) em `T31`/`T32`.
    - **Parking Lot (`F06`/`F07`):** Telas do Figma de Emulador Móvel e Controle do Computador não promovem execução não certificada; permanecem **capability-gated** (`Indisponível / não certificado` por padrão) e Ditado é apenas captura/revisão de texto em rascunho.
+
+## 5. Refinamento de Chat/Swarm após o checkup M5
+
+Escopo confirmado pelo usuário: concluir acompanhamento de Chat/Swarm e refinamento visual na direção existente. **Funcionalidades futuras F01–F08 não fazem parte desta entrega.** O registro histórico T01–T38 permanece separado desta rodada de correções.
+
+| Item | Entrega e aceite | Estado |
+| --- | --- | --- |
+| UX01 — Evidência na conversa | Lista compacta, contagem observada, edição versus validação local, estado coerente com o turno e checks recolhíveis com saída, código e duração | Concluído e validado |
+| UX02 — Consistência no mapa | Verificações locais permanecem visíveis em planos mistos; Hydra identificado como executor local; inspetor abre resultados sem anunciar um agente/revisor fictício | Concluído e validado |
+| UX03 — Sistema visual e responsividade | Tokens existentes, texto auxiliar com piso de 12px, foco visível, títulos de cards adaptáveis e evidências acessíveis por teclado em desktop e celular | Concluído e validado |
+| UX04 — Prova e operação | Testes de componente, E2E com backend isolado, verificador do kit em build de produção, capturas fictícias e manual atualizado | Concluído e validado |
+
+Evidência da rodada: [refinamento de Chat/Swarm e Área de trabalho](../h_test/refinamento_chat.md).

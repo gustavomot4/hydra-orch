@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Abre cada tela no Chrome ou Edge instalado, em quatro tamanhos, e roda tela.js mais uma passada de Tab.
 // Também mede letra em 200%, espaçamento 1.4.12, alto contraste e peso, e guarda a página inteira, a prancha com visão simulada e o que o leitor de tela recebe.
-// Uso: node verificar.mjs <url ou arquivo.html> [outros] [--saida pasta] [--design DESIGN.md] [--produto PRODUTO.md] [--publicos a,b] [--axe arquivo.js] [--json]
+// Uso: node verificar.mjs <url ou arquivo.html> [outros] [--saida pasta] [--design DESIGN.md] [--produto PRODUTO.md] [--publicos a,b] [--axe arquivo.js] [--esperar seletor-css] [--json]
 // Saída: 0 sem falha; 1 com falha; 2 não conseguiu rodar ou nenhuma tela abriu. Sem dependências: Node 22+.
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
-const USO = 'Uso: verificar.mjs <url ou arquivo.html> [outros] [--saida pasta] [--design DESIGN.md] [--produto PRODUTO.md] [--publicos a,b] [--axe arquivo.js] [--json]';
+const USO = 'Uso: verificar.mjs <url ou arquivo.html> [outros] [--saida pasta] [--design DESIGN.md] [--produto PRODUTO.md] [--publicos a,b] [--axe arquivo.js] [--esperar seletor-css] [--json]';
 if (args.includes('--help') || args.includes('-h')) { console.log(USO); process.exit(0); }
 const valor = nome => {
   const i = args.indexOf(nome);
@@ -27,6 +27,7 @@ const arquivoDesign = valor('--design') || 'DESIGN.md';
 const arquivoProduto = valor('--produto') || 'PRODUTO.md';
 const publicosPedidos = valor('--publicos');
 const arquivoAxe = valor('--axe');
+const esperarSeletor = valor('--esperar');
 const comoJson = args.includes('--json'); if (comoJson) args.splice(args.indexOf('--json'), 1);
 const estranha = args.find(a => a.startsWith('-'));
 if (estranha) { console.error(`Opção desconhecida: ${estranha}\n${USO}`); process.exit(2); }
@@ -124,6 +125,16 @@ async function abrir(url, t) {
   await avaliar(`Promise.race([Promise.all([...document.images].map(i => { i.loading = 'eager'; return i.complete ? 0 : new Promise(r => { i.addEventListener('load', r, { once: true }); i.addEventListener('error', r, { once: true }); }); })), new Promise(r => setTimeout(r, 4000))]).then(() => 1)`);
   await avaliar('document.fonts ? document.fonts.ready.then(()=>1) : 1');
   await dorme(250);
+  // SPAs can finish loading the document before their persisted data arrives.
+  // The caller identifies actual content; a timeout fails the audit explicitly.
+  if (esperarSeletor) {
+    const prazo = Date.now() + 15000;
+    while (!await avaliar(`Boolean(document.querySelector(${JSON.stringify(esperarSeletor)}))`)) {
+      if (Date.now() >= prazo) throw new Error(`O conteúdo esperado não apareceu: ${esperarSeletor}`);
+      await dorme(100);
+    }
+    await dorme(100);
+  }
 }
 
 // A barra de rolagem só existe na captura: esconde na hora da foto, para a medida continuar vendo a largura de verdade

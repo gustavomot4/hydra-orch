@@ -308,6 +308,37 @@ async def _seed_control_plane(svc, workspace_root: Path, repo_dir: Path, base_sh
             emit_event=True,
         )
 
+    # Recorded evidence fixture; no provider or coding worker is executed.
+    from hydra_orch.core.conversation_service import ConversationService
+    conversations = ConversationService(svc)
+    created = await conversations.create(project_id=proj['id'], executor='codex',
+        content='Conferir preparação do projeto — demonstração', idempotency_key='coordination-visual-fixture',
+        access_mode='workspace-write', execution_mode='swarm')
+    turn = await conversations.claim()
+    tasks = [
+        {'id': 'docs', 'title': 'Conferir documentação', 'paths': ['README.md'], 'operation': 'validate'},
+        {'id': 'types', 'title': 'Verificar tipos do frontend', 'paths': ['frontend/tsconfig.json'], 'operation': 'validate'},
+        {'id': 'edit', 'title': 'Atualizar instruções do projeto', 'paths': ['README.md'], 'operation': 'edit'},
+    ]
+    await conversations._emit(turn, 'coordinator.plan', {'run_id': None, 'plan': {
+        'objective': 'Conferir o projeto antes de atualizar suas instruções.', 'tasks': tasks}})
+    for task, exit_code in [(tasks[0], 0), (tasks[1], 124)]:
+        output = 'Links locais válidos.' if not exit_code else 'A verificação atingiu o limite de tempo. Confira o comando e as dependências antes de continuar.'
+        await conversations._emit(turn, 'coordinator.task', {
+            'task_id': task['id'], 'title': task['title'], 'operation': 'validate',
+            'state': 'accepted' if not exit_code else 'failed', 'summary': output,
+            'checks': [{'check_id': 'links-locais' if not exit_code else 'tipos-frontend',
+                'command': ['python', '-m', 'checker'] if not exit_code else ['node', 'node_modules/typescript/bin/tsc', '--noEmit', '-p', 'tsconfig.json'],
+                'cwd': '.' if not exit_code else 'frontend', 'exit_code': exit_code,
+                'duration_seconds': 1.2 if not exit_code else 600, 'output': output}],
+        })
+    await conversations._emit(turn, 'coordinator.run', {'run_id': None, 'phase': 'stopped'})
+    async with svc.store._connect() as db:
+        await db.execute("UPDATE conversation_turns SET state='failed',error=?,lease_owner=NULL,lease_until=NULL,finished_at=datetime('now') WHERE id=?",
+            ('Uma verificação precisa de atenção. As edições não foram iniciadas.', turn['id']))
+        await conversations._event(db, created['conversation_id'], turn['id'], 'turn.failed', {
+            'error': 'Uma verificação precisa de atenção.', 'has_changes': False})
+
 
 def main() -> None:
     backend_port = int(os.environ.get("HYDRA_E2E_BACKEND_PORT", "18421"))

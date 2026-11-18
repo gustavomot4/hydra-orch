@@ -19,4 +19,6 @@
   --canvas-dot: #454545;
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-size-caption: max(0.75rem, 12px);
+  --control-target-min: max(2.75rem, 44px);
 }
